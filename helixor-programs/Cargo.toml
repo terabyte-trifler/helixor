@@ -1,0 +1,17 @@
+[workspace]
+members  = ["programs/health-oracle"]
+resolver = "2"
+
+[workspace.dependencies]
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
+anchor-spl  = { version = "0.32.1" }
+
+# ── Safety: panic on overflow everywhere ────────────────────────────────────
+[profile.release]
+overflow-checks = true
+lto             = "thin"
+codegen-units   = 1
+opt-level       = 3
+
+[profile.dev]
+overflow-checks = true

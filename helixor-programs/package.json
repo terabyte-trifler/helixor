@@ -1,0 +1,31 @@
+{
+  "name": "helixor-programs",
+  "version": "0.1.0",
+  "description": "Helixor — On-chain AI Agent Trust Scoring",
+  "license": "MIT",
+  "scripts": {
+    "build":         "anchor build",
+    "test":          "anchor test",
+    "test:local":    "anchor test --provider.cluster localnet",
+    "test:devnet":   "anchor test --provider.cluster devnet --skip-deploy",
+    "deploy:devnet": "anchor deploy --provider.cluster devnet",
+    "lint":          "cargo clippy -- -D warnings",
+    "audit":         "cargo audit",
+    "clean":         "anchor clean"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/web3.js":   "^1.91.1"
+  },
+  "devDependencies": {
+    "@types/bn.js":  "^5.1.5",
+    "@types/chai":   "^4.3.14",
+    "@types/mocha":  "^10.0.6",
+    "@types/node":   "^20.12.5",
+    "chai":          "^4.4.1",
+    "mocha":         "^10.4.0",
+    "ts-mocha":      "^10.0.0",
+    "ts-node":       "^10.9.2",
+    "typescript":    "^5.4.5"
+  }
+}

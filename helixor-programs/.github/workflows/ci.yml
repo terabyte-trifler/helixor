@@ -1,0 +1,36 @@
+name: Helixor CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Solana
+        run: sh -c "$(curl -sSfL https://release.solana.com/v1.18.26/install)"
+      - name: Install Anchor CLI
+        run: cargo install --git https://github.com/coral-xyz/anchor anchor-cli --tag v0.30.1 --locked
+      - name: Install Node dependencies
+        run: yarn install --frozen-lockfile
+      - name: Build
+        run: anchor build
+      - name: Test
+        run: anchor test --skip-build
+
+  deploy-devnet:
+    if: github.ref == 'refs/heads/main'
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Solana
+        run: sh -c "$(curl -sSfL https://release.solana.com/v1.18.26/install)"
+      - name: Install Anchor CLI
+        run: cargo install --git https://github.com/coral-xyz/anchor anchor-cli --tag v0.30.1 --locked
+      - name: Install Node dependencies
+        run: yarn install --frozen-lockfile
+      - name: Deploy to devnet
+        run: anchor deploy --provider.cluster devnet
