@@ -1,56 +1,34 @@
 // =============================================================================
-// Helixor Migration — runs once after `anchor deploy`
+// Helixor Migration — runs after `anchor deploy`
 //
-// Day 1: no-op (OracleConfig instruction wired on Day 7)
-// Day 7: initialises OracleConfig PDA with oracle node public key
+// Day 2: no-op (no global PDAs to initialize yet).
+// Day 7: will initialize OracleConfig PDA with the oracle node pubkey.
 // =============================================================================
 
 import * as anchor from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 
 module.exports = async function (provider: anchor.AnchorProvider) {
   anchor.setProvider(provider);
 
   const program = anchor.workspace.HealthOracle;
   const wallet  = provider.wallet as anchor.Wallet;
-  const conn    = provider.connection;
 
-  console.log("\n══════════════════════════════════════");
+  console.log("");
+  console.log("══════════════════════════════════════");
   console.log("  Helixor Migration");
   console.log("══════════════════════════════════════");
-  console.log("  Cluster :", conn.rpcEndpoint);
-  console.log("  Deployer:", wallet.publicKey.toBase58());
+  console.log("  Cluster :", provider.connection.rpcEndpoint);
   console.log("  Program :", program.programId.toBase58());
+  console.log("  Deployer:", wallet.publicKey.toBase58());
 
-  // ── Derive PDAs ────────────────────────────────────────────────────────────
-  const [oracleConfigPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("oracle_config")],
-    program.programId,
-  );
-  console.log("\n  OracleConfig PDA:", oracleConfigPda.toBase58());
+  const balance = await provider.connection.getBalance(wallet.publicKey);
+  console.log(`  Balance : ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
 
-  // ── Check balance ──────────────────────────────────────────────────────────
-  const balance = await conn.getBalance(wallet.publicKey);
-  console.log(`  Deployer balance: ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
-  if (balance < 0.1 * LAMPORTS_PER_SOL) {
-    console.warn("  ⚠ Low balance — run: solana airdrop 2 (devnet)");
-  }
-
-  // ── OracleConfig ───────────────────────────────────────────────────────────
-  const oracleInfo = await conn.getAccountInfo(oracleConfigPda);
-  if (oracleInfo) {
-    console.log("\n  [skip] OracleConfig already initialised");
-  } else {
-    console.log("\n  [Day 7] OracleConfig will be initialised once update_score is wired");
-    console.log("          To initialise: ts-node scripts/init_oracle.ts");
-  }
-
-  // ── Summary ────────────────────────────────────────────────────────────────
-  console.log("\n══════════════════════════════════════");
-  console.log("  Migration complete ✓");
-  console.log("  Next steps:");
-  console.log("    Day 2: implement register_agent");
-  console.log("    Day 3: implement get_health");
-  console.log("    Day 7: implement update_score + run init_oracle.ts");
-  console.log("══════════════════════════════════════\n");
+  console.log("");
+  console.log("  Day 2: no migrations needed (AgentRegistration PDAs are");
+  console.log("         created per-agent, not globally).");
+  console.log("  Day 7: will initialize OracleConfig here.");
+  console.log("══════════════════════════════════════");
+  console.log("");
 };

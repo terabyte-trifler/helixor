@@ -1,137 +1,153 @@
 # Helixor — AI Agent Trust Scoring
 
-> **Register → Observe → Score → One operator uses it.**
+> **Day 2 — register_agent + AgentRegistration PDA + escrow transfer.**
 
-One Solana program. One trust score (0-1000). One elizaOS operator reading it
-before every financial action. That's the MVP.
+One Solana program. One trust score. One elizaOS operator who reads it before
+every financial action. That's the MVP.
 
 ---
 
-## Day 1 Status
+## Day 2 Status
 
 | Item | Status |
 |------|--------|
-| health_oracle program compiled + deployed | ✅ Day 1 |
-| 3 instructions in IDL (register, getHealth, updateScore) | ✅ Day 1 |
-| All state structs defined (AgentRegistration, TrustCertificate, OracleConfig) | ✅ Day 1 |
-| All 10 error codes defined | ✅ Day 1 |
-| CI pipeline (lint → build → test → deploy devnet) | ✅ Day 1 |
-| `register_agent` full implementation | ⏳ Day 2 |
-| `get_health()` CPI endpoint | ⏳ Day 3 |
-| Helius webhook → PostgreSQL | ⏳ Day 4 |
-| Baseline engine (3 signals) | ⏳ Day 5 |
-| Scoring engine (0-1000) | ⏳ Day 6 |
-| `update_score` + oracle epoch runner | ⏳ Day 7 |
-| FastAPI REST + TypeScript SDK | ⏳ Day 8 |
-| elizaOS plugin (the one operator) | ⏳ Day 9 |
-| End-to-end validation | ⏳ Day 10 |
-| One real agent continuously scored | ⏳ Day 11 |
-| elizaOS operator gate live | ⏳ Day 12 |
-| Hardening + bug fixes | ⏳ Day 13 |
-| Devnet 48h validation | ⏳ Day 14 |
-| Mainnet deploy | ⏳ Day 15 |
+| `register_agent` instruction — full implementation | ✅ |
+| `AgentRegistration` PDA (83 bytes, 7 fields) | ✅ |
+| `EscrowVault` (SystemAccount PDA) | ✅ |
+| Native SOL escrow transfer via CPI | ✅ |
+| `AgentRegistered` event with full payload | ✅ |
+| 5 input validations | ✅ |
+| 14 integration tests | ✅ |
+| `get_health()` (Day 3 stub) | ⏳ |
+| `update_score()` (Day 7 stub) | ⏳ |
+
+---
+
+## What `register_agent` Does
+
+```
+Owner calls register_agent({ name: "MyAgent" })
+  │
+  ├── Validate name not empty (NameEmpty)
+  ├── Validate name ≤ 64 bytes (NameTooLong)
+  ├── Validate agent_wallet ≠ owner (AgentSameAsOwner)
+  │
+  ├── Init AgentRegistration PDA   seeds: ["agent", agent_wallet]
+  │     agent_wallet, owner_wallet, registered_at, escrow_lamports,
+  │     active=true, bump, vault_bump
+  │
+  ├── Init EscrowVault PDA         seeds: ["escrow", agent_wallet]
+  │     SystemAccount, 0 bytes, program-controlled
+  │
+  ├── CPI system::transfer(owner → escrow_vault, 10_000_000)
+  │
+  └── emit!(AgentRegistered {
+        agent, owner, name, escrow_lamports,
+        registration_pda, vault_pda, timestamp
+      })
+```
 
 ---
 
 ## Quick Start
 
 ```bash
-# Prerequisites
+# 1. Prerequisites
 rustup update stable
 cargo install --git https://github.com/coral-xyz/anchor anchor-cli --tag v0.30.1 --locked
 sh -c "$(curl -sSfL https://release.solana.com/v1.18.0/install)"
 
-# One command does everything
+# 2. Setup + build + deploy + test in one command
 cd helixor-programs
 bash scripts/setup.sh
 ```
 
+Expected output: `14 passing` for `register_agent.ts` and `5 passing` for `smoke.ts`.
+
 ---
 
-## The Loop
+## Manual Test
 
-```
-Day 2: operator registers their elizaOS agent wallet
-         → AgentRegistration PDA created on-chain
-         → 0.01 SOL escrow locked
+```bash
+# Register a real test agent on devnet
+ts-node scripts/register_test_agent.ts --agent-number 1 --name "MyFirstAgent"
 
-Day 4-5: Helius webhooks stream every agent transaction → PostgreSQL
-          Oracle computes 30-day behavioral baseline
-
-Day 6-7: Python scoring engine runs every 24h
-          3 signals → one 0-1000 score → written to TrustCertificate PDA
-
-Day 8-9: elizaOS plugin reads score on startup
-          Financial actions (swap, borrow, lend) blocked if score < 600
-
-Day 15: One real operator, one real agent, in production on mainnet
+# View on Solana Explorer (link printed by the script)
 ```
 
 ---
 
-## Architecture
+## Account Sizes
+
+| Account | Seeds | Size | Day |
+|---------|-------|------|-----|
+| `AgentRegistration` | `["agent", agent_wallet]` | 8 + 83 = **91 bytes** | Day 2 |
+| `EscrowVault` | `["escrow", agent_wallet]` | 0 + rent_exempt | Day 2 |
+| `TrustCertificate` | `["score", agent_wallet]` | 8 + 51 = **59 bytes** | Day 7 |
+
+---
+
+## Test Coverage
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                 health-oracle (ONE program)               │
-│                                                          │
-│  register_agent() → AgentRegistration PDA                │
-│  get_health()     → TrustCertificate PDA (read-only CPI) │
-│  update_score()   → TrustCertificate PDA (oracle only)   │
-└─────────────────────────────┬────────────────────────────┘
-                              │
-              ┌───────────────┴────────────────┐
-              │                                │
-   ┌──────────▼──────────┐        ┌────────────▼────────────┐
-   │  Oracle (Python)     │        │  elizaOS Plugin          │
-   │                      │        │                          │
-   │  Helius webhooks     │        │  getScore()              │
-   │  → PostgreSQL        │        │  requireMinScore(600)    │
-   │  → 3-signal scorer   │        │  blocks financial actions│
-   │  → update_score() CPI│        │                          │
-   └──────────────────────┘        └──────────────────────────┘
+Group 1: Happy path (5 tests)
+  [1] AgentRegistration PDA contains all expected fields
+  [2] Escrow vault holds exactly MIN_ESCROW lamports
+  [3] Owner balance decreased by (escrow + rent + fee)
+  [4] AgentRegistered event emitted with complete payload
+  [5] vault_bump in registration PDA matches derived bump
+
+Group 2: Boundary values (3 tests)
+  [6] Name exactly 64 bytes accepted
+  [7] Name of 1 byte accepted
+  [8] UTF-8 emoji name respects byte limit (16× 🤖 = 64 bytes)
+
+Group 3: Error paths (4 tests)
+  [9]  Empty name → NameEmpty (6001)
+  [10] Name 65 bytes → NameTooLong (6000)
+  [11] agent_wallet == owner → AgentSameAsOwner (6003)
+  [12] Underfunded owner → system transfer fails
+
+Group 4: PDA correctness (2 tests)
+  [13] Two distinct agents get distinct PDAs
+  [14] Re-registration of same agent reverts (init constraint)
 ```
 
 ---
 
-## State Account Sizes
+## Why These Design Choices
 
-| Account | Seeds | Size | Created |
-|---------|-------|------|---------|
-| `AgentRegistration` | `["agent", agent_wallet]` | 8+82 = **90 bytes** | Day 2 |
-| `TrustCertificate` | `["score", agent_wallet]` | 8+51 = **59 bytes** | Day 7 |
-| `OracleConfig` | `["oracle_config"]` | 8+65 = **73 bytes** | Day 7 |
-| `EscrowVault` | `["escrow", agent_wallet]` | System account | Day 2 |
+**Native SOL, not USDC** — Avoids SPL token program dependency, USDC mint
+setup, and ATA creation. MVP escrow is functionally identical at 0.01 SOL.
 
----
+**SystemAccount escrow PDA, not TokenAccount** — Simpler. Anchor's `init`
+creates it for free; our CPI just funds it. Future versions can add an SPL
+vault alongside without touching this one.
 
-## Trust Score
+**Stored vault_bump in registration** — Saves CU on future withdrawal
+instructions (no re-derivation needed).
 
-| Score | Alert | Protocol Behaviour |
-|-------|-------|--------------------|
-| 700–1000 | 🟢 GREEN | Full access |
-| 400–699 | 🟡 YELLOW | Reduced access / operator warned |
-| 0–399 | 🔴 RED | Access denied |
-| — | ⚪ PROVISIONAL | < 24h since registration |
+**Event includes PDAs** — Off-chain indexer registers the Helius webhook
+without follow-up RPC calls. Zero round-trips after the registration tx.
 
-**Three scoring signals (V1):**
-1. **Success rate** — 50% weight — % of transactions that succeeded
-2. **Transaction consistency** — 30% weight — daily tx count vs baseline median
-3. **SOL flow stability** — 20% weight — volatility of daily SOL movement
+**`init` (not `init_if_needed`) on registration** — Anchor's `init`
+constraint reverts if the PDA already exists. This prevents
+double-registration without an explicit check.
 
 ---
 
 ## Commands
 
 ```bash
-anchor build                                          # Build
-anchor test                                           # Run smoke tests (localnet)
+anchor build                                    # Build
+anchor test --provider.cluster localnet         # Run all tests on localnet
 anchor test --provider.cluster devnet --skip-deploy   # Test against devnet
-cargo clippy -- -D warnings                           # Lint
-cargo audit                                           # CVE scan
-bash scripts/setup.sh                                 # Full devnet setup
+cargo clippy -- -D warnings                     # Lint
+cargo fmt --all                                 # Format
+cargo audit                                     # CVE scan
+ts-node scripts/register_test_agent.ts --agent-number 1 --name "MyAgent"
 ```
 
 ---
 
-*Helixor · April 2026 · MIT License*
+*Helixor MVP · Day 2 complete · Next: Day 3 get_health()*
