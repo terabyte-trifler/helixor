@@ -1,4 +1,4 @@
-// Day 7 full implementation — stub keeps the program compiling today.
+// Day 7 — stub to keep workspace compiling.
 use anchor_lang::prelude::*;
 use crate::{state::ScorePayload, UpdateScore};
 

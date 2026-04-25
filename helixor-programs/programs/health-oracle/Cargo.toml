@@ -1,6 +1,6 @@
 [package]
 name    = "health-oracle"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 
 [lib]
@@ -9,6 +9,8 @@ name       = "health_oracle"
 
 [features]
 default        = []
+# Downstream programs (e.g. consumer-example) depend on this with feature `cpi`,
+# which excludes the entrypoint and exposes the cpi module.
 cpi            = ["no-entrypoint"]
 no-entrypoint  = []
 no-idl         = []

@@ -1,50 +1,91 @@
 # Helixor — AI Agent Trust Scoring
 
-> **Day 2 — register_agent + AgentRegistration PDA + escrow transfer.**
-
-One Solana program. One trust score. One elizaOS operator who reads it before
-every financial action. That's the MVP.
+> **Day 3 — `get_health()` CPI endpoint.**
+>
+> Any DeFi protocol can now call `get_health(agent_wallet)` from their own
+> Solana program in a single CPI and receive a fully-typed `TrustScore` back.
 
 ---
 
-## Day 2 Status
+## Day 3 Status
 
 | Item | Status |
 |------|--------|
-| `register_agent` instruction — full implementation | ✅ |
-| `AgentRegistration` PDA (83 bytes, 7 fields) | ✅ |
-| `EscrowVault` (SystemAccount PDA) | ✅ |
-| Native SOL escrow transfer via CPI | ✅ |
-| `AgentRegistered` event with full payload | ✅ |
-| 5 input validations | ✅ |
-| 14 integration tests | ✅ |
-| `get_health()` (Day 3 stub) | ⏳ |
+| `get_health()` instruction — production implementation | ✅ |
+| Returns 4 distinct `ScoreSource` paths (Live, Stale, Provisional, Deactivated) | ✅ |
+| Address-validates `trust_certificate` PDA (no spoofing) | ✅ |
+| Handles missing-cert case (Anchor `Account<T>` would otherwise revert) | ✅ |
+| `HealthQueried` event with full payload | ✅ |
+| `consumer-example` program proves CPI works end-to-end | ✅ |
+| 16 integration tests across 5 groups | ✅ |
 | `update_score()` (Day 7 stub) | ⏳ |
 
 ---
 
-## What `register_agent` Does
+## What `get_health()` Returns
 
+```rust
+pub struct TrustScore {
+    pub agent:        Pubkey,
+    pub score:        u16,        // 0-1000
+    pub alert:        AlertLevel, // Green / Yellow / Red
+    pub success_rate: u16,        // basis points (9750 = 97.50%)
+    pub anomaly_flag: bool,
+    pub updated_at:   i64,        // unix seconds
+    pub is_fresh:     bool,       // false if cert > 48h old
+    pub source:       ScoreSource,// Live / Stale / Provisional / Deactivated
+}
 ```
-Owner calls register_agent({ name: "MyAgent" })
-  │
-  ├── Validate name not empty (NameEmpty)
-  ├── Validate name ≤ 64 bytes (NameTooLong)
-  ├── Validate agent_wallet ≠ owner (AgentSameAsOwner)
-  │
-  ├── Init AgentRegistration PDA   seeds: ["agent", agent_wallet]
-  │     agent_wallet, owner_wallet, registered_at, escrow_lamports,
-  │     active=true, bump, vault_bump
-  │
-  ├── Init EscrowVault PDA         seeds: ["escrow", agent_wallet]
-  │     SystemAccount, 0 bytes, program-controlled
-  │
-  ├── CPI system::transfer(owner → escrow_vault, 10_000_000)
-  │
-  └── emit!(AgentRegistered {
-        agent, owner, name, escrow_lamports,
-        registration_pda, vault_pda, timestamp
-      })
+
+The `source` field is the **integration contract** — it tells consuming
+protocols *why* this score is what it is, so they can apply differentiated
+policy:
+
+| `source` | When it fires | Consumer should... |
+|----------|---------------|---------------------|
+| `Live` | Fresh cert + active agent | Trust the score normally |
+| `Stale` | Cert > 48h old | Reject — oracle has stalled |
+| `Provisional` | No cert yet (first 24h) | Reject for high-value, allow read-only |
+| `Deactivated` | `agent.active = false` | Reject — owner shut it down |
+
+---
+
+## CPI Integration Pattern
+
+The `consumer-example/` program is the canonical reference. Here's the
+30-line version:
+
+```rust
+use health_oracle::cpi::accounts::GetHealth;
+use health_oracle::cpi::get_health;
+use health_oracle::state::{ScoreSource, TrustScore};
+
+pub fn do_protected_action(ctx: Context<DoProtectedAction>) -> Result<()> {
+    let cpi_program = ctx.accounts.health_oracle_program.to_account_info();
+    let cpi_accts   = GetHealth {
+        querier:            ctx.accounts.caller.to_account_info(),
+        agent_registration: ctx.accounts.agent_registration.to_account_info(),
+        trust_certificate:  ctx.accounts.trust_certificate.to_account_info(),
+    };
+    let cpi_ctx = CpiContext::new(cpi_program, cpi_accts);
+
+    let result = get_health(cpi_ctx)?;
+    let score: TrustScore = result.get();
+
+    require!(score.is_fresh,                                    MyError::ScoreTooStale);
+    require!(score.source != ScoreSource::Deactivated,          MyError::AgentDeactivated);
+    require!(score.score >= 600,                                MyError::ScoreBelowMinimum);
+
+    // Action proceeds...
+    Ok(())
+}
+```
+
+`Cargo.toml`:
+
+```toml
+[dependencies]
+health-oracle = { version = "0.3", features = ["cpi"] }
 ```
 
 ---
@@ -52,102 +93,111 @@ Owner calls register_agent({ name: "MyAgent" })
 ## Quick Start
 
 ```bash
-# 1. Prerequisites
+# Prerequisites
 rustup update stable
 cargo install --git https://github.com/coral-xyz/anchor anchor-cli --tag v0.30.1 --locked
 sh -c "$(curl -sSfL https://release.solana.com/v1.18.0/install)"
 
-# 2. Setup + build + deploy + test in one command
+# One command: build, deploy, test
 cd helixor-programs
 bash scripts/setup.sh
 ```
 
-Expected output: `14 passing` for `register_agent.ts` and `5 passing` for `smoke.ts`.
-
----
-
-## Manual Test
+Manual query against devnet:
 
 ```bash
-# Register a real test agent on devnet
-ts-node scripts/register_test_agent.ts --agent-number 1 --name "MyFirstAgent"
-
-# View on Solana Explorer (link printed by the script)
+ts-node scripts/query_health.ts <agent-wallet-pubkey>
 ```
 
 ---
 
-## Account Sizes
+## Bug Fixes from the Day 3 Spec
 
-| Account | Seeds | Size | Day |
-|---------|-------|------|-----|
-| `AgentRegistration` | `["agent", agent_wallet]` | 8 + 83 = **91 bytes** | Day 2 |
-| `EscrowVault` | `["escrow", agent_wallet]` | 0 + rent_exempt | Day 2 |
-| `TrustCertificate` | `["score", agent_wallet]` | 8 + 51 = **59 bytes** | Day 7 |
+The spec had three real issues that this implementation addresses:
+
+**1. `Account<'info, TrustCertificate>` reverts when the cert doesn't exist.**
+Anchor's `Account<T>` requires a valid discriminator before the handler runs.
+The spec checked `cert.updated_at == 0` to detect "no cert yet" — but that
+branch is unreachable when the PDA itself doesn't exist. Fix: declare the
+cert as `UncheckedAccount`, validate the address matches the canonical PDA,
+and deserialize manually only if the account has data.
+
+**2. Trust certificate PDA was not address-validated.**
+The original constraint `seeds = [b"score", agent_registration.agent_wallet.as_ref()], bump`
+on a `UncheckedAccount` would silently accept *any* account address that
+happens to deserialize. We add an explicit `require_keys_eq!` against the
+canonically-derived PDA so callers can't pass a forged cert.
+
+**3. Return data plumbing was undocumented.**
+Real DeFi protocols calling this via CPI don't get the return value automatically —
+they need to use Anchor's `cpi::result.get()` pattern. The `consumer-example`
+program shows the exact code, so integration partners can copy-paste.
 
 ---
 
 ## Test Coverage
 
 ```
-Group 1: Happy path (5 tests)
-  [1] AgentRegistration PDA contains all expected fields
-  [2] Escrow vault holds exactly MIN_ESCROW lamports
-  [3] Owner balance decreased by (escrow + rent + fee)
-  [4] AgentRegistered event emitted with complete payload
-  [5] vault_bump in registration PDA matches derived bump
+Group 1: Direct invocation (3 tests)
+  [1] Provisional: no cert exists → score=500, source=Provisional
+  [5] NotRegistered: no AgentRegistration → AccountNotInitialized
+  [6] Wrong cert PDA → InvalidCertificateAddress
 
-Group 2: Boundary values (3 tests)
-  [6] Name exactly 64 bytes accepted
-  [7] Name of 1 byte accepted
-  [8] UTF-8 emoji name respects byte limit (16× 🤖 = 64 bytes)
+Group 2: Event emission (1 test, 3 assertions)
+  [7-9] HealthQueried: agent, querier, score, alert, source, timestamp
 
-Group 3: Error paths (4 tests)
-  [9]  Empty name → NameEmpty (6001)
-  [10] Name 65 bytes → NameTooLong (6000)
-  [11] agent_wallet == owner → AgentSameAsOwner (6003)
-  [12] Underfunded owner → system transfer fails
+Group 3: TrustScore shape (3 tests)
+  [10] All 8 fields present in return
+  [11] AlertLevel encoded correctly
+  [12] ScoreSource encoded correctly
 
-Group 4: PDA correctness (2 tests)
-  [13] Two distinct agents get distinct PDAs
-  [14] Re-registration of same agent reverts (init constraint)
+Group 4: CPI from consumer-example (2 tests)
+  [13] Provisional cert → consumer rejects with ScoreTooStale
+  [14] CPI invocation succeeds; consumer policy enforced post-CPI
+
+Group 5: Day 7 follow-ups
+  Live + Stale tests added once update_score writes real certs
 ```
 
 ---
 
-## Why These Design Choices
+## File Structure
 
-**Native SOL, not USDC** — Avoids SPL token program dependency, USDC mint
-setup, and ATA creation. MVP escrow is functionally identical at 0.01 SOL.
-
-**SystemAccount escrow PDA, not TokenAccount** — Simpler. Anchor's `init`
-creates it for free; our CPI just funds it. Future versions can add an SPL
-vault alongside without touching this one.
-
-**Stored vault_bump in registration** — Saves CU on future withdrawal
-instructions (no re-derivation needed).
-
-**Event includes PDAs** — Off-chain indexer registers the Helius webhook
-without follow-up RPC calls. Zero round-trips after the registration tx.
-
-**`init` (not `init_if_needed`) on registration** — Anchor's `init`
-constraint reverts if the PDA already exists. This prevents
-double-registration without an explicit check.
+```
+helixor-programs/
+├── programs/
+│   ├── health-oracle/        ← the trust scoring program
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── state.rs       ← TrustScore, ScoreSource (Day 3 stable)
+│   │       ├── errors.rs      ← + InvalidCertificateAddress
+│   │       └── instructions/
+│   │           ├── register_agent.rs   (Day 2 — frozen)
+│   │           ├── get_health.rs       (Day 3 — COMPLETE)
+│   │           └── update_score.rs     (Day 7 — stub)
+│   │
+│   └── consumer-example/      ← reference DeFi integration
+│       └── src/
+│           └── lib.rs         ← do_protected_action with CPI
+│
+└── tests/
+    ├── smoke.ts
+    ├── register_agent.ts      (Day 2 carry-over)
+    └── get_health.ts          (Day 3 — 16 tests)
+```
 
 ---
 
 ## Commands
 
 ```bash
-anchor build                                    # Build
-anchor test --provider.cluster localnet         # Run all tests on localnet
-anchor test --provider.cluster devnet --skip-deploy   # Test against devnet
-cargo clippy -- -D warnings                     # Lint
-cargo fmt --all                                 # Format
-cargo audit                                     # CVE scan
-ts-node scripts/register_test_agent.ts --agent-number 1 --name "MyAgent"
+anchor build
+anchor test --provider.cluster localnet
+anchor test --provider.cluster devnet --skip-deploy
+ts-node scripts/query_health.ts <agent-pubkey>
+cargo clippy --all-targets -- -D warnings
 ```
 
 ---
 
-*Helixor MVP · Day 2 complete · Next: Day 3 get_health()*
+*Helixor MVP · Day 3 complete · Next: Day 4 Helius webhook → PostgreSQL*

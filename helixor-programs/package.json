@@ -1,20 +1,20 @@
 {
   "name": "helixor-programs",
-  "version": "0.2.0",
-  "description": "Helixor Protocol — AI agent trust scoring (Day 2)",
+  "version": "0.3.0",
+  "description": "Helixor Protocol — Day 3: get_health() CPI endpoint",
   "license": "MIT",
   "scripts": {
-    "build":            "anchor build",
-    "test":             "anchor test",
-    "test:local":       "anchor test --provider.cluster localnet",
-    "test:devnet":      "anchor test --provider.cluster devnet --skip-deploy",
-    "test:register":    "anchor test --provider.cluster localnet --run register_agent",
-    "deploy:devnet":    "anchor deploy --provider.cluster devnet",
-    "lint":             "cargo clippy -- -D warnings",
-    "fmt":              "cargo fmt --all",
-    "fmt:check":        "cargo fmt --all -- --check",
-    "audit":            "cargo audit",
-    "clean":            "anchor clean && rm -rf target/ node_modules/"
+    "build":         "anchor build",
+    "test":          "anchor test",
+    "test:local":    "anchor test --provider.cluster localnet",
+    "test:devnet":   "anchor test --provider.cluster devnet --skip-deploy",
+    "test:health":   "anchor test --provider.cluster localnet --run get_health",
+    "deploy:devnet": "anchor deploy --provider.cluster devnet",
+    "lint":          "cargo clippy --all-targets -- -D warnings",
+    "fmt":           "cargo fmt --all",
+    "fmt:check":     "cargo fmt --all -- --check",
+    "audit":         "cargo audit",
+    "clean":         "anchor clean && rm -rf target/ node_modules/"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

@@ -1,13 +1,13 @@
 [workspace]
-members  = ["programs/health-oracle"]
+members  = [
+    "programs/health-oracle",
+    "programs/consumer-example",
+]
 resolver = "2"
 
 [workspace.dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
 
-# Panic on integer overflow in both dev and release — never silently wrap.
-# This is load-bearing: balance checks that silently wrap are the #1 cause
-# of fund-loss bugs in Solana programs.
 [profile.release]
 overflow-checks = true
 lto             = "thin"

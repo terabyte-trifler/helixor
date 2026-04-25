@@ -1,17 +1,10 @@
 // =============================================================================
 // Helixor — health-oracle program
 //
-// Single-program MVP. Handles:
-//   - register_agent   (Day 2 — COMPLETE)
-//   - get_health       (Day 3 — stub)
-//   - update_score     (Day 7 — stub)
-//
-// Scope reduction decisions:
-//   - No certificate_issuer program. TrustCertificate lives here.
-//   - No slash_authority program. Score itself is the penalty.
-//   - No SPL token dependency. Native SOL escrow for MVP.
-//   - No multisig on oracle key. Single oracle for MVP; rotate via
-//     update_oracle_key governance ix in V2.
+// Day 1: stubs deployed
+// Day 2: register_agent — COMPLETE
+// Day 3: get_health     — COMPLETE
+// Day 7: update_score   — pending
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -28,14 +21,7 @@ declare_id!("Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P");
 pub mod health_oracle {
     use super::*;
 
-    /// Register a new AI agent with Helixor.
-    ///
-    /// Creates two PDAs:
-    ///   - AgentRegistration at ["agent", agent_wallet]
-    ///   - EscrowVault        at ["escrow", agent_wallet]
-    ///
-    /// Transfers MIN_ESCROW_LAMPORTS (0.01 SOL) from owner to vault.
-    /// Agent starts with no score; first score is written by oracle at next epoch.
+    /// Register a new AI agent.
     pub fn register_agent(
         ctx:    Context<RegisterAgent>,
         params: RegisterParams,
@@ -43,15 +29,19 @@ pub mod health_oracle {
         instructions::register_agent::handler(ctx, params)
     }
 
-    /// Read-only trust score query. Called by DeFi protocols via CPI.
-    /// Returns TrustScore including freshness flag (false if cert > 48h old).
-    /// Returns synthetic PROVISIONAL score if cert doesn't exist yet.
+    /// Read-only trust score query — the public CPI endpoint.
+    ///
+    /// Consumers (DeFi protocols, elizaOS plugins, off-chain services) call
+    /// this to ask "what does Helixor say about this agent right now?"
+    ///
+    /// Returns TrustScore with a `source` field that explains where the
+    /// answer came from: Live, Stale, Provisional, or Deactivated.
+    /// Consumers inspect `source` and `is_fresh` to decide their own policy.
     pub fn get_health(ctx: Context<GetHealth>) -> Result<TrustScore> {
         instructions::get_health::handler(ctx)
     }
 
-    /// Oracle-only: write a new trust score on-chain.
-    /// Guard rails: 23h cooldown, 200pt max delta per epoch, oracle signer check.
+    /// Oracle-only: write a new trust score on-chain (Day 7).
     pub fn update_score(
         ctx:     Context<UpdateScore>,
         payload: ScorePayload,
@@ -88,11 +78,14 @@ pub struct RegisterAgent<'info> {
 
 #[derive(Accounts)]
 pub struct GetHealth<'info> {
-    /// CHECK: any caller — read-only endpoint
+    /// CHECK: read-only public endpoint, any account allowed
     pub querier: UncheckedAccount<'info>,
-    /// CHECK: Day 3 wires proper seeds
-    pub agent_registration: UncheckedAccount<'info>,
-    /// CHECK: Day 3 handles missing cert
+    #[account(
+        seeds = [b"agent", agent_registration.agent_wallet.as_ref()],
+        bump = agent_registration.bump,
+    )]
+    pub agent_registration: Account<'info, state::AgentRegistration>,
+    /// CHECK: validated in handler against canonical PDA + deserialized payload
     pub trust_certificate: UncheckedAccount<'info>,
 }
 
