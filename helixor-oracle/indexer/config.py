@@ -1,0 +1,96 @@
+"""
+indexer/config.py — type-safe configuration loaded from environment.
+
+All env vars are validated at startup. If something's wrong (missing required
+key, malformed URL), the process refuses to start instead of crashing on
+the first request.
+"""
+
+from __future__ import annotations
+
+import re
+
+from pydantic import Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # ── Database ──────────────────────────────────────────────────────────────
+    database_url: str = Field(
+        ...,
+        description="PostgreSQL connection URL: postgresql://user:pw@host:port/db",
+    )
+
+    # Connection pool sizing for asyncpg
+    db_pool_min: int = Field(default=2,  ge=1, le=20)
+    db_pool_max: int = Field(default=10, ge=2, le=100)
+
+    # ── Helius ────────────────────────────────────────────────────────────────
+    helius_api_key: SecretStr = Field(
+        ...,
+        description="Helius API key — used for webhook registration + RPC backfill",
+    )
+
+    helius_webhook_url: str = Field(
+        ...,
+        description="Public URL Helius will POST to (e.g. https://oracle.helixor.xyz/webhook)",
+    )
+
+    helius_webhook_auth_token: SecretStr = Field(
+        ...,
+        description="Shared secret. Helius sends this in Authorization header. We verify before processing.",
+    )
+
+    # ── Solana ────────────────────────────────────────────────────────────────
+    solana_rpc_url: str = Field(
+        default="https://api.devnet.solana.com",
+        description="Solana RPC for backfill + agent sync",
+    )
+
+    health_oracle_program_id: str = Field(
+        ...,
+        description="Helixor health-oracle program ID — for AgentRegistered event sync",
+    )
+
+    # ── Server ────────────────────────────────────────────────────────────────
+    host: str = "0.0.0.0"
+    port: int = Field(default=8000, ge=1024, le=65535)
+    log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR)$")
+
+    # ── Operational ───────────────────────────────────────────────────────────
+    # Maximum tx age accepted in webhook (rejects replay attacks of old data)
+    max_webhook_tx_age_seconds: int = Field(default=3_600, ge=60)
+
+    # Reconciler — runs periodically to detect drift between Helius + DB
+    reconciler_interval_seconds: int = Field(default=300, ge=60)
+
+    @field_validator("database_url")
+    @classmethod
+    def _validate_db_url(cls, v: str) -> str:
+        if not re.match(r"^postgres(ql)?://", v):
+            raise ValueError("database_url must start with postgresql:// or postgres://")
+        return v
+
+    @field_validator("helius_webhook_url")
+    @classmethod
+    def _validate_webhook_url(cls, v: str) -> str:
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("helius_webhook_url must be http:// or https://")
+        if v.endswith("/"):
+            raise ValueError("helius_webhook_url should not end with /")
+        return v
+
+    @property
+    def database_url_safe(self) -> str:
+        """Database URL with password masked — safe to log."""
+        return re.sub(r"://[^:]+:[^@]+@", "://***:***@", self.database_url)
+
+
+settings = Settings()  # type: ignore[call-arg]

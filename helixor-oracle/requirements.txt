@@ -1,0 +1,28 @@
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+
+# Async PostgreSQL — replaces psycopg2; supports connection pooling natively
+asyncpg==0.30.0
+
+# HTTP client for Helius API
+httpx==0.27.2
+
+# Solana RPC + on-chain event listener (Day 4 backfill + agent sync)
+solana==0.34.3
+solders==0.21.0
+anchorpy==0.20.1
+
+# Config + env
+pydantic==2.9.2
+pydantic-settings==2.5.2
+python-dotenv==1.0.1
+
+# Structured logging
+structlog==24.4.0
+
+# Testing
+pytest==8.3.3
+pytest-asyncio==0.24.0
+httpx==0.27.2  # also used in tests
+testcontainers==4.8.2
