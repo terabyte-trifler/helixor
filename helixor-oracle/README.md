@@ -1,119 +1,97 @@
-# Helixor Oracle — Day 4
+# Helixor Oracle — Day 5
 
-> **Helius webhook listener → PostgreSQL.**
-> Every transaction made by a registered agent lands in the DB within 2 seconds.
+> **Baseline engine.** From the `agent_transactions` table, compute three
+> signals over a 30-day window: success rate, median daily tx count, and
+> SOL volatility (MAD). Persist them. Hash them deterministically.
+
+This builds on Day 4's `helixor-oracle/` codebase. Day 5 adds the `scoring/`
+package, two new database tables, and one new background service.
 
 ---
 
-## Day 4 Status
+## Day 5 Status
 
 | Item | Status |
 |------|--------|
-| PostgreSQL schema (4 tables, 7 indexes) | ✅ |
-| FastAPI webhook receiver with auth | ✅ |
-| Async asyncpg pool (no per-request connect) | ✅ |
-| Helius API client with retries | ✅ |
-| `agent_sync` — on-chain → DB sync | ✅ |
-| `webhook_registrar` — auto-register webhooks for new agents | ✅ |
-| `reconciler` — drift detection + RPC backfill | ✅ |
-| Audit log of every webhook POST | ✅ |
-| Replay-attack defence (rejects txs > 1h old) | ✅ |
-| Constant-time auth check | ✅ |
-| Idempotent on duplicate signatures | ✅ |
-| Skips unknown agents (no FK violations) | ✅ |
-| Prometheus metrics + structured JSON logs | ✅ |
-| Docker Compose for local dev | ✅ |
-| Unit tests (parser) + integration tests (testcontainers) | ✅ |
+| Three pure signal computations (success_rate, median_daily_tx, sol_volatility_mad) | ✅ |
+| Tz-aware UTC throughout (no naive `datetime.utcnow()`) | ✅ |
+| MAD instead of stdev for outlier robustness | ✅ |
+| Async asyncpg (consistent with Day 4 stack) | ✅ |
+| Deterministic SHA-256 baseline hash | ✅ |
+| `agent_baselines` (current) + `agent_baseline_history` (audit) tables | ✅ |
+| Algorithm version tag (bump-on-change) | ✅ |
+| Cache with `valid_until` TTL | ✅ |
+| `baseline_scheduler` service for periodic recompute | ✅ |
+| CLI: `compute_baseline.py` + `seed_baseline_test_data.py` | ✅ |
+| 18 pure unit tests + 9 integration tests | ✅ |
 
 ---
 
 ## Architecture
 
 ```
-                          ┌──────────────────┐
-                          │  Solana devnet   │
-                          │  (health-oracle) │
-                          └─────────┬────────┘
-                                    │  AgentRegistration PDAs
-                                    ▼
-                          ┌──────────────────┐
-                          │   agent_sync     │  polls every 30s
-                          │   (RPC fetcher)  │
-                          └─────────┬────────┘
-                                    │
-                          ┌─────────▼────────┐
-              ┌───────────│ registered_agents│───────┐
-              │           └──────────────────┘       │
-              │                  │                   │
-  ┌───────────▼─────────┐        │         ┌─────────▼──────────┐
-  │ webhook_registrar   │        │         │    reconciler       │
-  │ POST /v0/webhooks   │        │         │  (drift detect +    │
-  │ to Helius for each  │        │         │   RPC backfill)     │
-  │ pending agent       │        │         └─────────────────────┘
-  └─────────────────────┘        │
-                                 │  registers Helius webhook
+                          ┌──────────────────────┐
+                          │  agent_transactions  │  (Day 4 — 100s/day/agent)
+                          └──────────┬───────────┘
+                                     │  fetch window
+                                     ▼
+              ┌──────────────────────────────────────────┐
+              │  scoring/signals.py  (pure functions)    │
+              │                                          │
+              │  • success_rate     (binomial)           │
+              │  • median_daily_tx  (active days only)   │
+              │  • sol_volatility   (MAD, robust)        │
+              │  • baseline_hash    (canonical SHA-256)  │
+              └──────────────────┬───────────────────────┘
+                                 │  BaselineResult
                                  ▼
-                       ┌──────────────────┐
-                       │  Helius webhook  │
-                       │  (Helius cloud)  │ ◄─── transactions
-                       └─────────┬────────┘      from monitored
-                                 │ POST           wallets
+              ┌──────────────────────────────────────────┐
+              │  scoring/baseline_engine.py              │
+              │                                          │
+              │  compute_and_store(conn, agent)          │
+              │  get_or_compute(conn, agent)             │
+              │  batch_recompute(conn, [agents])         │
+              └──────────────────┬───────────────────────┘
+                                 │
                                  ▼
-                       ┌──────────────────┐
-                       │ webhook_receiver │ ───► agent_transactions
-                       │  (FastAPI)       │       (PostgreSQL)
-                       └──────────────────┘
+              ┌────────────────────────┬─────────────────┐
+              │  agent_baselines       │ agent_baseline_ │
+              │  (one row per agent)   │ history (audit) │
+              └────────────────────────┴─────────────────┘
+                                 ▲
+                                 │  every 10 minutes
+              ┌──────────────────┴───────────────────────┐
+              │  scoring/scheduler.py                    │
+              │  • find_agents_without_baseline()        │
+              │  • find_stale_baselines()                │
+              │  • batch_recompute()                     │
+              └──────────────────────────────────────────┘
 ```
 
 ---
 
-## Quick Start
+## The Three Signals
 
-```bash
-# 1. Configure
-cp .env.example .env
-# Edit .env: set HELIUS_API_KEY, HELIUS_WEBHOOK_URL, HELIUS_WEBHOOK_AUTH_TOKEN
+| Signal | Type | Why this exact formula |
+|--------|------|------------------------|
+| `success_rate` | float (6 dp) | Binomial proportion. Most direct measure of "does the agent's strategy work?" |
+| `median_daily_tx` | int | Median over **active days only**. Captures behavioral tempo without being skewed by agents that take weekends off. |
+| `sol_volatility_mad` | int (lamports) | Median Absolute Deviation of daily \|sol_change\| sums. **Robust** — single outlier days can't move it the way they move stdev. |
 
-# 2. Generate a strong auth token
-openssl rand -hex 32   # paste this as HELIUS_WEBHOOK_AUTH_TOKEN
+**Why no float for SOL.** Lamports are u64 on-chain. We hold them as Python
+ints (arbitrary precision) and never cast to float. Float arithmetic on
+billions of lamports loses precision. Floats are forbidden in the canonical
+hash.
 
-# 3. One-command setup
-bash scripts/setup.sh
+**Why MAD instead of standard deviation.** Real on-chain agents have spike
+days — airdrops, rebalancing, liquidations. Standard deviation doubles when
+you double a single outlier. MAD barely moves. With MAD, one bad day doesn't
+permanently mark an agent as "volatile."
 
-# 4. Manual smoke test
-bash scripts/test_webhook_manually.sh
-```
-
-The setup script:
-1. Starts PostgreSQL with schema applied
-2. Installs Python deps in a venv
-3. Runs unit + integration tests
-4. Starts all four services: webhook_receiver, agent_sync, webhook_registrar, reconciler
-5. Health-checks the webhook receiver
-
----
-
-## End-to-End Flow
-
-When an operator registers an agent on-chain (Day 2's `register_agent`):
-
-1. **Within 30s** — `agent_sync` polls the program, sees the new
-   `AgentRegistration` PDA, inserts a row into `registered_agents`
-   with `helius_webhook_id = NULL`.
-
-2. **Within 60s** — `webhook_registrar` sees the pending agent in the
-   `agents_pending_webhook` view, calls Helius API to register a webhook,
-   updates the row with the returned `webhook_id`.
-
-3. **Continuously** — Helius streams every transaction for that agent
-   wallet to our `/webhook` endpoint via authenticated POST.
-
-4. **Within 2s of tx confirmation** — `webhook_receiver` validates auth,
-   parses the payload, inserts a row into `agent_transactions`.
-
-5. **Every 5 minutes** — `reconciler` compares Helius's webhook list
-   to our DB and re-registers any that drifted, plus backfills the last
-   hour of transactions via RPC for any we missed.
+**Why active days only.** An agent that runs Mon-Fri has 22 active days per
+month, not 30. Padding with zeros for Sat/Sun would halve the median.
+"Median daily tx count" is computed only over days the agent was actually
+active.
 
 ---
 
@@ -121,116 +99,157 @@ When an operator registers an agent on-chain (Day 2's `register_agent`):
 
 | Bug in spec | Fix |
 |-------------|-----|
-| No webhook authentication | Constant-time `Authorization` header check |
-| `psycopg2.connect()` per request | Global `asyncpg` pool (min=2, max=10) |
-| Sync DB calls in async handler | All DB calls via `await pool.acquire()` |
-| FK violation when agent not in DB | Pre-fetch active set, silently skip unknown |
-| Naive `datetime.fromtimestamp()` | Tz-aware UTC (PostgreSQL `TIMESTAMPTZ` correct) |
-| No idempotency | `ON CONFLICT (tx_signature) DO NOTHING` |
-| No webhook-to-agent linking process | `agent_sync` + `webhook_registrar` |
-| No drift recovery | `reconciler` with RPC backfill |
-| No audit trail | `webhook_events` table + structured JSON logs |
-| No metrics | `/metrics` Prometheus endpoint |
-| No tests | 30+ unit + integration tests |
-| No Docker | Multi-stage Dockerfile + compose for full stack |
+| `psycopg2.connect()` sync calls in async stack | Reuses Day 4's asyncpg pool |
+| `datetime.utcnow()` (naive, deprecated) | `datetime.now(tz=timezone.utc)` everywhere |
+| `statistics.stdev` (outlier-sensitive) | MAD: `median(|x - median(x)|)` |
+| Hash includes `computed_at` (non-deterministic) | Hash is over signals + algo_version only |
+| Float `repr` in hash (platform-dependent) | success_rate formatted as `f"{:.6f}"` string |
+| `INTERVAL '%s days'` SQL injection risk | Parameter binding via asyncpg `$N` |
+| Returns None silently when insufficient data | Raises `InsufficientData(observed, required)` |
+| No persistence — recomputed every call | `agent_baselines` table + `valid_until` TTL |
+| No history — can't observe baseline drift | `agent_baseline_history` append-only |
+| Hardcoded thresholds, no algo version | `ALGO_VERSION` constant + stored alongside |
+| `abs(sol_change or 0)` — direction lost everywhere | abs() only for volatility; signals.py preserves sign for downstream |
+| No test coverage | 18 unit + 9 integration tests |
 
 ---
 
-## Database Schema
-
-| Table | Purpose | Rows / day (est) |
-|-------|---------|------------------|
-| `registered_agents` | Cache of on-chain agent registrations | 1 per registration |
-| `agent_transactions` | Append-only ledger of every tx | 100/agent/day |
-| `webhook_subscriptions` | Helius webhook lifecycle events | 1 per registration |
-| `webhook_events` | Audit log of every POST received | 1000+/day |
-| `schema_version` | Migration tracking | 1 per migration |
-
-Indexes:
-- `(agent_wallet, block_time DESC)` — primary scoring read pattern
-- `(block_time DESC)` — global recency queries
-- `(tx_signature)` UNIQUE — idempotency
-- Partial index on `active = TRUE` — fast active-agent lookup
-- Partial index on `error IS NOT NULL` — fast failed-webhook lookup
-
----
-
-## Operations
+## Quick Start
 
 ```bash
-# View live logs
-docker compose logs -f webhook_receiver
+# Build on Day 4's installation
+bash scripts/setup.sh
+```
 
-# Inspect database
-docker compose exec postgres psql -U helixor
+The script:
+1. Boots Postgres (auto-applies migrations 0001 + 0002)
+2. Installs Python deps
+3. Runs unit tests (pure math — no DB needed)
+4. Runs integration tests (testcontainers Postgres)
+5. Seeds 100 test transactions for a synthetic agent
+6. Computes the baseline and stores it
+7. Prints the row from `agent_baselines`
 
-# Recent webhook stats
-curl -s http://localhost:8000/status | jq
+---
 
-# Prometheus metrics
-curl -s http://localhost:8000/metrics
+## Manual Verification
 
-# Restart receiver after code change
-docker compose up -d --build webhook_receiver
+The Day 5 "done when" check, exactly as the spec asks:
 
-# Run migrations against an existing DB
-python -m db.migrate
+```bash
+# Seed 100 transactions for a test agent
+python -m scripts.seed_baseline_test_data \
+    --wallet TESTAGENTwallet1234567890123456789012345 \
+    --tx-count 100 \
+    --active-days 10 \
+    --success-rate 0.95
+
+# Compute the baseline (dry run — doesn't store)
+python -m scripts.compute_baseline TESTAGENTwallet1234567890123456789012345
+
+# Compute and store
+python -m scripts.compute_baseline TESTAGENTwallet1234567890123456789012345 --store
+```
+
+Expected output:
+
+```json
+{
+  "ok": true,
+  "stored": true,
+  "agent": "TESTAGENTwallet1234567890123456789012345",
+  "result": {
+    "success_rate": 0.95,
+    "median_daily_tx": 10,
+    "sol_volatility_mad": 380123,
+    "tx_count": 100,
+    "active_days": 10,
+    "window_start": "2026-03-26T...",
+    "window_end": "2026-04-25T...",
+    "window_days": 30,
+    "baseline_hash": "a3f8b2c1...",
+    "algo_version": 1
+  }
+}
+```
+
+If you run it twice, you get the same `baseline_hash` both times. If you
+change a single transaction, the hash changes. That determinism is the
+contract: scoring (Day 6) and on-chain commitment (Day 7) both depend on it.
+
+---
+
+## Programmatic API
+
+```python
+from indexer import db
+from scoring import baseline_engine
+
+await db.init_pool()
+pool = await db.get_pool()
+
+async with pool.acquire() as conn:
+    # Cached read — recomputes if expired
+    result = await baseline_engine.get_or_compute(conn, agent_wallet)
+
+    if result is None:
+        print("Insufficient data yet")
+    else:
+        print(f"Score this agent against baseline {result.baseline_hash}")
 ```
 
 ---
 
-## Production Deployment Notes
-
-**Single worker, scale horizontally.** Don't run uvicorn with `--workers 4`.
-Each worker would open its own asyncpg pool, multiplying connection count.
-Scale by adding more containers behind a load balancer.
-
-**Reverse proxy required.** The webhook receiver expects Helius traffic
-only. Put nginx or Caddy in front for TLS termination, rate limiting, and
-IP allow-listing (Helius publishes their IP ranges).
-
-**Rotate the auth token.** Treat `HELIUS_WEBHOOK_AUTH_TOKEN` like a database
-password. To rotate: update Helius webhook config via API first, then update
-this service's env var, then restart.
-
-**PostgreSQL sizing.** Day 4 DB is small — 60 MB after a year of 5 agents.
-Day 8+ scoring queries will need `pg_stat_statements` enabled to find slow
-queries; revisit indexing then.
-
----
-
-## File Structure
+## File Structure (additions to Day 4)
 
 ```
 helixor-oracle/
-├── db/
-│   ├── schema.sql              ← all tables + indexes
-│   └── migrate.py              ← schema applier
-├── indexer/
-│   ├── config.py               ← pydantic settings
-│   ├── db.py                   ← asyncpg pool lifecycle
-│   ├── auth.py                 ← Helius auth check
-│   ├── parser.py               ← Helius tx → ParsedTransaction
-│   ├── repo.py                 ← all SQL
-│   ├── helius.py               ← Helius API client
-│   ├── webhook_receiver.py     ← FastAPI app (the hot path)
-│   ├── agent_sync.py           ← on-chain → DB
-│   ├── webhook_registrar.py    ← register webhooks for new agents
-│   └── reconciler.py           ← drift detection + RPC backfill
-├── tests/
-│   ├── conftest.py             ← testcontainers PG fixture
-│   ├── test_parser.py          ← unit tests (15)
-│   └── test_webhook.py         ← integration tests (15)
-├── scripts/
-│   ├── setup.sh
-│   └── test_webhook_manually.sh
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-├── pytest.ini
-└── .env.example
+├── scoring/                              ← NEW package
+│   ├── __init__.py
+│   ├── signals.py                        ← pure math, fully tested
+│   ├── repo.py                           ← async DB layer
+│   ├── baseline_engine.py                ← orchestrator
+│   └── scheduler.py                      ← periodic recompute service
+│
+├── db/migrations/
+│   └── 0002_baselines.sql                ← agent_baselines + history
+│
+├── tests/scoring/
+│   ├── test_signals.py                   ← 18 unit tests, pure
+│   └── test_baseline_engine.py           ← 9 integration tests
+│
+└── scripts/
+    ├── compute_baseline.py               ← Day 5 CLI verification
+    └── seed_baseline_test_data.py        ← test data generator
 ```
+
+`docker-compose.yml` adds one new service: `baseline_scheduler`.
 
 ---
 
-*Helixor Oracle · Day 4 complete · Next: Day 5 baseline engine*
+## Operational Notes
+
+**When does a baseline get recomputed?** A baseline is fresh for
+`DEFAULT_BASELINE_TTL_SECONDS` (24 hours). After that, the scheduler picks
+it up on its next 10-minute pass. If you need to force a recompute, run:
+
+```sql
+UPDATE agent_baselines SET valid_until = NOW() WHERE agent_wallet = '...';
+```
+
+**When does a new agent get its first baseline?** As soon as it has 50+
+transactions across at least 3 active days. The scheduler runs
+`find_agents_without_baseline` and tries to compute. If insufficient, it
+will retry on the next pass.
+
+**What if the algorithm changes?** Bump `ALGO_VERSION` in `scoring/signals.py`.
+Every new baseline will store the new version, and consumers (Day 6 scoring)
+can detect the change and re-score accordingly. Old baselines remain
+inspectable in `agent_baseline_history`.
+
+**Algorithm changes are versioned, not retroactive.** We never silently
+re-interpret old baselines under new rules.
+
+---
+
+*Helixor Oracle · Day 5 complete · Next: Day 6 scoring engine*

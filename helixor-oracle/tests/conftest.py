@@ -36,12 +36,17 @@ def postgres_url():
         url = pg.get_connection_url().replace("postgresql+psycopg2", "postgresql")
         os.environ["DATABASE_URL"] = url
 
-        # Apply schema
+        # Apply the base schema plus any numbered migrations so testcontainers
+        # matches the current day of the project, not just Day 4.
         async def setup():
-            schema = (Path(__file__).parent.parent / "db" / "schema.sql").read_text()
             conn = await asyncpg.connect(url)
             try:
-                await conn.execute(schema)
+                root = Path(__file__).parent.parent
+                await conn.execute((root / "db" / "schema.sql").read_text())
+                migrations_dir = root / "db" / "migrations"
+                if migrations_dir.exists():
+                    for migration in sorted(migrations_dir.glob("*.sql")):
+                        await conn.execute(migration.read_text())
             finally:
                 await conn.close()
 

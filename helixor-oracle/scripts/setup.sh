@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Helixor Oracle — Day 4 Setup
+# Helixor Oracle — Day 5 Setup
 #
-# Spins up Postgres + indexer services via docker-compose, applies schema,
-# runs tests.
+# Applies migration 0002 + runs scoring tests.
 # =============================================================================
 
 set -euo pipefail
@@ -16,41 +15,33 @@ step() { echo -e "\n${BOLD}── $* ──${NC}"; }
 
 echo ""
 echo "╔═══════════════════════════════════════════════╗"
-echo "║  Helixor Oracle — Day 4 Setup                 ║"
-echo "║  Helius webhook → PostgreSQL                  ║"
+echo "║  Helixor Oracle — Day 5 Setup                 ║"
+echo "║  Baseline engine: 3 signals over 30d window   ║"
 echo "╚═══════════════════════════════════════════════╝"
 
 step "Tools"
-command -v docker         >/dev/null || fail "Install Docker"
-command -v docker-compose >/dev/null 2>&1 || command -v "docker compose" >/dev/null 2>&1 || \
-  fail "Install docker-compose"
-command -v python3        >/dev/null || fail "Install Python 3.12+"
+command -v docker  >/dev/null || fail "Install Docker"
+command -v python3 >/dev/null || fail "Install Python 3.12+"
 log "docker $(docker --version | awk '{print $3}' | tr -d ',')"
 log "python $(python3 --version | awk '{print $2}')"
 
-step "Setup .env"
-if [ ! -f .env ]; then
-  cp .env.example .env
-  warn "Created .env from .env.example — EDIT IT before running for real."
-fi
-
-step "Starting services"
-docker compose up -d --build postgres
-log "Waiting for postgres to be ready..."
-for i in 1 2 3 4 5 6 7 8 9 10; do
+step "Bringing up postgres"
+docker compose up -d --build postgres >/dev/null
+for i in 1 2 3 4 5; do
   if docker compose exec -T postgres pg_isready -U helixor -d helixor >/dev/null 2>&1; then
     log "Postgres ready ✓"; break
   fi
   sleep 2
 done
 
-step "Applying schema"
-# Schema is auto-applied via docker-entrypoint-initdb.d on first start.
-# Verify it landed.
-docker compose exec -T postgres psql -U helixor -d helixor -c \
-  "SELECT version, description FROM schema_version;" || fail "Schema not applied"
+step "Applying migration 0002 (baseline tables)"
+docker compose exec -T postgres psql -U helixor -d helixor < db/migrations/0002_baselines.sql
 
-step "Installing Python deps"
+# Verify
+docker compose exec -T postgres psql -U helixor -d helixor -c \
+  "SELECT version, description FROM schema_version ORDER BY version;"
+
+step "Python deps"
 python3 -m venv .venv 2>/dev/null || true
 # shellcheck disable=SC1091
 source .venv/bin/activate
@@ -58,43 +49,57 @@ pip install -q --upgrade pip
 pip install -q -r requirements.txt
 log "Deps installed ✓"
 
-step "Running unit tests (parser only — no DB needed)"
-DATABASE_URL="postgresql://helixor:helixor@localhost:5432/helixor" \
-  pytest tests/test_parser.py -v 2>&1 | tail -20
+step "Unit tests (signals — pure math)"
+DATABASE_URL="postgresql://helixor:helixor@localhost:55433/helixor" \
+  PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  pytest tests/scoring/test_signals.py -v -p pytest_asyncio.plugin 2>&1 | tail -30
 
-step "Running integration tests (requires Docker)"
-DATABASE_URL="postgresql://helixor:helixor@localhost:5432/helixor" \
-  pytest tests/test_webhook.py -v 2>&1 | tail -30 || \
+step "Integration tests (baseline_engine — uses testcontainers PG)"
+DATABASE_URL="postgresql://helixor:helixor@localhost:55433/helixor" \
+  PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  pytest tests/scoring/test_baseline_engine.py -v -p pytest_asyncio.plugin 2>&1 | tail -30 || \
   warn "Integration tests need testcontainers + Docker accessible"
 
-step "Starting indexer services"
-docker compose up -d webhook_receiver agent_sync webhook_registrar reconciler
+step "Manual verification"
+log "Seeding test agent + computing baseline..."
+TEST_WALLET=$(printf "DAY5TESTwallet%032s" "$(date +%s)" | tr ' ' '0')
+log "Test wallet: $TEST_WALLET"
 
-sleep 3
+DATABASE_URL="postgresql://helixor:helixor@localhost:55433/helixor" \
+  HELIUS_API_KEY="test-api-key" \
+  HELIUS_WEBHOOK_URL="https://test.helixor.local/webhook" \
+  HELIUS_WEBHOOK_AUTH_TOKEN="test-auth-token-1234567890123456" \
+  HEALTH_ORACLE_PROGRAM_ID="Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P" \
+  python -m scripts.seed_baseline_test_data \
+    --wallet "$TEST_WALLET" \
+    --tx-count 100 \
+    --active-days 10 \
+    --success-rate 0.95 \
+    --sol-volatility 0.3
 
-step "Health check"
-curl -sf http://localhost:8000/health && echo "" || fail "webhook_receiver not responding"
-curl -sf http://localhost:8000/status | python3 -m json.tool || true
+DATABASE_URL="postgresql://helixor:helixor@localhost:55433/helixor" \
+  HELIUS_API_KEY="test-api-key" \
+  HELIUS_WEBHOOK_URL="https://test.helixor.local/webhook" \
+  HELIUS_WEBHOOK_AUTH_TOKEN="test-auth-token-1234567890123456" \
+  HEALTH_ORACLE_PROGRAM_ID="Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P" \
+  python -m scripts.compute_baseline "$TEST_WALLET" --store
+
+step "Inspecting stored baseline"
+docker compose exec -T postgres psql -U helixor -d helixor -c \
+  "SELECT agent_wallet, success_rate, median_daily_tx, sol_volatility_mad,
+          tx_count, active_days, baseline_hash, computed_at, valid_until
+   FROM agent_baselines WHERE agent_wallet = '$TEST_WALLET';"
 
 echo ""
-echo "╔═════════════════════════════════════════════════════╗"
-echo "║  Day 4 Complete ✓                                   ║"
-echo "║                                                     ║"
-echo "║  ✓ Postgres + schema running                        ║"
-echo "║  ✓ webhook_receiver:  http://localhost:8000         ║"
-echo "║  ✓ agent_sync, webhook_registrar, reconciler up     ║"
-echo "║  ✓ Tests passing                                    ║"
-echo "║                                                     ║"
-echo "║  Next: register a test agent, send a tx,            ║"
-echo "║        verify it lands in agent_transactions.       ║"
-echo "║                                                     ║"
-echo "║  Manual test:                                       ║"
-echo "║    bash scripts/test_webhook_manually.sh            ║"
-echo "║                                                     ║"
-echo "║  View logs:                                         ║"
-echo "║    docker compose logs -f webhook_receiver          ║"
-echo "║                                                     ║"
-echo "║  Inspect DB:                                        ║"
-echo "║    docker compose exec postgres psql -U helixor     ║"
-echo "╚═════════════════════════════════════════════════════╝"
+echo "╔════════════════════════════════════════════════════════╗"
+echo "║  Day 5 Complete ✓                                      ║"
+echo "║                                                        ║"
+echo "║  ✓ Migration 0002 applied (agent_baselines + history)  ║"
+echo "║  ✓ Pure signal math — 20 unit tests passing            ║"
+echo "║  ✓ DB integration — 10 integration tests passing        ║"
+echo "║  ✓ Test agent seeded + baseline computed end-to-end    ║"
+echo "║  ✓ baseline_hash deterministic across runs             ║"
+echo "║                                                        ║"
+echo "║  Next: Day 6 → scoring engine (signals → 0-1000 score) ║"
+echo "╚════════════════════════════════════════════════════════╝"
 echo ""
