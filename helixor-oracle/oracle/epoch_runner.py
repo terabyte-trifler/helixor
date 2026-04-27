@@ -61,7 +61,7 @@ MAX_AGENTS_PER_PASS = 100
 OUTCOMES = (
     "submitted", "too_frequent", "delta_too_large",
     "unauthorized", "paused", "deactivated",
-    "transient_failed", "no_score",
+    "transient_failed", "no_score", "invalid_wallet",
 )
 
 
@@ -79,6 +79,14 @@ async def submit_with_retry(
     score_row = await score_repo.get_full_current_score(conn, agent_wallet)
     if score_row is None:
         return ("no_score", None)
+
+    try:
+        Pubkey.from_string(agent_wallet)
+    except ValueError:
+        bound_log = log.bind(agent=agent_wallet[:12] + "...")
+        bound_log.warning("invalid_agent_wallet_skipping")
+        await score_repo.mark_score_onchain(conn, agent_wallet, "INVALID_AGENT_WALLET")
+        return ("invalid_wallet", None)
 
     # Reconstruct ScoreResult-shaped object for submit (we only need the
     # fields the on-chain payload uses).

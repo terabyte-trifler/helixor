@@ -1,0 +1,35 @@
+{
+  "name": "@helixor/e2e",
+  "version": "0.10.0",
+  "private": true,
+  "description": "End-to-end loop validation — registration → observation → scoring → on-chain → SDK.",
+  "license": "MIT",
+  "scripts": {
+    "test":              "vitest run",
+    "test:watch":        "vitest",
+    "test:loop":         "vitest run tests/full_loop.test.ts",
+    "test:cpi":          "vitest run tests/consumer_cpi.test.ts",
+    "test:smoke":        "vitest run tests/smoke.test.ts",
+    "seed":              "tsx scripts/seed_loop_state.ts",
+    "teardown":          "tsx scripts/teardown.ts",
+    "setup":             "tsx scripts/setup.ts",
+    "typecheck":         "tsc --noEmit",
+    "lint":              "eslint tests scripts --max-warnings 0"
+  },
+  "engines": { "node": ">=18" },
+  "devDependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
+    "@helixor/client":   "file:../helixor-sdk",
+    "@solana/web3.js":   "^1.91.1",
+    "@types/node":       "^20.12.0",
+    "@types/pg":         "^8.11.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser":        "^7.0.0",
+    "bs58":              "^5.0.0",
+    "eslint":            "^8.57.0",
+    "pg":                "^8.11.5",
+    "tsx":               "^4.7.0",
+    "typescript":        "^5.4.5",
+    "vitest":            "^1.4.0"
+  }
+}

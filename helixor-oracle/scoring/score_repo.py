@@ -148,8 +148,12 @@ async def find_unsynced_scores(conn: asyncpg.Connection) -> list[str]:
     """Agents whose current score has not yet been written on-chain."""
     rows = await conn.fetch(
         """
-        SELECT agent_wallet FROM agent_scores
-        WHERE written_onchain_at IS NULL
+        SELECT sc.agent_wallet
+        FROM agent_scores sc
+        JOIN registered_agents ra
+          ON ra.agent_wallet = sc.agent_wallet
+        WHERE sc.written_onchain_at IS NULL
+          AND ra.active = TRUE
         ORDER BY computed_at ASC
         """,
     )

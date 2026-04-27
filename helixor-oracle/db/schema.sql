@@ -85,8 +85,8 @@ CREATE TABLE IF NOT EXISTS agent_transactions (
     fee             BIGINT NOT NULL DEFAULT 0,
     raw_meta        JSONB NOT NULL,
     received_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    source          TEXT NOT NULL DEFAULT 'webhook'             -- webhook | backfill | replay
-        CHECK (source IN ('webhook','backfill','replay'))
+    source          TEXT NOT NULL DEFAULT 'webhook'             -- webhook | backfill | replay | e2e_seed
+        CHECK (source IN ('webhook','backfill','replay','e2e_seed'))
 );
 
 -- Primary read pattern: "give me last 7 days for agent X ordered by time DESC"
