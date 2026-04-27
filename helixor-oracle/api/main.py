@@ -22,7 +22,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.routes import score, status
+from api.routes import registration, score, status
 from indexer import db
 
 log = structlog.get_logger(__name__)
@@ -65,7 +65,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],          # TODO: restrict to known consumers in prod
     allow_credentials=False,
-    allow_methods=["GET", "OPTIONS"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
     max_age=3600,
 )
@@ -131,6 +131,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 # Routes
 # ─────────────────────────────────────────────────────────────────────────────
 app.include_router(score.router,  tags=["score"])
+app.include_router(registration.router, tags=["registration"])
 app.include_router(status.router, tags=["operational"])
 
 
