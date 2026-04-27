@@ -1,4 +1,8 @@
-# Helixor Oracle — Day 6
+# Helixor Oracle
+
+> This folder now includes the Day 7 epoch runner and Day 8 REST API in
+> addition to the Day 6 scoring engine below. For the latest project-wide
+> status and run instructions, start with the top-level `README.md`.
 
 > **Scoring engine.** Three signals → one number between 0 and 1000.
 > Stable agents score ≥ 700 (GREEN). Failing agents score < 400 (RED).

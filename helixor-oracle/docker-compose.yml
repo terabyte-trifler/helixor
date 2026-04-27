@@ -1,5 +1,8 @@
 version: "3.9"
 
+# Day 8 docker-compose ADDITION — adds 'api' service alongside Day 4-7 services.
+# Replace your existing docker-compose.yml with this one.
+
 services:
 
   postgres:
@@ -8,6 +11,7 @@ services:
       POSTGRES_USER:     helixor
       POSTGRES_PASSWORD: helixor
       POSTGRES_DB:       helixor
+    # Use 55433 on the host so we don't collide with any local Postgres.
     ports: ["55433:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -29,7 +33,6 @@ services:
       HELIUS_WEBHOOK_AUTH_TOKEN:   ${HELIUS_WEBHOOK_AUTH_TOKEN:-changeme-make-it-32-chars-long}
       HEALTH_ORACLE_PROGRAM_ID:    ${HEALTH_ORACLE_PROGRAM_ID:-Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P}
       SOLANA_RPC_URL:              ${SOLANA_RPC_URL:-https://api.devnet.solana.com}
-      ORACLE_KEYPAIR_PATH:         /run/secrets/oracle_keypair
     ports: ["8000:8000"]
     command: ["uvicorn", "indexer.webhook_receiver:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
@@ -62,23 +65,24 @@ services:
     command: ["python", "-m", "scoring.scheduler"]
     restart: unless-stopped
 
-  # ── Day 7: epoch runner — submits scores on-chain ────────────────────────
   epoch_runner:
     build: .
     depends_on: { postgres: { condition: service_healthy } }
-    environment: *shared
-    command: ["python", "-m", "oracle.epoch_runner"]
+    environment:
+      <<: *shared
+      ORACLE_KEYPAIR_PATH: ${ORACLE_KEYPAIR_PATH:-/app/keys/oracle-node.json}
     volumes:
-      # Mount oracle keypair from host. NEVER bake into image.
-      - type: bind
-        source: ${ORACLE_KEYPAIR_HOST_PATH:-./keys/oracle-node.json}
-        target: /run/secrets/oracle_keypair
-        read_only: true
-      # Mount IDL produced by `anchor build` in helixor-programs/
-      - type: bind
-        source: ../helixor-programs/target/idl
-        target: /app/idl
-        read_only: true
+      - ../helixor-programs/keys:/app/keys:ro
+    command: ["python", "-m", "oracle.epoch_runner"]
+    restart: unless-stopped
+
+  # ── Day 8: REST API ──────────────────────────────────────────────────────
+  api:
+    build: .
+    depends_on: { postgres: { condition: service_healthy } }
+    environment: *shared
+    ports: ["8001:8001"]
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8001"]
     restart: unless-stopped
 
 volumes:

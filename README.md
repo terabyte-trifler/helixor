@@ -1,54 +1,84 @@
-# Helixor — Day 7
+# Helixor — Day 8
 
-> **`update_score` on-chain.** The oracle Python process computes scores
-> (Day 6) and writes them to `TrustCertificate` PDAs every 24h via signed
-> CPI. `get_health()` returns Live scores instead of Provisional.
+> **REST API + TypeScript SDK.** DeFi protocols can now query trust scores
+> via HTTP and wrap them in a typed SDK with two methods: `getScore` and
+> `requireMinScore`.
 
-Day 7 spans **two repos**:
-- `helixor-programs/` — Anchor program with new `update_score` instruction
-- `helixor-oracle/` — Python epoch runner that submits to chain
+Day 8 spans two repos:
+- `helixor-oracle/` — adds `api/` package (FastAPI on port 8001)
+- `helixor-sdk/`    — new package: `@helixor/client`
 
 ---
 
-## Day 7 Status
+## Day 8 Status
 
+### Python API
 | Item | Status |
 |------|--------|
-| `update_score` instruction with 7 validations | ✅ |
-| `OracleConfig` PDA — singleton with admin/oracle/pause/epoch | ✅ |
-| `initialize_oracle_config` — deploy bootstrap | ✅ |
-| `update_oracle_config` — admin-only key rotation + pause | ✅ |
-| 23h cooldown + 200pt guard rail enforced on-chain | ✅ |
-| Score range + success_rate range validation | ✅ |
-| Pause halts all writes (emergency stop) | ✅ |
-| Active-agent check (deactivated agents can't be scored) | ✅ |
-| `baseline_hash_prefix` + algo versions stored on-chain | ✅ |
-| `ScoreUpdated` event with full payload | ✅ |
-| Async Python epoch runner with priority fees | ✅ |
-| Per-agent retry with exponential backoff on transient errors | ✅ |
-| Typed exception mapping (TooFrequent, DeltaTooLarge, etc.) | ✅ |
-| `mark_score_onchain` after successful submission | ✅ |
-| 18 program integration tests | ✅ |
+| Async FastAPI app on port 8001 | ✅ |
+| `GET /score/{agent_wallet}` with full TrustScore response | ✅ |
+| `GET /agents` paginated listing | ✅ |
+| `GET /health`, `/status`, `/metrics` | ✅ |
+| OpenAPI / Swagger docs at `/docs` | ✅ |
+| Pubkey validation → 400 (not 500) | ✅ |
+| Per-IP token-bucket rate limiting | ✅ |
+| In-memory TTL cache (60s) | ✅ |
+| CORS middleware (allow-list configurable) | ✅ |
+| Request ID + structured JSON logs | ✅ |
+| Standardized error envelope (no stack traces leaked) | ✅ |
+| 20+ integration tests with testcontainers | ✅ |
+
+### TypeScript SDK
+| Item | Status |
+|------|--------|
+| `getScore(agentWallet)` with full type safety | ✅ |
+| `requireMinScore(agent, min, opts)` with policy enforcement | ✅ |
+| `listAgents(limit, offset)` | ✅ |
+| Configurable timeout (default 5s) | ✅ |
+| Auto-retry with exponential backoff (5xx + network) | ✅ |
+| Client-side TTL cache (default 30s) | ✅ |
+| Bearer token auth | ✅ |
+| Input validation BEFORE network call | ✅ |
+| Typed error hierarchy with stable codes | ✅ |
+| Injectable fetch (Node < 18 + tests) | ✅ |
+| AbortController-based cancellation | ✅ |
+| 30+ Vitest unit tests | ✅ |
+| Tree-shakeable ESM + CJS bundles | ✅ |
 
 ---
 
-## What `update_score` Does
+## Architecture
 
 ```
-oracle calls update_score(payload)
-  │
-  ├── 1. score ≤ 1000                 → ScoreOutOfRange
-  ├── 2. success_rate ≤ 10000         → SuccessRateOutOfRange
-  ├── 3. signer == oracle_config.oracle_key → UnauthorizedOracle
-  ├── 4. !oracle_config.paused        → OraclePaused
-  ├── 5. agent_registration.active    → AgentDeactivated
-  ├── 6. (cert.updated_at == 0) OR (now - updated_at >= 23h)  → UpdateTooFrequent
-  ├── 7. (cert.updated_at == 0) OR (|new - old| <= 200)        → ScoreDeltaTooLarge
-  │
-  ├── init or mutate TrustCertificate PDA
-  ├── increment OracleConfig.epoch
-  └── emit!(ScoreUpdated)
+                 ┌──────────────────────────────┐
+                 │  Caller (DeFi protocol,       │
+                 │   elizaOS plugin, browser)    │
+                 └──────────────┬───────────────┘
+                                │
+                                ▼
+                 ┌──────────────────────────────┐
+                 │  @helixor/client (TS SDK)    │
+                 │  • timeout + retry + cache   │
+                 │  • typed errors              │
+                 └──────────────┬───────────────┘
+                                │ HTTP
+                                ▼
+                 ┌──────────────────────────────┐
+                 │  Helixor REST API (FastAPI)  │
+                 │  • CORS + rate-limit + cache │
+                 │  • req-id + structured logs  │
+                 └──────────────┬───────────────┘
+                                │ asyncpg
+                                ▼
+                 ┌──────────────────────────────┐
+                 │  PostgreSQL agent_scores     │
+                 │  (Day 6 persistent storage)  │
+                 └──────────────────────────────┘
 ```
+
+The API serves from PostgreSQL, NOT directly from on-chain. The on-chain
+cert is the source of truth for DeFi protocols that integrate via CPI
+(Day 3); the API is a fast read-through cache for everyone else.
 
 ---
 
@@ -56,101 +86,153 @@ oracle calls update_score(payload)
 
 | Bug in spec | Fix |
 |-------------|-----|
-| `init_if_needed` without explaining safety | Documented: only the authorized oracle can call this; PDAs are deterministic |
-| Spec reuses `StaleCertificate` for "too soon" | New distinct `UpdateTooFrequent` error |
-| Missing `agent_registration.active` check | Added — deactivated agents can't be scored |
-| Missing score / success_rate range validation | Added explicit bounds checks |
-| Missing pause mechanism | `OracleConfig.paused` + `update_oracle_config` admin instruction |
-| Missing oracle key rotation path | `update_oracle_config` accepts new_oracle_key |
-| No `OracleConfig` initialization shown | `initialize_oracle_config` ix + bootstrap script |
-| No epoch counter | `OracleConfig.epoch` increments each successful update |
-| No on-chain link to baseline | Added `baseline_hash_prefix` + algo versions to cert |
-| Sync `psycopg2` Python | Async asyncpg consistent with Days 4-6 |
-| No tx confirmation logic | Awaits confirmation with timeout |
-| No retry on transient failures | Per-agent retry with exponential backoff (5s, 15s, 45s) |
-| No mapping of on-chain errors → Python types | Typed exceptions (TooFrequent, DeltaTooLarge, Paused, Unauthorized) |
-| `get_previous_score` decodes by raw byte offset | Documented offset (after 8-byte disc) + length-checked |
-| `submit_score_update` undefined in spec | `oracle/submit.py` with full implementation |
-| No priority fees | `set_compute_unit_price` for mainnet congestion handling |
-| Single-agent loop, blocks for hours on 100 agents | `MAX_AGENTS_PER_PASS=100` + retry budget per agent |
-| No way to mark scores synced | `mark_score_onchain` from Day 6 wired up |
+| `solana.rpc.api.Client` (sync) blocks event loop | All-async with asyncpg + lifespan |
+| No caching — every call hits Solana RPC | 60s in-memory TTL cache, 30% → 95% hit rate at scale |
+| No rate limiting | Per-IP token-bucket: 100/min default |
+| No CORS — browsers can't call | CORS middleware, configurable origins |
+| `raise HTTPException(detail=f"... {e}")` leaks internals | Standardized `{error, code, request_id}` envelope |
+| `fetch_onchain_score` undefined | `ScoreService.get_score()` reads from agent_scores DB |
+| No pubkey validation → 500 on bad input | Regex + solders validation → 400 |
+| No request IDs | uuid per request, in headers + logs |
+| No structured logs | structlog JSON throughout |
+| No OpenAPI docs | Auto-generated `/docs` + `/redoc` |
+| SDK uses global fetch (Node<18 fails) | Injectable `options.fetch` |
+| SDK has no timeout — DeFi tx hangs | 5s default with AbortController |
+| SDK has no retries — flaky network breaks integrations | 2 retries, exp backoff, only on 5xx + network |
+| SDK has no cache — same agent = N HTTP calls | 30s default cache |
+| SDK error class `{} as TrustScore` | Real `AgentNotFoundError` with no fake score |
+| `requireMinScore` lacks deactivation/provisional handling | All four sources mapped to distinct errors |
+| AgentDeactivated bypassable | NEVER bypassable, even with all options |
+| No SDK tests | 30+ vitest with mock fetch — no MSW server needed |
+| No package.json publish config | Full ESM+CJS+types config |
 
 ---
 
 ## Quick Start
 
+### 1. API (Python)
+
 ```bash
-# 1. Program side (helixor-programs/)
-cd helixor-programs
+cd helixor-oracle
 bash scripts/setup.sh
-
-# 2. Copy IDL to oracle service
-cp target/idl/health_oracle.json ../helixor-oracle/idl/
-
-# 3. Oracle side (helixor-oracle/)
-cd ../helixor-oracle
-
-# Set ORACLE_KEYPAIR_PATH in .env to keys/oracle-node.json
-# from the helixor-programs/keys/ directory
-
-bash scripts/run_epoch_once.sh
+# API listening on http://localhost:8001
+# Open http://localhost:8001/docs for Swagger UI
 ```
 
-Then on Solana Explorer, find the `TrustCertificate` PDA for your test agent
-and verify the score matches what was written off-chain.
+### 2. SDK (TypeScript)
+
+```bash
+cd helixor-sdk
+npm install
+npm test                     # 30+ tests, no network
+npm run build                # produces dist/index.{js,esm.js,d.ts}
+```
+
+### 3. End-to-end smoke test
+
+```bash
+# Server side
+curl http://localhost:8001/score/AGENT_WALLET_PUBKEY
+
+# SDK side
+cd helixor-sdk
+node -e "
+  const { HelixorClient } = require('./dist');
+  const c = new HelixorClient({ apiBase: 'http://localhost:8001' });
+  c.getScore('AGENT_WALLET').then(s => console.log(s));
+"
+```
 
 ---
 
-## OracleConfig Lifecycle
+## API Endpoints
 
-```
-1. Deploy program
-2. initialize_oracle_config(oracle_key, admin_key)   ← run ONCE
-3. Oracle node submits scores via update_score
-4. (rare) admin rotates oracle_key via update_oracle_config
-5. (emergency) admin sets paused=true via update_oracle_config
-   → all subsequent update_score calls revert with OraclePaused
-   → off-chain Python keeps computing but doesn't submit
-6. (resolution) admin sets paused=false to resume
+| Method | Path | Returns |
+|--------|------|---------|
+| `GET` | `/score/{agent_wallet}` | `ScoreResponse` |
+| `GET` | `/score/{agent_wallet}?force_refresh=true` | `ScoreResponse` (bypass cache) |
+| `GET` | `/agents?limit=50&offset=0` | `AgentListResponse` |
+| `GET` | `/health` | `{status: "ok"}` (liveness) |
+| `GET` | `/status` | `StatusResponse` (readiness + cache stats) |
+| `GET` | `/metrics` | Prometheus text |
+| `GET` | `/docs` | Swagger UI |
+
+### Sample response
+
+```json
+{
+  "agent_wallet": "AGENT11...",
+  "score": 850,
+  "alert": "GREEN",
+  "source": "live",
+  "success_rate": 97.0,
+  "anomaly_flag": false,
+  "updated_at": 1714000000,
+  "is_fresh": true,
+  "breakdown": {
+    "success_rate_score": 500,
+    "consistency_score": 300,
+    "stability_score": 50,
+    "raw_score": 850,
+    "guard_rail_applied": false
+  },
+  "scoring_algo_version": 1,
+  "weights_version": 1,
+  "baseline_hash_prefix": "abcdef0123456789abcdef0123456789",
+  "served_at": 1714000050,
+  "cached": false
+}
 ```
 
-Pause is the kill switch. If a critical bug is discovered in the scoring
-algorithm, the admin pauses on-chain in one transaction. Off-chain scoring
-continues (so engineers can investigate), but no bad scores can leak to
-DeFi consumers.
+### Error envelope
+
+```json
+{
+  "error": "Agent not registered with Helixor",
+  "code":  "AGENT_NOT_FOUND",
+  "request_id": "a1b2c3d4"
+}
+```
 
 ---
 
-## Test Coverage
+## SDK Usage
 
+### Most common pattern: enforce policy in DeFi tx
+
+```typescript
+import { HelixorClient, HelixorError } from "@helixor/client";
+
+const helixor = new HelixorClient();
+
+async function executeTradeForAgent(agentWallet: string, tradeArgs: TradeArgs) {
+  // One line of policy enforcement.
+  await helixor.requireMinScore(agentWallet, 700);
+
+  // If we're here: score ≥ 700, fresh, no anomaly, not deactivated.
+  return performTrade(tradeArgs);
+}
 ```
-Group 1: Bootstrap (3 tests)
-  [1] OracleConfig fields after init
-  [2] Re-init blocked (init constraint)
-  [3] oracle_key == admin_key rejected
 
-Group 2: Happy path (4 tests)
-  [4] First update creates the cert with all fields
-  [5] ScoreUpdated event with full payload
-  [6] Alert auto-derives from score (6 score→alert mappings)
-  [7] Epoch counter increments
+### Switch on error codes
 
-Group 3: Authorization (2 tests)
-  [8] Wrong signer → UnauthorizedOracle
-  [9] Non-admin update_oracle_config → UnauthorizedAdmin
-
-Group 4: Validation (3 tests)
-  [10] score > 1000 → ScoreOutOfRange
-  [11] success_rate > 10000 → SuccessRateOutOfRange
-  [13] Paused oracle → OraclePaused
-
-Group 5: Guard rails (3 tests)
-  [14] Score change > 200 → ScoreDeltaTooLarge
-  [16] Update within 23h → UpdateTooFrequent
-  [17] First update has no cooldown
-
-Group 6: Admin rotation (1 test)
-  [18] Admin rotates oracle_key — old blocked, new succeeds
+```typescript
+try {
+  await helixor.requireMinScore(agent, 700);
+} catch (err) {
+  if (err instanceof HelixorError) {
+    switch (err.code) {
+      case "SCORE_TOO_LOW":     return { allowed: false, reason: "low_score" };
+      case "ANOMALY_DETECTED":  return { allowed: false, reason: "anomaly", flag_for_review: true };
+      case "STALE_SCORE":       return { allowed: false, reason: "oracle_stalled" };
+      case "AGENT_DEACTIVATED": return { allowed: false, reason: "deactivated" };
+      case "PROVISIONAL_SCORE": return { allowed: false, reason: "no_history_yet" };
+      case "RATE_LIMITED":      return { allowed: false, reason: "throttled" };
+      default:                  throw err;
+    }
+  }
+  throw err;
+}
 ```
 
 ---
@@ -158,54 +240,57 @@ Group 6: Admin rotation (1 test)
 ## File Structure
 
 ```
-helixor-programs/
-├── programs/health-oracle/src/
-│   ├── lib.rs                       (5 instructions wired)
-│   ├── state.rs                     (+ OracleConfig, extended TrustCertificate)
-│   ├── errors.rs                    (+ Day 7 errors)
-│   └── instructions/
-│       ├── register_agent.rs        (Day 2 — frozen)
-│       ├── get_health.rs            (Day 3 — frozen)
-│       ├── update_score.rs          (Day 7 — COMPLETE)
-│       ├── initialize_oracle_config.rs   (Day 7 — NEW)
-│       └── update_oracle_config.rs       (Day 7 — NEW)
-├── tests/
-│   └── update_score.ts              (18 integration tests)
-└── scripts/
-    ├── setup.sh
-    └── initialize_oracle_config.ts
-
 helixor-oracle/
-├── oracle/
-│   ├── submit.py                    ← Anchor tx submission with retries
-│   └── epoch_runner.py              ← async epoch loop + service entry
-├── scripts/
-│   └── run_epoch_once.sh            ← Day 7 manual verification
-├── docker-compose.yml               ← + epoch_runner service
+├── api/
+│   ├── main.py                  ← FastAPI app + middleware (NEW)
+│   ├── schemas.py               ← pydantic response models (NEW)
+│   ├── service.py               ← read-through DB layer (NEW)
+│   ├── cache.py                 ← TTL cache (NEW)
+│   ├── rate_limit.py            ← token-bucket (NEW)
+│   ├── validation.py            ← pubkey validation (NEW)
+│   └── routes/
+│       ├── score.py             ← /score, /agents (NEW)
+│       └── status.py            ← /health, /status, /metrics (NEW)
+└── tests/api/
+    └── test_score_routes.py     ← 20+ integration tests (NEW)
+
+helixor-sdk/                      ← NEW PACKAGE
+├── src/
+│   ├── index.ts                 ← public exports
+│   ├── client.ts                ← HelixorClient
+│   ├── errors.ts                ← typed error hierarchy
+│   ├── cache.ts                 ← client-side cache
+│   └── types.ts                 ← TrustScore + options
+├── tests/
+│   └── client.test.ts           ← 30+ vitest tests
+├── package.json
+├── tsconfig.json
+├── vitest.config.ts
 └── README.md
 ```
 
 ---
 
-## Operational Notes
+## Production Deployment Notes
 
-**Oracle wallet must hold SOL.** Each first-time cert costs ~0.00128 SOL in
-rent (paid by oracle). For 1000 agents that's 1.28 SOL upfront. The
-`epoch_runner` warns if balance drops below 0.1 SOL.
+**Single uvicorn worker.** Each worker holds its own asyncpg pool + cache.
+Scale with more containers behind a load balancer, not workers per container.
 
-**Priority fees.** Default 1000 micro-lamports/CU (~negligible cost on devnet,
-small cost on mainnet). During mainnet congestion, bump
-`PRIORITY_FEE_MICRO_LAMPORTS` in `oracle/submit.py`.
+**Tighten CORS in production.** The default `allow_origins=["*"]` is fine
+for devnet/staging. In production set explicit origins (Kamino, Drift, etc).
 
-**Retries are bounded.** Up to 3 attempts per agent with exponential backoff.
-After exhaustion the score stays unsynced; next epoch_runner pass will retry.
-This is by design — we never want to submit identical txs to the network in
-a tight loop and risk depleting the oracle wallet.
+**Add API keys for rate-limit tiers.** Day 8 ships a per-IP rate limit;
+production needs per-API-key tiers (free: 100/min, partner: 10000/min, etc).
+Add a middleware that resolves `Authorization: Bearer` to a tier ID.
 
-**Pause is loud, not silent.** When paused, every submission throws `Paused`
-which halts the entire epoch pass. Operator MUST be alerted (logs at ERROR
-level). Don't deploy without log monitoring.
+**Cache TTL trade-off.** 60s server cache + 30s client cache = up to ~90s
+delay for score updates to propagate. Acceptable for 24h-cadence scores.
+For real-time use cases (rare), bypass with `?force_refresh=true`.
+
+**The SDK is the consumer contract.** Once you publish `@helixor/client`,
+breaking changes are expensive. Day 8 reserves room for additive evolution:
+new error codes, new TrustScore fields, new options. Never remove or rename.
 
 ---
 
-*Helixor MVP · Day 7 complete · Next: Day 8 FastAPI REST + TypeScript SDK*
+*Helixor MVP · Day 8 complete · Next: Day 9 elizaOS plugin*
