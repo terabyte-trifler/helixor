@@ -58,6 +58,10 @@ class Settings(BaseSettings):
         ...,
         description="Helixor health-oracle program ID — for AgentRegistered event sync",
     )
+    oracle_keypair_path: str = Field(
+        ...,
+        description="Filesystem path to the oracle node keypair JSON used for update_score submissions",
+    )
 
     # ── Server ────────────────────────────────────────────────────────────────
     host: str = "0.0.0.0"

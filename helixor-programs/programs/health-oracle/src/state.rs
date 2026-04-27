@@ -1,15 +1,14 @@
 // =============================================================================
-// Helixor State — health-oracle program
+// Helixor State — Day 7 additions
 //
-// All structs frozen on Day 2. Day 3 only adds helper methods on the existing
-// types (no field changes — that would require a migration).
+// New: OracleConfig PDA (singleton), updated ScorePayload, updated
+// TrustCertificate to carry baseline_hash for on-chain audit.
 // =============================================================================
 
 use anchor_lang::prelude::*;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AgentRegistration PDA
-// Seeds: ["agent", agent_wallet_pubkey]   Created: register_agent (Day 2)
+// AgentRegistration PDA — unchanged from Day 2
 // ─────────────────────────────────────────────────────────────────────────────
 #[account]
 pub struct AgentRegistration {
@@ -20,7 +19,6 @@ pub struct AgentRegistration {
     pub active:          bool,    // 1
     pub bump:            u8,      // 1
     pub vault_bump:      u8,      // 1
-    // Total: 83 bytes
 }
 
 impl AgentRegistration {
@@ -30,30 +28,61 @@ impl AgentRegistration {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TrustCertificate PDA
-// Seeds: ["score", agent_wallet_pubkey]   Created: update_score (Day 7)
+// TrustCertificate PDA — EXTENDED for Day 7
+//
+// Added: baseline_hash (16 bytes — first 16 of sha256 baseline)
+//        scoring_algo_version (1 byte)
+//        weights_version (1 byte)
+// New total: 51 + 18 = 69 bytes data, +8 disc = 77 bytes
+//
+// Why baseline_hash on-chain: lets DeFi protocols verify which off-chain
+// baseline produced this score. With this, anyone can fetch the baseline
+// from public history and recompute the score deterministically.
 // ─────────────────────────────────────────────────────────────────────────────
 #[account]
 pub struct TrustCertificate {
-    pub agent_wallet: Pubkey,      // 32
-    pub score:        u16,         // 2
-    pub alert:        AlertLevel,  // 1
-    pub success_rate: u16,         // 2
-    pub tx_count_7d:  u32,         // 4
-    pub anomaly_flag: bool,        // 1
-    pub updated_at:   i64,         // 8
-    pub bump:         u8,          // 1
-    // Total: 51 bytes
+    pub agent_wallet:         Pubkey,      // 32
+    pub score:                u16,         // 2
+    pub alert:                AlertLevel,  // 1
+    pub success_rate:         u16,         // 2  (basis points)
+    pub tx_count_7d:          u32,         // 4
+    pub anomaly_flag:         bool,        // 1
+    pub updated_at:           i64,         // 8
+    pub bump:                 u8,          // 1
+    pub baseline_hash_prefix: [u8; 16],    // 16 (first 16 bytes of full hash)
+    pub scoring_algo_version: u8,          // 1
+    pub weights_version:      u8,          // 1
+    // Total: 32+2+1+2+4+1+8+1+16+1+1 = 69 bytes
 }
 
 impl TrustCertificate {
-    pub const INIT_SPACE:      usize = 51;
-    pub const MAX_AGE_SECONDS: i64   = 172_800; // 48h
+    pub const INIT_SPACE:      usize = 69;
+    pub const MAX_AGE_SECONDS: i64   = 172_800;   // 48h
     pub const MAX_SCORE_DELTA: u16   = 200;
+    pub const MIN_UPDATE_GAP:  i64   = 82_800;    // 23h
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AlertLevel — repr(u8) so byte representation is stable across SDKs
+// OracleConfig PDA — singleton (Day 7 NEW)
+// Seeds: ["oracle_config"]
+// Created once via initialize_oracle_config; mutated by update_oracle_config.
+// ─────────────────────────────────────────────────────────────────────────────
+#[account]
+pub struct OracleConfig {
+    pub oracle_key: Pubkey,       // 32 — currently authorised oracle node
+    pub admin_key:  Pubkey,       // 32 — only this key can rotate oracle_key
+    pub bump:       u8,           // 1
+    pub paused:     bool,         // 1 — emergency stop, blocks all writes
+    pub epoch:      u64,          // 8 — total scoring epochs run
+    // Total: 74 bytes
+}
+
+impl OracleConfig {
+    pub const INIT_SPACE: usize = 74;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AlertLevel — repr(u8) stable byte encoding
 // ─────────────────────────────────────────────────────────────────────────────
 #[repr(u8)]
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -74,7 +103,7 @@ impl AlertLevel {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RegisterParams — input to register_agent (Day 2)
+// RegisterParams — Day 2
 // ─────────────────────────────────────────────────────────────────────────────
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct RegisterParams {
@@ -82,71 +111,57 @@ pub struct RegisterParams {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TrustScore — return value of get_health (Day 3)
-//
-// This struct is the entire on-chain API surface that DeFi protocols depend on.
-// CHANGES TO THIS STRUCT ARE BREAKING. New fields can ONLY be added at the end,
-// never reordered, never removed. Bump scoring_version (TrustCertificate) when
-// the meaning of fields changes.
+// ScorePayload — EXTENDED for Day 7
+// Spec only had score, success_rate, tx_count_7d, anomaly_flag.
+// We add baseline_hash + version stamps for on-chain audit.
+// ─────────────────────────────────────────────────────────────────────────────
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct ScorePayload {
+    pub score:                u16,
+    pub success_rate:         u16,        // basis points
+    pub tx_count_7d:          u32,
+    pub anomaly_flag:         bool,
+    pub baseline_hash_prefix: [u8; 16],   // first 16 bytes of off-chain SHA-256
+    pub scoring_algo_version: u8,
+    pub weights_version:      u8,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TrustScore — return type of get_health (Day 3, unchanged here)
 // ─────────────────────────────────────────────────────────────────────────────
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug)]
 pub struct TrustScore {
-    /// The agent the score is for (mirrors input for safe routing in CPI).
-    pub agent: Pubkey,
-
-    /// 0-1000. Higher is more trustworthy.
-    pub score: u16,
-
-    /// Convenience tri-state derived from score.
-    pub alert: AlertLevel,
-
-    /// Success rate in basis points (9750 = 97.50%).
+    pub agent:        Pubkey,
+    pub score:        u16,
+    pub alert:        AlertLevel,
     pub success_rate: u16,
-
-    /// True if scoring engine flagged anomalous behaviour in this epoch.
     pub anomaly_flag: bool,
-
-    /// Unix timestamp of last oracle write. 0 means "no cert yet".
-    pub updated_at: i64,
-
-    /// True if cert was written within the last 48h.
-    /// Consumers SHOULD reject actions when is_fresh = false.
-    pub is_fresh: bool,
-
-    /// Why this score was returned. See ScoreSource for enum values.
-    /// Consumers can use this to apply different policies (e.g. allow PROVISIONAL
-    /// agents to do small-volume reads but block large-volume actions).
-    pub source: ScoreSource,
+    pub updated_at:   i64,
+    pub is_fresh:     bool,
+    pub source:       ScoreSource,
 }
 
-/// Why a particular TrustScore value was returned.
-/// Consumers inspect this to decide their policy.
 #[repr(u8)]
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ScoreSource {
-    /// Cert exists, fresh (< 48h), agent active. The normal happy path.
-    Live = 1,
-
-    /// Cert exists, but > 48h old. Score returned is the last known value;
-    /// is_fresh = false. Consumers should treat as untrusted.
-    Stale = 2,
-
-    /// Agent is registered but no cert exists yet (first 24h, oracle hasn't
-    /// run). Score = 500 (neutral), alert = Yellow, is_fresh = false.
+    Live        = 1,
+    Stale       = 2,
     Provisional = 3,
-
-    /// Agent has been deactivated by owner (active = false in registration).
-    /// Score = 0, alert = Red, is_fresh = true (this *is* the truth).
     Deactivated = 4,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ScorePayload — input to update_score (Day 7)
+// Initialize / update params for OracleConfig (Day 7 NEW)
 // ─────────────────────────────────────────────────────────────────────────────
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct ScorePayload {
-    pub score:        u16,
-    pub success_rate: u16,
-    pub tx_count_7d:  u32,
-    pub anomaly_flag: bool,
+pub struct InitOracleConfigParams {
+    pub oracle_key: Pubkey,
+    pub admin_key:  Pubkey,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct UpdateOracleConfigParams {
+    pub new_oracle_key: Option<Pubkey>,
+    pub new_admin_key:  Option<Pubkey>,
+    pub new_paused:     Option<bool>,
 }

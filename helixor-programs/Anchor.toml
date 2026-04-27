@@ -7,11 +7,11 @@ seeds     = true
 skip-lint = false
 
 [programs.localnet]
-health_oracle    = "Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P"
+health_oracle = "Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P"
 consumer_example = "94Gg1gnTZex9mFAJZHB3kLbTiJYYEcRvGTgkArftHJmu"
 
 [programs.devnet]
-health_oracle    = "Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P"
+health_oracle = "Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P"
 consumer_example = "94Gg1gnTZex9mFAJZHB3kLbTiJYYEcRvGTgkArftHJmu"
 
 [registry]

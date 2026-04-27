@@ -7,12 +7,12 @@ pub enum HelixorError {
     NameTooLong,
     #[msg("Agent name cannot be empty.")]
     NameEmpty,
-    #[msg("Owner balance is below the minimum required (0.01 SOL escrow + rent).")]
+    #[msg("Owner balance is below the minimum required.")]
     InsufficientEscrow,
     #[msg("Agent wallet must be different from the owner wallet.")]
     AgentSameAsOwner,
 
-    // Scoring / Query 6004-6008
+    // Scoring/Query 6004-6008
     #[msg("Agent is not registered with Helixor.")]
     NotRegistered,
     #[msg("Agent trust score is below the required minimum.")]
@@ -24,13 +24,27 @@ pub enum HelixorError {
     #[msg("Trust certificate account address does not match the canonical PDA.")]
     InvalidCertificateAddress,
 
-    // Guard rails 6009-6010
+    // Guard rails 6009-6012
     #[msg("Score change exceeds the 200-point per-epoch guard rail.")]
     ScoreDeltaTooLarge,
-    #[msg("Score already updated within the last 23 hours.")]
+    #[msg("Score updates must be at least 23 hours apart.")]
     UpdateTooFrequent,
+    #[msg("Cannot update score for a deactivated agent.")]
+    AgentDeactivated,
+    #[msg("Score must be in range 0-1000.")]
+    ScoreOutOfRange,
 
-    // Safety 6011
+    // Oracle config 6013-6016
+    #[msg("Caller is not the authorized Helixor admin.")]
+    UnauthorizedAdmin,
+    #[msg("Oracle is currently paused — no score updates accepted.")]
+    OraclePaused,
+    #[msg("Oracle key cannot equal admin key.")]
+    OracleKeyEqualsAdmin,
+    #[msg("Success rate basis points must be 0-10000.")]
+    SuccessRateOutOfRange,
+
+    // Safety 6017
     #[msg("Integer arithmetic overflow — please report this bug.")]
     MathOverflow,
 }

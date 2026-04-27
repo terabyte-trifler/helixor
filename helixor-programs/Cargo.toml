@@ -1,8 +1,6 @@
 [workspace]
-members  = [
-    "programs/health-oracle",
-    "programs/consumer-example",
-]
+members  = ["programs/health-oracle"]
+exclude  = ["programs/consumer-example"]
 resolver = "2"
 
 [workspace.dependencies]

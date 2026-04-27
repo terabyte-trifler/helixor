@@ -16,7 +16,7 @@ no-log-ix-name = []
 idl-build      = ["anchor-lang/idl-build", "health-oracle/idl-build"]
 
 [dependencies]
-anchor-lang   = { workspace = true }
+anchor-lang   = { version = "0.32.1", features = ["init-if-needed"] }
 
 # Depend on health-oracle as a CPI source. The `cpi` feature excludes the
 # entrypoint and exposes the cpi module so we can call get_health.

@@ -1,14 +1,9 @@
-// =============================================================================
-// register_agent — Day 2 (frozen for Day 3)
-// =============================================================================
-
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{self, Transfer as SystemTransfer};
 
 use crate::{
     errors::HelixorError,
     state::{AgentRegistration, RegisterParams},
-    RegisterAgent,
 };
 
 pub fn handler(ctx: Context<RegisterAgent>, params: RegisterParams) -> Result<()> {
@@ -23,15 +18,11 @@ pub fn handler(ctx: Context<RegisterAgent>, params: RegisterParams) -> Result<()
         HelixorError::AgentSameAsOwner
     );
 
+    let reg   = &mut ctx.accounts.agent_registration;
     let clock = Clock::get()?;
-    let owner_key = ctx.accounts.owner.key();
-    let agent_key = ctx.accounts.agent_wallet.key();
-    let registration_pda = ctx.accounts.agent_registration.key();
-    let vault_pda = ctx.accounts.escrow_vault.key();
-    let reg = &mut ctx.accounts.agent_registration;
 
-    reg.agent_wallet    = agent_key;
-    reg.owner_wallet    = owner_key;
+    reg.agent_wallet    = ctx.accounts.agent_wallet.key();
+    reg.owner_wallet    = ctx.accounts.owner.key();
     reg.registered_at   = clock.unix_timestamp;
     reg.escrow_lamports = AgentRegistration::MIN_ESCROW_LAMPORTS;
     reg.active          = true;
@@ -54,12 +45,42 @@ pub fn handler(ctx: Context<RegisterAgent>, params: RegisterParams) -> Result<()
         owner:            reg.owner_wallet,
         name:             params.name.clone(),
         escrow_lamports:  AgentRegistration::MIN_ESCROW_LAMPORTS,
-        registration_pda,
-        vault_pda,
+        registration_pda: ctx.accounts.agent_registration.key(),
+        vault_pda:        ctx.accounts.escrow_vault.key(),
         timestamp:        clock.unix_timestamp,
     });
 
     Ok(())
+}
+
+#[derive(Accounts)]
+pub struct RegisterAgent<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    /// CHECK: validated != owner
+    pub agent_wallet: UncheckedAccount<'info>,
+
+    #[account(
+        init,
+        payer  = owner,
+        space  = 8 + AgentRegistration::INIT_SPACE,
+        seeds  = [b"agent", agent_wallet.key().as_ref()],
+        bump,
+    )]
+    pub agent_registration: Account<'info, AgentRegistration>,
+
+    #[account(
+        init,
+        payer  = owner,
+        space  = 0,
+        seeds  = [b"escrow", agent_wallet.key().as_ref()],
+        bump,
+    )]
+    /// CHECK: created here as a system-owned PDA with zero data.
+    pub escrow_vault: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[event]

@@ -8,12 +8,11 @@ services:
       POSTGRES_USER:     helixor
       POSTGRES_PASSWORD: helixor
       POSTGRES_DB:       helixor
-    ports:
-      - "55433:5432"
+    ports: ["55433:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./db/migrations/0002_baselines.sql:/docker-entrypoint-initdb.d/02-baselines.sql:ro
+      - ./db/migrations:/docker-entrypoint-initdb.d/migrations:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U helixor -d helixor"]
       interval: 5s
@@ -22,54 +21,64 @@ services:
 
   webhook_receiver:
     build: .
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
+    depends_on: { postgres: { condition: service_healthy } }
+    environment: &shared
       DATABASE_URL:                postgresql://helixor:helixor@postgres:5432/helixor
       HELIUS_API_KEY:              ${HELIUS_API_KEY:-changeme}
       HELIUS_WEBHOOK_URL:          ${HELIUS_WEBHOOK_URL:-https://example.com/webhook}
       HELIUS_WEBHOOK_AUTH_TOKEN:   ${HELIUS_WEBHOOK_AUTH_TOKEN:-changeme-make-it-32-chars-long}
-      HEALTH_ORACLE_PROGRAM_ID:    ${HEALTH_ORACLE_PROGRAM_ID:-HLXorac1eXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX}
+      HEALTH_ORACLE_PROGRAM_ID:    ${HEALTH_ORACLE_PROGRAM_ID:-Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P}
       SOLANA_RPC_URL:              ${SOLANA_RPC_URL:-https://api.devnet.solana.com}
-    ports:
-      - "8000:8000"
+      ORACLE_KEYPAIR_PATH:         /run/secrets/oracle_keypair
+    ports: ["8000:8000"]
     command: ["uvicorn", "indexer.webhook_receiver:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
 
   agent_sync:
     build: .
     depends_on: { postgres: { condition: service_healthy } }
-    environment: &shared_env
-      DATABASE_URL:                postgresql://helixor:helixor@postgres:5432/helixor
-      HELIUS_API_KEY:              ${HELIUS_API_KEY:-changeme}
-      HELIUS_WEBHOOK_URL:          ${HELIUS_WEBHOOK_URL:-https://example.com/webhook}
-      HELIUS_WEBHOOK_AUTH_TOKEN:   ${HELIUS_WEBHOOK_AUTH_TOKEN:-changeme-make-it-32-chars-long}
-      HEALTH_ORACLE_PROGRAM_ID:    ${HEALTH_ORACLE_PROGRAM_ID:-HLXorac1eXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX}
-      SOLANA_RPC_URL:              ${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+    environment: *shared
     command: ["python", "-m", "indexer.agent_sync"]
     restart: unless-stopped
 
   webhook_registrar:
     build: .
     depends_on: { postgres: { condition: service_healthy } }
-    environment: *shared_env
+    environment: *shared
     command: ["python", "-m", "indexer.webhook_registrar"]
     restart: unless-stopped
 
   reconciler:
     build: .
     depends_on: { postgres: { condition: service_healthy } }
-    environment: *shared_env
+    environment: *shared
     command: ["python", "-m", "indexer.reconciler"]
     restart: unless-stopped
 
-  # ── Day 5: baseline scheduler ────────────────────────────────────────────
   baseline_scheduler:
     build: .
     depends_on: { postgres: { condition: service_healthy } }
-    environment: *shared_env
+    environment: *shared
     command: ["python", "-m", "scoring.scheduler"]
+    restart: unless-stopped
+
+  # ── Day 7: epoch runner — submits scores on-chain ────────────────────────
+  epoch_runner:
+    build: .
+    depends_on: { postgres: { condition: service_healthy } }
+    environment: *shared
+    command: ["python", "-m", "oracle.epoch_runner"]
+    volumes:
+      # Mount oracle keypair from host. NEVER bake into image.
+      - type: bind
+        source: ${ORACLE_KEYPAIR_HOST_PATH:-./keys/oracle-node.json}
+        target: /run/secrets/oracle_keypair
+        read_only: true
+      # Mount IDL produced by `anchor build` in helixor-programs/
+      - type: bind
+        source: ../helixor-programs/target/idl
+        target: /app/idl
+        read_only: true
     restart: unless-stopped
 
 volumes:
