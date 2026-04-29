@@ -1,25 +1,32 @@
 {
   "name": "@elizaos/plugin-helixor",
-  "version": "0.9.0",
+  "version": "0.12.0",
   "description": "Helixor trust scoring for elizaOS — auto-register agents and gate financial actions on score.",
   "license": "MIT",
   "main":   "dist/index.js",
   "module": "dist/index.esm.js",
   "types":  "dist/index.d.ts",
+  "bin":    { "helixor-plugin": "dist/cli/status.js" },
   "files":  ["dist", "README.md"],
   "exports": {
     ".": {
       "types":   "./dist/index.d.ts",
       "import":  "./dist/index.esm.js",
       "require": "./dist/index.js"
+    },
+    "./status-cli": {
+      "types":   "./dist/cli/status.d.ts",
+      "import":  "./dist/cli/status.js",
+      "require": "./dist/cli/status.js"
     }
   },
   "scripts": {
-    "build":     "tsup src/index.ts --format cjs,esm --dts --clean",
+    "build":     "tsup src/index.ts src/cli/status.ts --format cjs,esm --dts --clean",
     "test":      "vitest run",
     "test:watch":"vitest",
     "lint":      "eslint src tests --max-warnings 0",
     "typecheck": "tsc --noEmit",
+    "status":    "tsx src/cli/status.ts",
     "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "keywords": ["elizaos", "helixor", "trust-score", "ai-agents", "solana", "defi"],
@@ -28,7 +35,7 @@
     "@elizaos/core": ">=0.1.0"
   },
   "dependencies": {
-    "@helixor/client": "file:../helixor-sdk",
+    "@helixor/client": "^0.8.0",
     "@solana/web3.js": "^1.91.1"
   },
   "devDependencies": {
@@ -38,6 +45,7 @@
     "@typescript-eslint/parser":        "^7.0.0",
     "eslint":          "^8.57.0",
     "tsup":            "^8.0.2",
+    "tsx":             "^4.7.0",
     "typescript":      "^5.4.5",
     "vitest":          "^1.4.0"
   }

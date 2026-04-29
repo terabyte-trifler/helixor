@@ -22,7 +22,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.routes import monitoring, registration, score, status
+from api.routes import monitoring, registration, score, status, telemetry
 from indexer import db
 
 log = structlog.get_logger(__name__)
@@ -133,6 +133,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 app.include_router(score.router,  tags=["score"])
 app.include_router(registration.router, tags=["registration"])
 app.include_router(monitoring.router, tags=["monitoring"])
+app.include_router(telemetry.router, tags=["telemetry"])
 app.include_router(status.router, tags=["operational"])
 
 

@@ -1,45 +1,36 @@
 // =============================================================================
-// @elizaos/plugin-helixor — configuration
+// @elizaos/plugin-helixor — configuration (Day 12 extensions)
 //
-// Reads from runtime.getSetting() with explicit validation. Refuses to start
-// if config is broken — better to fail loud at boot than silently misconfigure.
+// Adds:
+//   HELIXOR_MODE          enforce | warn | observe   (default enforce)
+//   HELIXOR_FAIL_MODE     closed  | open             (default closed)
+//   HELIXOR_API_KEY       optional Bearer token for partner tier
+//   HELIXOR_TELEMETRY_ENDPOINT  defaults to {api_url}/telemetry/beacon
+//   HELIXOR_TELEMETRY_DISABLED  opt out entirely (default: enabled)
 // =============================================================================
 
 import type { IAgentRuntime } from "@elizaos/core";
 
+export type EnforceMode = "enforce" | "warn" | "observe";
+export type FailMode    = "closed" | "open";
+
 export interface HelixorPluginConfig {
-  /** Helixor API base URL — e.g. https://api.helixor.xyz */
   apiUrl: string;
-
-  /** Agent's monitored hot wallet pubkey (base58). */
   agentWallet: string;
-
-  /** Owner wallet pubkey (separate from agent — the operator's cold key). */
   ownerWallet: string;
-
-  /** Minimum score required to proceed with financial actions. Default 600. */
   minScore: number;
-
-  /** Whether to allow stale scores. Default false. */
   allowStale: boolean;
-
-  /** Whether to allow anomaly-flagged scores. Default false. */
   allowAnomaly: boolean;
-
-  /**
-   * Keywords used to identify financial actions in the elizaOS action graph.
-   * Plugin checks BOTH action.name AND action-tag metadata.
-   */
   financialActions: string[];
-
-  /** How often (ms) to refresh the cached score in the background. Default 60_000. */
   refreshIntervalMs: number;
-
-  /** Optional Helixor API key (Bearer token) for authenticated tier. */
   apiKey?: string;
-
-  /** Whether to log telemetry events to console. Default true. */
   enableTelemetry: boolean;
+
+  // Day 12 additions
+  mode:               EnforceMode;
+  failMode:           FailMode;
+  telemetryEnabled:   boolean;
+  telemetryEndpoint:  string;
 }
 
 const DEFAULT_FINANCIAL_ACTIONS = [
@@ -70,7 +61,7 @@ export function loadConfig(runtime: IAgentRuntime): HelixorPluginConfig {
     );
   }
 
-  const ownerWallet = runtime.getSetting("HELIXOR_OWNER_WALLET") || agentWallet;
+  const ownerWallet = runtime.getSetting("HELIXOR_OWNER_WALLET") ?? agentWallet;
   if (!PUBKEY_RE.test(ownerWallet)) {
     throw new HelixorConfigError(
       `HELIXOR_OWNER_WALLET '${ownerWallet}' is not a valid base58 Solana pubkey.`,
@@ -91,40 +82,58 @@ export function loadConfig(runtime: IAgentRuntime): HelixorPluginConfig {
 
   const minScore = parseIntOr(runtime.getSetting("HELIXOR_MIN_SCORE"), 600);
   if (minScore < 0 || minScore > 1000) {
-    throw new HelixorConfigError(
-      `HELIXOR_MIN_SCORE must be 0-1000, got ${minScore}.`,
-    );
+    throw new HelixorConfigError(`HELIXOR_MIN_SCORE must be 0-1000, got ${minScore}.`);
   }
 
   const refreshIntervalMs = parseIntOr(runtime.getSetting("HELIXOR_REFRESH_MS"), 60_000);
   if (refreshIntervalMs < 5_000) {
     throw new HelixorConfigError(
-      `HELIXOR_REFRESH_MS must be ≥ 5000ms (got ${refreshIntervalMs}). Lower values waste API calls.`,
+      `HELIXOR_REFRESH_MS must be ≥ 5000ms (got ${refreshIntervalMs}).`,
     );
   }
 
-  const allowStale   = boolish(runtime.getSetting("HELIXOR_ALLOW_STALE"));
-  const allowAnomaly = boolish(runtime.getSetting("HELIXOR_ALLOW_ANOMALY"));
-  const enableTelemetry = boolish(runtime.getSetting("HELIXOR_TELEMETRY"), true);
-  const apiKey = runtime.getSetting("HELIXOR_API_KEY") || undefined;
+  // Mode controls what TRUST_GATE does on a policy failure
+  const modeRaw = (runtime.getSetting("HELIXOR_MODE") ?? "enforce").toLowerCase();
+  if (!["enforce", "warn", "observe"].includes(modeRaw)) {
+    throw new HelixorConfigError(
+      `HELIXOR_MODE must be 'enforce', 'warn', or 'observe' (got '${modeRaw}').`,
+    );
+  }
+  const mode = modeRaw as EnforceMode;
 
-  // Custom financial action list (CSV) — falls back to defaults
-  const customActions = runtime.getSetting("HELIXOR_FINANCIAL_ACTIONS");
+  // Fail mode controls what happens when API is unreachable
+  const failRaw = (runtime.getSetting("HELIXOR_FAIL_MODE") ?? "closed").toLowerCase();
+  if (!["closed", "open"].includes(failRaw)) {
+    throw new HelixorConfigError(
+      `HELIXOR_FAIL_MODE must be 'closed' or 'open' (got '${failRaw}').`,
+    );
+  }
+  const failMode = failRaw as FailMode;
+
+  const allowStale       = boolish(runtime.getSetting("HELIXOR_ALLOW_STALE"));
+  const allowAnomaly     = boolish(runtime.getSetting("HELIXOR_ALLOW_ANOMALY"));
+  const enableTelemetry  = boolish(runtime.getSetting("HELIXOR_TELEMETRY"), true);
+  const telemetryEnabled = !boolish(runtime.getSetting("HELIXOR_TELEMETRY_DISABLED"), false);
+  const apiKey           = runtime.getSetting("HELIXOR_API_KEY") || undefined;
+
+  const customActions    = runtime.getSetting("HELIXOR_FINANCIAL_ACTIONS");
   const financialActions = customActions
     ? customActions.split(",").map((s: string) => s.trim().toUpperCase()).filter(Boolean)
     : DEFAULT_FINANCIAL_ACTIONS;
 
+  const apiUrlTrimmed = apiUrl.replace(/\/+$/, "");
+  const telemetryEndpoint = runtime.getSetting("HELIXOR_TELEMETRY_ENDPOINT")
+                          ?? `${apiUrlTrimmed}/telemetry/beacon`;
+
   return {
-    apiUrl:            apiUrl.replace(/\/+$/, ""),
-    agentWallet,
-    ownerWallet,
-    minScore,
-    allowStale,
-    allowAnomaly,
-    financialActions,
-    refreshIntervalMs,
-    apiKey,
+    apiUrl:            apiUrlTrimmed,
+    agentWallet, ownerWallet, minScore,
+    allowStale, allowAnomaly,
+    financialActions, refreshIntervalMs, apiKey,
     enableTelemetry,
+    mode, failMode,
+    telemetryEnabled,
+    telemetryEndpoint,
   };
 }
 
@@ -135,7 +144,7 @@ function parseIntOr(v: string | null | undefined, fallback: number): number {
 }
 
 function boolish(v: string | null | undefined, fallback = false): boolean {
-  if (v == null || v === "") return fallback;
+  if (v == null) return fallback;
   return /^(1|true|yes|on)$/i.test(v);
 }
 

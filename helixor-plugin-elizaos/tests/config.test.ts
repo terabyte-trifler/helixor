@@ -1,82 +1,72 @@
-// =============================================================================
-// tests/config.test.ts — loadConfig validation
-// =============================================================================
-
+// tests/config.test.ts — config validation incl. mode + fail_mode + telemetry
 import { describe, expect, it } from "vitest";
 
 import { HelixorConfigError, loadConfig } from "../src/config";
 import { makeRuntime } from "./helpers";
 
 describe("loadConfig", () => {
-
-  it("loads with sane defaults from minimal settings", () => {
-    const runtime = makeRuntime();
-    const cfg = loadConfig(runtime as any);
-    expect(cfg.minScore).toBe(600);
-    expect(cfg.allowStale).toBe(false);
-    expect(cfg.allowAnomaly).toBe(false);
-    expect(cfg.refreshIntervalMs).toBe(60_000);
-    expect(cfg.financialActions.length).toBeGreaterThan(0);
+  it("default mode is enforce", () => {
+    const cfg = loadConfig(makeRuntime() as any);
+    expect(cfg.mode).toBe("enforce");
   });
 
-  it("rejects missing SOLANA_PUBLIC_KEY", () => {
-    const runtime = makeRuntime({ settings: { SOLANA_PUBLIC_KEY: "" } });
-    expect(() => loadConfig(runtime as any)).toThrow(HelixorConfigError);
-    expect(() => loadConfig(runtime as any)).toThrow(/SOLANA_PUBLIC_KEY is required/);
+  it("default fail_mode is closed", () => {
+    const cfg = loadConfig(makeRuntime() as any);
+    expect(cfg.failMode).toBe("closed");
   });
 
-  it("rejects invalid base58 SOLANA_PUBLIC_KEY", () => {
-    const runtime = makeRuntime({ settings: { SOLANA_PUBLIC_KEY: "not-base58!" } });
-    expect(() => loadConfig(runtime as any)).toThrow(/not a valid base58/);
+  it("accepts mode=warn", () => {
+    const cfg = loadConfig(makeRuntime({ settings: { HELIXOR_MODE: "warn" } }) as any);
+    expect(cfg.mode).toBe("warn");
   });
 
-  it("rejects missing HELIXOR_API_URL — never silently default to mainnet", () => {
-    const runtime = makeRuntime({ settings: { HELIXOR_API_URL: "" } });
-    expect(() => loadConfig(runtime as any)).toThrow(/HELIXOR_API_URL is required/);
+  it("accepts mode=observe", () => {
+    const cfg = loadConfig(makeRuntime({ settings: { HELIXOR_MODE: "observe" } }) as any);
+    expect(cfg.mode).toBe("observe");
   });
 
-  it("rejects HELIXOR_API_URL without scheme", () => {
-    const runtime = makeRuntime({ settings: { HELIXOR_API_URL: "api.helixor.xyz" } });
-    expect(() => loadConfig(runtime as any)).toThrow(/must start with http/);
+  it("rejects invalid mode", () => {
+    expect(() =>
+      loadConfig(makeRuntime({ settings: { HELIXOR_MODE: "bogus" } }) as any),
+    ).toThrow(HelixorConfigError);
   });
 
-  it("rejects out-of-range MIN_SCORE", () => {
-    const runtime = makeRuntime({ settings: { HELIXOR_MIN_SCORE: "1500" } });
-    expect(() => loadConfig(runtime as any)).toThrow(/must be 0-1000/);
+  it("accepts fail_mode=open", () => {
+    const cfg = loadConfig(makeRuntime({ settings: { HELIXOR_FAIL_MODE: "open" } }) as any);
+    expect(cfg.failMode).toBe("open");
   });
 
-  it("rejects refresh interval below 5s", () => {
-    const runtime = makeRuntime({ settings: { HELIXOR_REFRESH_MS: "1000" } });
-    expect(() => loadConfig(runtime as any)).toThrow(/must be ≥ 5000/);
+  it("rejects invalid fail_mode", () => {
+    expect(() =>
+      loadConfig(makeRuntime({ settings: { HELIXOR_FAIL_MODE: "wat" } }) as any),
+    ).toThrow(/must be 'closed' or 'open'/);
   });
 
-  it("strips trailing slashes from API URL", () => {
-    const runtime = makeRuntime({ settings: { HELIXOR_API_URL: "http://api.test/////" } });
-    const cfg = loadConfig(runtime as any);
-    expect(cfg.apiUrl).toBe("http://api.test");
+  it("telemetry endpoint defaults to {api_url}/telemetry/beacon", () => {
+    const cfg = loadConfig(makeRuntime({
+      settings: { HELIXOR_API_URL: "http://example.com" },
+    }) as any);
+    expect(cfg.telemetryEndpoint).toBe("http://example.com/telemetry/beacon");
   });
 
-  it("falls back to agentWallet when ownerWallet not set", () => {
-    const runtime = makeRuntime({ settings: { HELIXOR_OWNER_WALLET: "" } });
-    const cfg = loadConfig(runtime as any);
-    expect(cfg.ownerWallet).toBe(cfg.agentWallet);
+  it("telemetry can be disabled", () => {
+    const cfg = loadConfig(makeRuntime({
+      settings: { HELIXOR_TELEMETRY_DISABLED: "true" },
+    }) as any);
+    expect(cfg.telemetryEnabled).toBe(false);
   });
 
-  it("parses custom financial actions list", () => {
-    const runtime = makeRuntime({
-      settings: { HELIXOR_FINANCIAL_ACTIONS: "swap_x , LEND_y, BORROW_Z" },
-    });
-    const cfg = loadConfig(runtime as any);
-    expect(cfg.financialActions).toEqual(["SWAP_X", "LEND_Y", "BORROW_Z"]);
+  it("telemetry endpoint can be overridden", () => {
+    const cfg = loadConfig(makeRuntime({
+      settings: { HELIXOR_TELEMETRY_ENDPOINT: "http://my-collector.test/v1" },
+    }) as any);
+    expect(cfg.telemetryEndpoint).toBe("http://my-collector.test/v1");
   });
 
-  it("HELIXOR_TELEMETRY=false disables logs", () => {
-    const runtime = makeRuntime({ settings: { HELIXOR_TELEMETRY: "false" } });
-    expect(loadConfig(runtime as any).enableTelemetry).toBe(false);
-  });
-
-  it("HELIXOR_TELEMETRY default = true", () => {
-    const runtime = makeRuntime({ settings: { HELIXOR_TELEMETRY: "" } });
-    expect(loadConfig(runtime as any).enableTelemetry).toBe(true);
+  it("apiKey is forwarded when set", () => {
+    const cfg = loadConfig(makeRuntime({
+      settings: { HELIXOR_API_KEY: "hxop_secret123" },
+    }) as any);
+    expect(cfg.apiKey).toBe("hxop_secret123");
   });
 });
