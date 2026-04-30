@@ -1,0 +1,32 @@
+# =============================================================================
+# helixor-epoch.timer — runs helixor-epoch.service every 24h
+#
+# Replaces cron because:
+#   - Persistent=true catches up if the host was off during the scheduled time
+#   - RandomizedDelaySec adds jitter to avoid thundering-herd RPC spikes
+#   - journalctl gives us ONE log destination (no mixed cron+app logs)
+#
+# Install:
+#   sudo cp deploy/systemd/helixor-epoch.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now helixor-epoch.timer
+#
+# Verify:  systemctl list-timers helixor-epoch.timer
+# =============================================================================
+
+[Unit]
+Description=Run Helixor epoch_runner every 24h
+Requires=helixor-epoch.service
+
+[Timer]
+# Daily at 00:00 UTC
+OnCalendar=*-*-* 00:00:00 UTC
+# If we missed a run (host was off), execute the next time we boot
+Persistent=true
+# Add up to 5 minutes of jitter so multiple oracle nodes don't all hit
+# the RPC at exactly 00:00:00
+RandomizedDelaySec=300
+Unit=helixor-epoch.service
+
+[Install]
+WantedBy=timers.target

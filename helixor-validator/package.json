@@ -1,0 +1,33 @@
+{
+  "name": "@helixor/validation",
+  "version": "0.14.0",
+  "private": true,
+  "description": "48h devnet validation — 5 agents with profiled behaviour, machine-checkable PASS/FAIL.",
+  "license": "MIT",
+  "scripts": {
+    "stage":        "tsx scripts/stage_validation.ts",
+    "monitor":      "tsx scripts/monitor_validation.ts",
+    "inject-tx":    "tsx scripts/inject_tx.ts",
+    "verify":       "tsx scripts/verify_validation.ts",
+    "report":       "tsx scripts/build_report.ts",
+    "teardown":     "tsx scripts/teardown_validation.ts",
+    "run-full":     "tsx scripts/run_full_validation.ts",
+    "typecheck":    "tsc --noEmit",
+    "lint":         "eslint scripts helpers --max-warnings 0"
+  },
+  "engines": { "node": ">=18" },
+  "devDependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
+    "@helixor/client":   "file:../helixor-sdk",
+    "@solana/web3.js":   "^1.91.1",
+    "@types/node":       "^20.12.0",
+    "@types/pg":         "^8.11.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser":        "^7.0.0",
+    "bs58":              "^5.0.0",
+    "eslint":            "^8.57.0",
+    "pg":                "^8.11.5",
+    "tsx":               "^4.7.0",
+    "typescript":        "^5.4.5"
+  }
+}

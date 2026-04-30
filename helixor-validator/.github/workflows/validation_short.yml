@@ -1,0 +1,87 @@
+name: Day 14 Validation (compressed)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 0"   # Sundays at 06:00 UTC
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    defaults: { run: { working-directory: helixor-validation } }
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER:     helixor
+          POSTGRES_PASSWORD: helixor
+          POSTGRES_DB:       helixor
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U helixor -d helixor"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    env:
+      HELIXOR_API_URL:        http://localhost:8001
+      HELIXOR_PROGRAM_ID:     ${{ secrets.HELIXOR_DEVNET_PROGRAM_ID }}
+      DATABASE_URL:           postgresql://helixor:helixor@localhost:5432/helixor
+      SOLANA_RPC_URL:         ${{ secrets.HELIXOR_DEVNET_RPC_URL }}
+      HELIXOR_ORACLE_DIR:     ../helixor-oracle
+      # Compressed: 2h of "validation" with 10min ticks (12 ticks total)
+      HELIXOR_VALIDATION_INTERVAL_MS: "600000"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+
+      - name: Restore oracle keypair
+        run: |
+          mkdir -p ${{ github.workspace }}/keys
+          echo '${{ secrets.HELIXOR_DEVNET_ORACLE_KEYPAIR }}' \
+            > ${{ github.workspace }}/keys/oracle-node.json
+          echo "ORACLE_KEYPAIR_PATH=${{ github.workspace }}/keys/oracle-node.json" >> $GITHUB_ENV
+
+      - name: Apply DB migrations
+        working-directory: helixor-oracle
+        run: |
+          for sql in db/schema.sql db/migrations/*.sql; do
+            PGPASSWORD=helixor psql -h localhost -U helixor -d helixor -f "$sql"
+          done
+
+      - name: Install Python deps + start API
+        working-directory: helixor-oracle
+        run: |
+          pip install -r requirements.txt
+          uvicorn api.main:app --host 0.0.0.0 --port 8001 &
+          sleep 5
+
+      - name: Install validation deps
+        run: npm ci
+
+      - name: Stage
+        run: tsx scripts/stage_validation.ts
+
+      - name: Monitor (capped — overrides duration to 2h)
+        run: |
+          timeout 7200 tsx scripts/monitor_validation.ts || true
+
+      - name: Verify
+        run: tsx scripts/verify_validation.ts
+
+      - name: Build report
+        if: always()
+        run: tsx scripts/build_report.ts
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-report-${{ github.run_id }}
+          path: helixor-validation/reports/

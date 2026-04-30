@@ -1,0 +1,36 @@
+# =============================================================================
+# helixor-epoch.service — single epoch_runner pass (one-shot)
+# Triggered by helixor-epoch.timer.
+# =============================================================================
+
+[Unit]
+Description=Helixor epoch runner (one-shot)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=helixor
+Group=helixor
+WorkingDirectory=/opt/helixor-oracle
+EnvironmentFile=/etc/helixor/oracle.env
+
+# flock prevents overlap if a previous run is still in progress
+ExecStart=/usr/bin/flock -n /var/lock/helixor-epoch.lock \
+    /opt/helixor-oracle/.venv/bin/python -m oracle.epoch_runner --once
+
+# Reasonable timeout — epoch with 100 agents should complete well under 30min
+TimeoutStartSec=1800
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/helixor-oracle /var/log/helixor /var/lock
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helixor-epoch
+
+[Install]
+WantedBy=multi-user.target

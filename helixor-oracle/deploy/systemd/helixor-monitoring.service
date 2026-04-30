@@ -1,0 +1,53 @@
+# =============================================================================
+# helixor-monitoring.service — runs monitoring loop continuously
+#
+# Install:
+#   sudo cp deploy/systemd/helixor-monitoring.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now helixor-monitoring
+#
+# Logs:    journalctl -u helixor-monitoring -f
+# Status:  systemctl status helixor-monitoring
+# =============================================================================
+
+[Unit]
+Description=Helixor monitoring runner
+Documentation=https://github.com/your-org/helixor
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=helixor
+Group=helixor
+WorkingDirectory=/opt/helixor-oracle
+
+# Read environment from a file. NEVER commit this file — chmod 600.
+EnvironmentFile=/etc/helixor/oracle.env
+
+ExecStart=/opt/helixor-oracle/.venv/bin/python -m monitoring.runner --interval 300
+
+# Always restart on failure, with backoff
+Restart=on-failure
+RestartSec=15s
+StartLimitBurst=10
+StartLimitIntervalSec=600
+
+# Tighten security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/helixor-oracle /var/log/helixor
+
+# Resource limits
+MemoryMax=512M
+TasksMax=128
+
+# Logs go to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helixor-monitoring
+
+[Install]
+WantedBy=multi-user.target
