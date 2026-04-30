@@ -13,6 +13,7 @@
 *.jks
 *.keystore
 *.pfx
+*.so
 secrets/
 keys/
 **/keys/
@@ -22,3 +23,4 @@ keys/
 
 # macOS noise
 .DS_Store
+**/.DS_Store
