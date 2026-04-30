@@ -52,6 +52,7 @@ export class HelixorClient {
   private readonly apiKey?:   string;
   private readonly fetcher:   typeof fetch;
   private readonly cache:     ClientCache<TrustScore>;
+  private readonly inflight:  Map<string, Promise<TrustScore>>;
 
   constructor(options: HelixorClientOptions = {}) {
     this.apiBase    = (options.apiBase ?? DEFAULT_API_BASE).replace(/\/+$/, "");
@@ -59,6 +60,7 @@ export class HelixorClient {
     this.maxRetries = options.maxRetries  ?? DEFAULT_MAX_RETRIES;
     this.apiKey     = options.apiKey;
     this.cache      = new ClientCache<TrustScore>(options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS);
+    this.inflight   = new Map<string, Promise<TrustScore>>();
 
     // Use injected fetch if provided (tests/Node polyfills); otherwise global.
     const f = options.fetch ?? globalThis.fetch;
@@ -91,9 +93,20 @@ export class HelixorClient {
     const cached = this.cache.get(agentWallet);
     if (cached) return cached;
 
-    const score = await this.fetchScoreWithRetry(agentWallet);
-    this.cache.set(agentWallet, score);
-    return score;
+    const existing = this.inflight.get(agentWallet);
+    if (existing) return existing;
+
+    const request = this.fetchScoreWithRetry(agentWallet)
+      .then((score) => {
+        this.cache.set(agentWallet, score);
+        return score;
+      })
+      .finally(() => {
+        this.inflight.delete(agentWallet);
+      });
+
+    this.inflight.set(agentWallet, request);
+    return request;
   }
 
   /**
@@ -164,11 +177,13 @@ export class HelixorClient {
   /** Invalidate the client-side cache for one agent. */
   invalidate(agentWallet: string): void {
     this.cache.invalidate(agentWallet);
+    this.inflight.delete(agentWallet);
   }
 
   /** Clear the client-side cache entirely. */
   clearCache(): void {
     this.cache.clear();
+    this.inflight.clear();
   }
 
   // ───────────────────────────────────────────────────────────────────────────

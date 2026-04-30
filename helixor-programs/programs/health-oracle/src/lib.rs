@@ -15,23 +15,11 @@ pub mod errors;
 pub mod state;
 pub mod instructions;
 
-use state::{
+pub use state::{
     InitOracleConfigParams, RegisterParams, ScorePayload, TrustScore,
-    UpdateOracleConfigParams,
+    UpdateOracleConfigParams, AgentRegistration, AlertLevel, OracleConfig, ScoreSource,
+    TrustCertificate,
 };
-
-use instructions::{
-    get_health::GetHealth,
-    initialize_oracle_config::InitializeOracleConfig,
-    register_agent::RegisterAgent,
-    update_oracle_config::UpdateOracleConfig,
-    update_score::UpdateScore,
-};
-use instructions::get_health::__client_accounts_get_health;
-use instructions::initialize_oracle_config::__client_accounts_initialize_oracle_config;
-use instructions::register_agent::__client_accounts_register_agent;
-use instructions::update_oracle_config::__client_accounts_update_oracle_config;
-use instructions::update_score::__client_accounts_update_score;
 
 declare_id!("Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P");
 
@@ -68,4 +56,113 @@ pub mod health_oracle {
     ) -> Result<()> {
         instructions::update_oracle_config::handler(ctx, params)
     }
+}
+
+#[derive(Accounts)]
+pub struct RegisterAgent<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+
+    /// CHECK: validated in handler
+    pub agent_wallet: UncheckedAccount<'info>,
+
+    #[account(
+        init,
+        payer  = owner,
+        space  = 8 + AgentRegistration::INIT_SPACE,
+        seeds  = [b"agent", agent_wallet.key().as_ref()],
+        bump,
+    )]
+    pub agent_registration: Account<'info, AgentRegistration>,
+
+    #[account(
+        init,
+        payer  = owner,
+        space  = 0,
+        seeds  = [b"escrow", agent_wallet.key().as_ref()],
+        bump,
+    )]
+    /// CHECK: created here as a system-owned PDA with zero data.
+    pub escrow_vault: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct GetHealth<'info> {
+    /// CHECK: any caller
+    pub querier: UncheckedAccount<'info>,
+
+    #[account(
+        seeds = [b"agent", agent_registration.agent_wallet.as_ref()],
+        bump  = agent_registration.bump,
+    )]
+    pub agent_registration: Account<'info, AgentRegistration>,
+
+    /// CHECK: validated in handler
+    pub trust_certificate: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateScore<'info> {
+    /// The oracle node submitting the score. Must match oracle_config.oracle_key.
+    /// Pays rent for cert PDA on first update of each agent.
+    #[account(mut)]
+    pub oracle: Signer<'info>,
+
+    /// AgentRegistration PDA — must exist (agent registered).
+    #[account(
+        seeds = [b"agent", agent_registration.agent_wallet.as_ref()],
+        bump  = agent_registration.bump,
+    )]
+    pub agent_registration: Account<'info, AgentRegistration>,
+
+    /// TrustCertificate PDA — created on first call, mutated on subsequent.
+    #[account(
+        init_if_needed,
+        payer  = oracle,
+        space  = 8 + TrustCertificate::INIT_SPACE,
+        seeds  = [b"score", agent_registration.agent_wallet.as_ref()],
+        bump,
+    )]
+    pub trust_certificate: Account<'info, TrustCertificate>,
+
+    /// OracleConfig singleton. Mutated to bump epoch counter.
+    #[account(
+        mut,
+        seeds = [b"oracle_config"],
+        bump  = oracle_config.bump,
+    )]
+    pub oracle_config: Account<'info, OracleConfig>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeOracleConfig<'info> {
+    #[account(mut)]
+    pub deployer: Signer<'info>,
+
+    #[account(
+        init,
+        payer  = deployer,
+        space  = 8 + OracleConfig::INIT_SPACE,
+        seeds  = [b"oracle_config"],
+        bump,
+    )]
+    pub oracle_config: Account<'info, OracleConfig>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateOracleConfig<'info> {
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"oracle_config"],
+        bump  = oracle_config.bump,
+    )]
+    pub oracle_config: Account<'info, OracleConfig>,
 }

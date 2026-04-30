@@ -1,0 +1,24 @@
+# Local environment and example env files
+.env
+.env.*
+.env.example
+
+# Secret-bearing material
+*.pem
+*.key
+*.p12
+*.crt
+*.cer
+*.der
+*.jks
+*.keystore
+*.pfx
+secrets/
+keys/
+**/keys/
+*keypair*.json
+*oracle-node*.json
+*program-authority*.json
+
+# macOS noise
+.DS_Store

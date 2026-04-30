@@ -12,11 +12,11 @@ use anchor_lang::prelude::*;
 
 use crate::{
     errors::HelixorError,
-    state::{InitOracleConfigParams, OracleConfig},
+    state::InitOracleConfigParams,
 };
 
 pub fn handler(
-    ctx: Context<InitializeOracleConfig>,
+    ctx: Context<crate::InitializeOracleConfig>,
     params: InitOracleConfigParams,
 ) -> Result<()> {
     require_keys_neq!(
@@ -38,25 +38,6 @@ pub fn handler(
     });
 
     Ok(())
-}
-
-#[derive(Accounts)]
-pub struct InitializeOracleConfig<'info> {
-    /// First caller becomes the initial deployer (typically the deploy wallet).
-    /// They don't need to BE the admin — they're just the rent payer.
-    #[account(mut)]
-    pub deployer: Signer<'info>,
-
-    #[account(
-        init,
-        payer  = deployer,
-        space  = 8 + OracleConfig::INIT_SPACE,
-        seeds  = [b"oracle_config"],
-        bump,
-    )]
-    pub oracle_config: Account<'info, OracleConfig>,
-
-    pub system_program: Program<'info, System>,
 }
 
 #[event]

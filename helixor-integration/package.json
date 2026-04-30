@@ -1,0 +1,40 @@
+{
+  "name": "@helixor/integration",
+  "version": "0.13.0",
+  "private": true,
+  "description": "Cross-layer integration tests + hardening checks. The bugs Day 8/9/10 don't catch.",
+  "license": "MIT",
+  "scripts": {
+    "test":              "vitest run",
+    "test:watch":        "vitest",
+    "test:invariants":   "vitest run tests/integration/invariants.test.ts",
+    "test:transitions":  "vitest run tests/integration/transitions.test.ts",
+    "test:failures":     "vitest run tests/integration/failure_modes.test.ts",
+    "test:determinism":  "vitest run tests/integration/determinism.test.ts",
+    "test:regressions":  "vitest run tests/integration/regressions/",
+    "test:onchain":      "vitest run tests/integration/onchain_constraints.test.ts",
+    "test:smoke":        "vitest run tests/integration/smoke.test.ts",
+    "harden:rust":       "tsx scripts/harden_rust.ts",
+    "harden:secrets":    "tsx scripts/harden_secrets.ts",
+    "harden:all":        "tsx scripts/harden_all.ts",
+    "verify:artifact":   "tsx scripts/verify_artifact.ts",
+    "typecheck":         "tsc --noEmit",
+    "lint":              "eslint tests scripts helpers --max-warnings 0"
+  },
+  "engines": { "node": ">=18" },
+  "devDependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
+    "@helixor/client":   "file:../helixor-sdk",
+    "@solana/web3.js":   "^1.91.1",
+    "@types/node":       "^20.12.0",
+    "@types/pg":         "^8.11.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser":        "^7.0.0",
+    "bs58":              "^5.0.0",
+    "eslint":            "^8.57.0",
+    "pg":                "^8.11.5",
+    "tsx":               "^4.7.0",
+    "typescript":        "^5.4.5",
+    "vitest":            "^1.4.0"
+  }
+}

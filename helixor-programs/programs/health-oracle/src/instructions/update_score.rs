@@ -26,12 +26,10 @@ use anchor_lang::prelude::*;
 
 use crate::{
     errors::HelixorError,
-    state::{
-        AgentRegistration, AlertLevel, OracleConfig, ScorePayload, TrustCertificate,
-    },
+    state::{AlertLevel, ScorePayload, TrustCertificate},
 };
 
-pub fn handler(ctx: Context<UpdateScore>, payload: ScorePayload) -> Result<()> {
+pub fn handler(ctx: Context<crate::UpdateScore>, payload: ScorePayload) -> Result<()> {
     // ── 1. Cheap validations first ───────────────────────────────────────────
     require!(payload.score <= 1000, HelixorError::ScoreOutOfRange);
     require!(
@@ -125,48 +123,6 @@ pub fn handler(ctx: Context<UpdateScore>, payload: ScorePayload) -> Result<()> {
 // =============================================================================
 // Accounts
 // =============================================================================
-#[derive(Accounts)]
-pub struct UpdateScore<'info> {
-    /// The oracle node submitting the score. Must match oracle_config.oracle_key.
-    /// Pays rent for cert PDA on first update of each agent.
-    #[account(mut)]
-    pub oracle: Signer<'info>,
-
-    /// AgentRegistration PDA — must exist (agent registered).
-    #[account(
-        seeds = [b"agent", agent_registration.agent_wallet.as_ref()],
-        bump  = agent_registration.bump,
-    )]
-    pub agent_registration: Account<'info, AgentRegistration>,
-
-    /// TrustCertificate PDA — created on first call, mutated on subsequent.
-    ///
-    /// init_if_needed is safe here because:
-    ///   - Only the authorized oracle (verified above) can call this
-    ///   - PDA seeds are deterministic from agent_wallet
-    ///   - Anchor validates the cert PDA matches canonical derivation
-    ///
-    /// Rent: ~0.00128 SOL per agent on first cert. Oracle wallet pays.
-    #[account(
-        init_if_needed,
-        payer  = oracle,
-        space  = 8 + TrustCertificate::INIT_SPACE,
-        seeds  = [b"score", agent_registration.agent_wallet.as_ref()],
-        bump,
-    )]
-    pub trust_certificate: Account<'info, TrustCertificate>,
-
-    /// OracleConfig singleton. Mutated to bump epoch counter.
-    #[account(
-        mut,
-        seeds = [b"oracle_config"],
-        bump  = oracle_config.bump,
-    )]
-    pub oracle_config: Account<'info, OracleConfig>,
-
-    pub system_program: Program<'info, System>,
-}
-
 // =============================================================================
 // Event
 // =============================================================================

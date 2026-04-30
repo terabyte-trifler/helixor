@@ -6,7 +6,7 @@ use crate::{
     state::{AgentRegistration, RegisterParams},
 };
 
-pub fn handler(ctx: Context<RegisterAgent>, params: RegisterParams) -> Result<()> {
+pub fn handler(ctx: Context<crate::RegisterAgent>, params: RegisterParams) -> Result<()> {
     let name_bytes = params.name.as_bytes();
     require!(!name_bytes.is_empty(), HelixorError::NameEmpty);
     require!(
@@ -51,36 +51,6 @@ pub fn handler(ctx: Context<RegisterAgent>, params: RegisterParams) -> Result<()
     });
 
     Ok(())
-}
-
-#[derive(Accounts)]
-pub struct RegisterAgent<'info> {
-    #[account(mut)]
-    pub owner: Signer<'info>,
-
-    /// CHECK: validated != owner
-    pub agent_wallet: UncheckedAccount<'info>,
-
-    #[account(
-        init,
-        payer  = owner,
-        space  = 8 + AgentRegistration::INIT_SPACE,
-        seeds  = [b"agent", agent_wallet.key().as_ref()],
-        bump,
-    )]
-    pub agent_registration: Account<'info, AgentRegistration>,
-
-    #[account(
-        init,
-        payer  = owner,
-        space  = 0,
-        seeds  = [b"escrow", agent_wallet.key().as_ref()],
-        bump,
-    )]
-    /// CHECK: created here as a system-owned PDA with zero data.
-    pub escrow_vault: UncheckedAccount<'info>,
-
-    pub system_program: Program<'info, System>,
 }
 
 #[event]

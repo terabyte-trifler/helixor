@@ -15,11 +15,11 @@ use anchor_lang::prelude::*;
 
 use crate::{
     errors::HelixorError,
-    state::{OracleConfig, UpdateOracleConfigParams},
+    state::UpdateOracleConfigParams,
 };
 
 pub fn handler(
-    ctx: Context<UpdateOracleConfig>,
+    ctx: Context<crate::UpdateOracleConfig>,
     params: UpdateOracleConfigParams,
 ) -> Result<()> {
     let cfg = &mut ctx.accounts.oracle_config;
@@ -56,18 +56,6 @@ pub fn handler(
     });
 
     Ok(())
-}
-
-#[derive(Accounts)]
-pub struct UpdateOracleConfig<'info> {
-    pub admin: Signer<'info>,
-
-    #[account(
-        mut,
-        seeds = [b"oracle_config"],
-        bump  = oracle_config.bump,
-    )]
-    pub oracle_config: Account<'info, OracleConfig>,
 }
 
 #[event]

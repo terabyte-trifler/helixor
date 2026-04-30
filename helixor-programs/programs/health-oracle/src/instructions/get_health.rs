@@ -3,10 +3,10 @@ use anchor_lang::AccountDeserialize;
 
 use crate::{
     errors::HelixorError,
-    state::{AgentRegistration, AlertLevel, ScoreSource, TrustCertificate, TrustScore},
+    state::{AlertLevel, ScoreSource, TrustCertificate, TrustScore},
 };
 
-pub fn handler(ctx: Context<GetHealth>) -> Result<TrustScore> {
+pub fn handler(ctx: Context<crate::GetHealth>) -> Result<TrustScore> {
     let reg   = &ctx.accounts.agent_registration;
     let clock = Clock::get()?;
     let agent = reg.agent_wallet;
@@ -66,7 +66,7 @@ pub fn handler(ctx: Context<GetHealth>) -> Result<TrustScore> {
     let age = clock.unix_timestamp
         .checked_sub(cert.updated_at)
         .ok_or(HelixorError::MathOverflow)?;
-    let is_fresh = age >= 0 && age < TrustCertificate::MAX_AGE_SECONDS;
+    let is_fresh = (0..TrustCertificate::MAX_AGE_SECONDS).contains(&age);
     let source   = if is_fresh { ScoreSource::Live } else { ScoreSource::Stale };
 
     emit!(HealthQueried {
@@ -82,21 +82,6 @@ pub fn handler(ctx: Context<GetHealth>) -> Result<TrustScore> {
         success_rate: cert.success_rate, anomaly_flag: cert.anomaly_flag,
         updated_at: cert.updated_at, is_fresh, source,
     })
-}
-
-#[derive(Accounts)]
-pub struct GetHealth<'info> {
-    /// CHECK: any caller
-    pub querier: UncheckedAccount<'info>,
-
-    #[account(
-        seeds = [b"agent", agent_registration.agent_wallet.as_ref()],
-        bump  = agent_registration.bump,
-    )]
-    pub agent_registration: Account<'info, AgentRegistration>,
-
-    /// CHECK: validated in handler
-    pub trust_certificate: UncheckedAccount<'info>,
 }
 
 #[event]

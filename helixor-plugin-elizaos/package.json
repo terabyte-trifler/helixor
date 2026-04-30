@@ -35,7 +35,7 @@
     "@elizaos/core": ">=0.1.0"
   },
   "dependencies": {
-    "@helixor/client": "^0.8.0",
+    "@helixor/client": "file:../helixor-sdk",
     "@solana/web3.js": "^1.91.1"
   },
   "devDependencies": {
