@@ -22,11 +22,31 @@ services:
       timeout: 3s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    expose: ["6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   webhook_receiver:
     build: .
-    depends_on: { postgres: { condition: service_healthy } }
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
     environment: &shared
       DATABASE_URL:                postgresql://helixor:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your local env}@postgres:5432/helixor
+      REDIS_URL:                   redis://redis:6379/0
+      REDIS_PREFIX:                ${REDIS_PREFIX:-helixor}
+      RATE_LIMIT_CAPACITY:         ${RATE_LIMIT_CAPACITY:-100}
+      RATE_LIMIT_REFILL_PER_SECOND: ${RATE_LIMIT_REFILL_PER_SECOND:-1.6666666667}
+      SCORE_CACHE_TTL_SECONDS:     ${SCORE_CACHE_TTL_SECONDS:-60}
+      NEGATIVE_CACHE_TTL_SECONDS:  ${NEGATIVE_CACHE_TTL_SECONDS:-30}
       HELIUS_API_KEY:              ${HELIUS_API_KEY:?Set HELIUS_API_KEY in your local env}
       HELIUS_WEBHOOK_URL:          ${HELIUS_WEBHOOK_URL:?Set HELIUS_WEBHOOK_URL in your local env}
       HELIUS_WEBHOOK_AUTH_TOKEN:   ${HELIUS_WEBHOOK_AUTH_TOKEN:?Set HELIUS_WEBHOOK_AUTH_TOKEN in your local env}
@@ -42,35 +62,45 @@ services:
 
   agent_sync:
     build: .
-    depends_on: { postgres: { condition: service_healthy } }
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
     environment: *shared
     command: ["python", "-m", "indexer.agent_sync"]
     restart: unless-stopped
 
   webhook_registrar:
     build: .
-    depends_on: { postgres: { condition: service_healthy } }
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
     environment: *shared
     command: ["python", "-m", "indexer.webhook_registrar"]
     restart: unless-stopped
 
   reconciler:
     build: .
-    depends_on: { postgres: { condition: service_healthy } }
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
     environment: *shared
     command: ["python", "-m", "indexer.reconciler"]
     restart: unless-stopped
 
   baseline_scheduler:
     build: .
-    depends_on: { postgres: { condition: service_healthy } }
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
     environment: *shared
     command: ["python", "-m", "scoring.scheduler"]
     restart: unless-stopped
 
   epoch_runner:
     build: .
-    depends_on: { postgres: { condition: service_healthy } }
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
     environment:
       <<: *shared
       ORACLE_KEYPAIR_PATH: ${ORACLE_KEYPAIR_PATH:-/app/keys/oracle-node.json}
@@ -82,7 +112,9 @@ services:
   # ── Day 8: REST API ──────────────────────────────────────────────────────
   api:
     build: .
-    depends_on: { postgres: { condition: service_healthy } }
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
     environment: *shared
     ports: ["8001:8001"]
     command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8001"]
@@ -90,3 +122,4 @@ services:
 
 volumes:
   pgdata:
+  redisdata:

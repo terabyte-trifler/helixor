@@ -32,6 +32,22 @@ class Settings(BaseSettings):
     db_pool_min: int = Field(default=2,  ge=1, le=20)
     db_pool_max: int = Field(default=10, ge=2, le=100)
 
+    # ── Redis ────────────────────────────────────────────────────────────────
+    redis_url: str | None = Field(
+        default=None,
+        description="Optional Redis URL for shared API rate limiting and score cache.",
+    )
+    redis_prefix: str = Field(
+        default="helixor",
+        min_length=1,
+        max_length=64,
+        description="Key prefix for Redis-backed Helixor API data.",
+    )
+    rate_limit_capacity: int = Field(default=100, ge=1, le=100_000)
+    rate_limit_refill_per_second: float = Field(default=100 / 60, gt=0, le=10_000)
+    score_cache_ttl_seconds: int = Field(default=60, ge=1, le=86_400)
+    negative_cache_ttl_seconds: int = Field(default=30, ge=1, le=3_600)
+
     # ── Helius ────────────────────────────────────────────────────────────────
     helius_api_key: SecretStr = Field(
         ...,
@@ -98,6 +114,15 @@ class Settings(BaseSettings):
     def _validate_db_url(cls, v: str) -> str:
         if not re.match(r"^postgres(ql)?://", v):
             raise ValueError("database_url must start with postgresql:// or postgres://")
+        return v
+
+    @field_validator("redis_url")
+    @classmethod
+    def _validate_redis_url(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return None
+        if not v.startswith(("redis://", "rediss://")):
+            raise ValueError("redis_url must start with redis:// or rediss://")
         return v
 
     @field_validator("helius_webhook_url")

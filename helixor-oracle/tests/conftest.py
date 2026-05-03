@@ -23,6 +23,7 @@ os.environ.setdefault("HELIUS_WEBHOOK_AUTH_TOKEN", "test-auth-token-123456789012
 os.environ.setdefault("HEALTH_ORACLE_PROGRAM_ID",  "HLXorac1eXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 os.environ.setdefault("SOLANA_RPC_URL",            "https://api.devnet.solana.com")
 os.environ.setdefault("MONITORING_ADMIN_TOKEN",    "test-monitoring-admin-token")
+os.environ.pop("REDIS_URL", None)
 
 
 @pytest.fixture(scope="session")

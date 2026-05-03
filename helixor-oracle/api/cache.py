@@ -1,13 +1,12 @@
 """
-api/cache.py — minimal in-memory TTL cache.
+api/cache.py — minimal in-process TTL cache.
 
-Why in-memory and not Redis: Day 4 explicitly cut Redis. For a single
-container serving 100s of requests/second, an `OrderedDict` LRU is fine.
-When you need horizontal scaling (multiple API containers), revisit.
+This is the API's L1 cache. When REDIS_URL is configured, ScoreService also
+uses Redis as the shared L2 cache across API replicas.
 
 Why cache at all: scores change at most every 24h (Day 7 cooldown). Without
-caching, every API call does an RPC `getAccountInfo`. With caching, only
-the first request per agent per TTL window does so.
+caching, every API call can hit PostgreSQL. With caching, only the first
+request per agent per TTL window needs a DB read.
 
 TTL design:
   - Score data is valid for 60s in cache (long enough to absorb burst traffic,

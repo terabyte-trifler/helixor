@@ -21,6 +21,7 @@ UTC = timezone.utc
 async def app_client(db_pool, postgres_url, monkeypatch):
     """Spin up the FastAPI API app with a real DB pool."""
     monkeypatch.setenv("DATABASE_URL", postgres_url)
+    monkeypatch.delenv("REDIS_URL", raising=False)
 
     from api import main
     from api.rate_limit import reset_rate_limiter

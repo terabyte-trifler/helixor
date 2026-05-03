@@ -21,8 +21,8 @@ Day 8 spans two repos:
 | `GET /health`, `/status`, `/metrics` | ✅ |
 | OpenAPI / Swagger docs at `/docs` | ✅ |
 | Pubkey validation → 400 (not 500) | ✅ |
-| Per-IP token-bucket rate limiting | ✅ |
-| In-memory TTL cache (60s) | ✅ |
+| Redis-backed per-IP token-bucket rate limiting | ✅ |
+| Shared Redis score cache + in-process L1 cache | ✅ |
 | CORS middleware (allow-list configurable) | ✅ |
 | Request ID + structured JSON logs | ✅ |
 | Standardized error envelope (no stack traces leaked) | ✅ |
@@ -65,10 +65,11 @@ Day 8 spans two repos:
                                 ▼
                  ┌──────────────────────────────┐
                  │  Helixor REST API (FastAPI)  │
-                 │  • CORS + rate-limit + cache │
+                 │  • CORS + Redis rate-limit   │
+                 │  • shared score cache        │
                  │  • req-id + structured logs  │
                  └──────────────┬───────────────┘
-                                │ asyncpg
+                                │ asyncpg + Redis
                                 ▼
                  ┌──────────────────────────────┐
                  │  PostgreSQL agent_scores     │
@@ -87,8 +88,8 @@ cert is the source of truth for DeFi protocols that integrate via CPI
 | Bug in spec | Fix |
 |-------------|-----|
 | `solana.rpc.api.Client` (sync) blocks event loop | All-async with asyncpg + lifespan |
-| No caching — every call hits Solana RPC | 60s in-memory TTL cache, 30% → 95% hit rate at scale |
-| No rate limiting | Per-IP token-bucket: 100/min default |
+| No caching — every call hits Solana RPC | Redis shared score cache + 60s in-process L1 |
+| No rate limiting | Redis-backed per-IP token-bucket: 100/min default |
 | No CORS — browsers can't call | CORS middleware, configurable origins |
 | `raise HTTPException(detail=f"... {e}")` leaks internals | Standardized `{error, code, request_id}` envelope |
 | `fetch_onchain_score` undefined | `ScoreService.get_score()` reads from agent_scores DB |
@@ -245,8 +246,9 @@ helixor-oracle/
 │   ├── main.py                  ← FastAPI app + middleware (NEW)
 │   ├── schemas.py               ← pydantic response models (NEW)
 │   ├── service.py               ← read-through DB layer (NEW)
-│   ├── cache.py                 ← TTL cache (NEW)
-│   ├── rate_limit.py            ← token-bucket (NEW)
+│   ├── cache.py                 ← in-process L1 TTL cache (NEW)
+│   ├── redis_client.py          ← shared Redis lifecycle (NEW)
+│   ├── rate_limit.py            ← Redis-backed token-bucket (NEW)
 │   ├── validation.py            ← pubkey validation (NEW)
 │   └── routes/
 │       ├── score.py             ← /score, /agents (NEW)
@@ -273,19 +275,21 @@ helixor-sdk/                      ← NEW PACKAGE
 
 ## Production Deployment Notes
 
-**Single uvicorn worker.** Each worker holds its own asyncpg pool + cache.
-Scale with more containers behind a load balancer, not workers per container.
+**Shared hot path.** Set `REDIS_URL` in production. Score reads use a small
+in-process L1 plus Redis L2, and rate limits are enforced globally across API
+containers instead of multiplying by replica count.
 
-**Tighten CORS in production.** The default `allow_origins=["*"]` is fine
-for devnet/staging. In production set explicit origins (Kamino, Drift, etc).
+**Tighten CORS in production.** Set `API_CORS_ORIGINS` to the exact browser
+origins allowed to call authenticated routes.
 
-**Add API keys for rate-limit tiers.** Day 8 ships a per-IP rate limit;
-production needs per-API-key tiers (free: 100/min, partner: 10000/min, etc).
-Add a middleware that resolves `Authorization: Bearer` to a tier ID.
+**Add API keys for rate-limit tiers.** The current Redis limiter is per IP;
+production still needs per-API-key tiers (free: 100/min, partner: 10000/min,
+etc). Add a middleware that resolves `Authorization: Bearer` to a tier ID.
 
 **Cache TTL trade-off.** 60s server cache + 30s client cache = up to ~90s
-delay for score updates to propagate. Acceptable for 24h-cadence scores.
-For real-time use cases (rare), bypass with `?force_refresh=true`.
+delay for score updates to propagate. Unknown agents are cached for 30s to
+protect Postgres from repeated misses. For real-time use cases, bypass with
+`?force_refresh=true`.
 
 **The SDK is the consumer contract.** Once you publish `@helixor/client`,
 breaking changes are expensive. Day 8 reserves room for additive evolution:

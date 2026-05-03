@@ -3,8 +3,9 @@ api/service.py — the data layer for the API.
 
 Read order (cheapest → most expensive):
   1. In-memory cache (60s TTL)
-  2. PostgreSQL agent_scores (Day 6)
-  3. Solana RPC TrustCertificate PDA (fallback if DB doesn't have it)
+  2. Redis shared cache (when REDIS_URL is configured)
+  3. PostgreSQL agent_scores (Day 6)
+  4. Solana RPC TrustCertificate PDA (fallback if DB doesn't have it)
 
 Why DB first, not RPC: Day 6 stores every score with full breakdown.
 The on-chain cert is a strict subset. Hitting Postgres for cached scores
@@ -20,20 +21,21 @@ import asyncpg
 import structlog
 
 from api.cache import TTLCache
+from api.redis_client import RedisError, get_redis, redis_available, redis_configured, redis_key
 from api.schemas import AgentSummary, ScoreBreakdown, ScoreResponse
+from indexer.config import settings
 
 log = structlog.get_logger(__name__)
 
-# Cache hits ~60s. Score data is valid 24h on-chain so 60s is conservative.
-SCORE_CACHE_TTL_SECONDS    = 60.0
-NEGATIVE_CACHE_TTL_SECONDS = 30.0   # for "not found" — shorter so new agents appear fast
+# Score data is valid 24h on-chain, so the default 60s TTL is conservative.
+SCORE_CACHE_TTL_SECONDS = float(settings.score_cache_ttl_seconds)
 
 
 class ScoreService:
     """Stateless service object (just holds the cache)."""
 
     def __init__(self, cache_size: int = 10_000):
-        self._cache: TTLCache[ScoreResponse | None] = TTLCache(
+        self._cache: TTLCache[ScoreResponse] = TTLCache(
             maxsize=cache_size,
             default_ttl=SCORE_CACHE_TTL_SECONDS,
         )
@@ -43,7 +45,11 @@ class ScoreService:
         return self._cache.size
 
     def cache_stats(self) -> dict:
-        return self._cache.stats()
+        return {
+            **self._cache.stats(),
+            "shared_cache_configured": redis_configured(),
+            "shared_cache_available": redis_available(),
+        }
 
     def invalidate(self, agent_wallet: str) -> None:
         self._cache.invalidate(agent_wallet)
@@ -69,9 +75,14 @@ class ScoreService:
             if cached is not None:
                 # Mark as cached and return
                 return cached.model_copy(update={"cached": True, "served_at": int(time.time())})
-            # Note: we use sentinel: cache value of None means "verified missing"
-            # but TTLCache returns None for both miss and missing. So a true
-            # negative cache requires explicit handling — see _cache_negative.
+
+            redis_cached = await self._redis_get_score(agent_wallet)
+            if redis_cached is not None:
+                self._cache.set(agent_wallet, redis_cached)
+                return redis_cached.model_copy(update={"cached": True, "served_at": int(time.time())})
+
+            if await self._redis_has_missing(agent_wallet):
+                return None
 
         # ── 2. Local DB (preferred) ──────────────────────────────────────────
         row = await conn.fetchrow(
@@ -92,6 +103,7 @@ class ScoreService:
             )
             if reg is None:
                 # Truly unknown — let the caller return 404
+                await self._redis_set_missing(agent_wallet)
                 return None
 
             # Provisional response: registered, no score yet
@@ -100,6 +112,7 @@ class ScoreService:
         # ── 3. Build response from DB row ────────────────────────────────────
         response = self._row_to_response(row)
         self._cache.set(agent_wallet, response)
+        await self._redis_set_score(agent_wallet, response)
 
         # Return with cached=False (this call computed it)
         return response.model_copy(update={"cached": False, "served_at": int(time.time())})
@@ -148,6 +161,64 @@ class ScoreService:
             for r in items
         ]
         return results, total or 0
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Shared Redis cache
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _redis_get_score(self, agent_wallet: str) -> ScoreResponse | None:
+        client = get_redis()
+        if client is None:
+            return None
+        try:
+            raw = await client.get(redis_key("score", agent_wallet))
+        except RedisError as exc:
+            log.warning("redis_score_cache_get_failed", agent_wallet=agent_wallet, error=str(exc))
+            return None
+        if raw is None:
+            return None
+        try:
+            return ScoreResponse.model_validate_json(raw)
+        except ValueError as exc:
+            log.warning("redis_score_cache_decode_failed", agent_wallet=agent_wallet, error=str(exc))
+            return None
+
+    async def _redis_set_score(self, agent_wallet: str, response: ScoreResponse) -> None:
+        client = get_redis()
+        if client is None:
+            return
+        try:
+            await client.setex(
+                redis_key("score", agent_wallet),
+                settings.score_cache_ttl_seconds,
+                response.model_dump_json(),
+            )
+            await client.delete(redis_key("score_missing", agent_wallet))
+        except RedisError as exc:
+            log.warning("redis_score_cache_set_failed", agent_wallet=agent_wallet, error=str(exc))
+
+    async def _redis_has_missing(self, agent_wallet: str) -> bool:
+        client = get_redis()
+        if client is None:
+            return False
+        try:
+            return bool(await client.exists(redis_key("score_missing", agent_wallet)))
+        except RedisError as exc:
+            log.warning("redis_negative_cache_get_failed", agent_wallet=agent_wallet, error=str(exc))
+            return False
+
+    async def _redis_set_missing(self, agent_wallet: str) -> None:
+        client = get_redis()
+        if client is None:
+            return
+        try:
+            await client.setex(
+                redis_key("score_missing", agent_wallet),
+                settings.negative_cache_ttl_seconds,
+                "1",
+            )
+        except RedisError as exc:
+            log.warning("redis_negative_cache_set_failed", agent_wallet=agent_wallet, error=str(exc))
 
     # ─────────────────────────────────────────────────────────────────────────
     # Helpers

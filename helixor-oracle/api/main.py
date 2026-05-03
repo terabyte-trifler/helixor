@@ -7,8 +7,7 @@ Run with:
 Why port 8001 (not 8000): Day 4's webhook receiver uses 8000. Both run
 side-by-side in production.
 
-Why workers=1: each worker holds its own asyncpg pool + cache. Scale by
-adding containers, not workers.
+Redis-backed rate limits and score cache are enabled when REDIS_URL is set.
 """
 
 from __future__ import annotations
@@ -22,6 +21,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from api.redis_client import close_redis, init_redis
 from api.routes import monitoring, registration, score, status, telemetry
 from indexer import db
 from indexer.config import settings
@@ -42,12 +42,14 @@ async def lifespan(app: FastAPI):
     )
     log.info("api_starting", version="0.8.0")
     created_pool = db._pool is None
+    await init_redis()
     await db.init_pool()
     log.info("api_ready")
     try:
         yield
     finally:
         log.info("api_shutting_down")
+        await close_redis()
         if created_pool:
             await db.close_pool()
 

@@ -5,6 +5,9 @@ uvicorn[standard]==0.32.0
 # Async PostgreSQL — replaces psycopg2; supports connection pooling natively
 asyncpg==0.30.0
 
+# Shared cache + distributed rate limiting
+redis==5.2.0
+
 # HTTP client for Helius API
 httpx==0.27.2
 
