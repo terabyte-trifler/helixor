@@ -18,36 +18,36 @@ pub fn handler(ctx: Context<crate::RegisterAgent>, params: RegisterParams) -> Re
         HelixorError::AgentSameAsOwner
     );
 
-    let reg   = &mut ctx.accounts.agent_registration;
+    let reg = &mut ctx.accounts.agent_registration;
     let clock = Clock::get()?;
 
-    reg.agent_wallet    = ctx.accounts.agent_wallet.key();
-    reg.owner_wallet    = ctx.accounts.owner.key();
-    reg.registered_at   = clock.unix_timestamp;
+    reg.agent_wallet = ctx.accounts.agent_wallet.key();
+    reg.owner_wallet = ctx.accounts.owner.key();
+    reg.registered_at = clock.unix_timestamp;
     reg.escrow_lamports = AgentRegistration::MIN_ESCROW_LAMPORTS;
-    reg.active          = true;
-    reg.bump            = ctx.bumps.agent_registration;
-    reg.vault_bump      = ctx.bumps.escrow_vault;
+    reg.active = true;
+    reg.bump = ctx.bumps.agent_registration;
+    reg.vault_bump = ctx.bumps.escrow_vault;
 
     system_program::transfer(
         CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
             SystemTransfer {
                 from: ctx.accounts.owner.to_account_info(),
-                to:   ctx.accounts.escrow_vault.to_account_info(),
+                to: ctx.accounts.escrow_vault.to_account_info(),
             },
         ),
         AgentRegistration::MIN_ESCROW_LAMPORTS,
     )?;
 
     emit!(AgentRegistered {
-        agent:            reg.agent_wallet,
-        owner:            reg.owner_wallet,
-        name:             params.name.clone(),
-        escrow_lamports:  AgentRegistration::MIN_ESCROW_LAMPORTS,
+        agent: reg.agent_wallet,
+        owner: reg.owner_wallet,
+        name: params.name.clone(),
+        escrow_lamports: AgentRegistration::MIN_ESCROW_LAMPORTS,
         registration_pda: ctx.accounts.agent_registration.key(),
-        vault_pda:        ctx.accounts.escrow_vault.key(),
-        timestamp:        clock.unix_timestamp,
+        vault_pda: ctx.accounts.escrow_vault.key(),
+        timestamp: clock.unix_timestamp,
     });
 
     Ok(())
@@ -55,11 +55,11 @@ pub fn handler(ctx: Context<crate::RegisterAgent>, params: RegisterParams) -> Re
 
 #[event]
 pub struct AgentRegistered {
-    pub agent:            Pubkey,
-    pub owner:            Pubkey,
-    pub name:             String,
-    pub escrow_lamports:  u64,
+    pub agent: Pubkey,
+    pub owner: Pubkey,
+    pub name: String,
+    pub escrow_lamports: u64,
     pub registration_pda: Pubkey,
-    pub vault_pda:        Pubkey,
-    pub timestamp:        i64,
+    pub vault_pda: Pubkey,
+    pub timestamp: i64,
 }

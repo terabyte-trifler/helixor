@@ -221,6 +221,9 @@ def score_agent(
     # ── Composite ─────────────────────────────────────────────────────────────
     raw_score = sr_score + consistency_score + stability_score
     raw_score = max(0, min(1000, raw_score))   # defensive clamp
+    padding_anomaly = window.padding_tx_ratio >= 0.80
+    if padding_anomaly:
+        raw_score = min(raw_score, 650)
 
     # ── Guard rail — limit per-epoch change ──────────────────────────────────
     final_score, guard_applied = _apply_guard_rail(
@@ -228,7 +231,7 @@ def score_agent(
     )
 
     # ── Anomaly: relative OR absolute trigger ────────────────────────────────
-    anomaly_flag = _anomaly_check(
+    anomaly_flag = padding_anomaly or _anomaly_check(
         window.success_rate,
         baseline.signals.success_rate,
         weights,

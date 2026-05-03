@@ -11,7 +11,8 @@
 set -euo pipefail
 
 BASE_URL=${HELIXOR_BASE_URL:-http://localhost:8000}
-AUTH_TOKEN=${HELIUS_WEBHOOK_AUTH_TOKEN:-changeme-make-it-32-chars-long}
+: "${HELIUS_WEBHOOK_AUTH_TOKEN:?Set HELIUS_WEBHOOK_AUTH_TOKEN before running this script}"
+AUTH_TOKEN=$HELIUS_WEBHOOK_AUTH_TOKEN
 
 echo "Testing webhook endpoint at: $BASE_URL"
 

@@ -51,9 +51,12 @@ import { recomputeForAgent, runEpochOnce } from "./pipeline";
 const env = loadEnv();
 
 // Generate three deterministic agents; pubkeys persist for the duration of the test
-const stableAgent      = newAgentKeypair().pubkey;
-const failingAgent     = newAgentKeypair().pubkey;
-const provisionalAgent = newAgentKeypair().pubkey;
+const stableAgentKp      = newAgentKeypair().keypair;
+const failingAgentKp     = newAgentKeypair().keypair;
+const provisionalAgentKp = newAgentKeypair().keypair;
+const stableAgent        = stableAgentKp.publicKey.toBase58();
+const failingAgent       = failingAgentKp.publicKey.toBase58();
+const provisionalAgent   = provisionalAgentKp.publicKey.toBase58();
 
 const ownerKp = loadKeypairFromFile(env.oracleKeypairPath);
 const testOwner = env.testOwnerWallet ?? ownerKp.publicKey.toBase58();
@@ -103,9 +106,9 @@ beforeAll(async () => {
 
   // Step 1: register all three agents
   await Promise.all([
-    registerAgentOnchain(env, ownerKp, stableAgent, "e2e-stable"),
-    registerAgentOnchain(env, ownerKp, failingAgent, "e2e-failing"),
-    registerAgentOnchain(env, ownerKp, provisionalAgent, "e2e-provisional"),
+    registerAgentOnchain(env, ownerKp, stableAgentKp, "e2e-stable"),
+    registerAgentOnchain(env, ownerKp, failingAgentKp, "e2e-failing"),
+    registerAgentOnchain(env, ownerKp, provisionalAgentKp, "e2e-provisional"),
   ]);
   await Promise.all([
     seedRegisteredAgent(db, {

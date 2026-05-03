@@ -26,6 +26,7 @@ DEFAULT_WINDOW_DAYS = 7
 # Lower than baseline's MIN_TX_COUNT because a 7-day window has 1/4 the
 # data of a 30-day window.
 DEFAULT_MIN_WINDOW_TX = 5
+SYSTEM_PROGRAM_ID = "11111111111111111111111111111111"
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +41,7 @@ class WindowStats:
     elapsed_days:      float       # actual fractional days from first tx → now
     window_start:      datetime
     window_end:        datetime
+    padding_tx_ratio:  float = 0.0  # likely low-signal system-only padding
 
 
 class InsufficientWindowData(Exception):
@@ -79,6 +81,8 @@ def compute_window(
     # ── Signal 1: success rate ───────────────────────────────────────────────
     successes = sum(1 for tx in txs if tx.success)
     success_rate = successes / len(txs)
+    padding_like = sum(1 for tx in txs if _is_padding_like(tx.program_ids, tx.sol_change))
+    padding_tx_ratio = padding_like / len(txs)
 
     # ── Group by UTC day ─────────────────────────────────────────────────────
     daily_count: dict = defaultdict(int)
@@ -118,4 +122,11 @@ def compute_window(
         elapsed_days       = round(elapsed_days, 2),
         window_start       = window_start,
         window_end         = window_end,
+        padding_tx_ratio   = round(padding_tx_ratio, 6),
     )
+
+
+def _is_padding_like(program_ids: tuple[str, ...], sol_change: int) -> bool:
+    if not program_ids:
+        return True
+    return set(program_ids).issubset({SYSTEM_PROGRAM_ID}) and abs(sol_change) <= 10_000

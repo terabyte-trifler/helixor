@@ -72,6 +72,24 @@ class Settings(BaseSettings):
     # Maximum tx age accepted in webhook (rejects replay attacks of old data)
     max_webhook_tx_age_seconds: int = Field(default=3_600, ge=60)
 
+    # Public API hardening
+    api_cors_origins: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000",
+        description="Comma-separated browser origins allowed to call authenticated API routes.",
+    )
+    monitoring_admin_token: SecretStr | None = Field(
+        default=None,
+        description="Bearer token required for /monitoring/* operator endpoints.",
+    )
+    trust_x_forwarded_for: bool = Field(
+        default=False,
+        description="Only enable when a trusted proxy strips client-supplied X-Forwarded-For.",
+    )
+    trusted_proxy_ips: str = Field(
+        default="127.0.0.1,::1",
+        description="Comma-separated proxy IPs allowed to supply X-Forwarded-For.",
+    )
+
     # Reconciler — runs periodically to detect drift between Helius + DB
     reconciler_interval_seconds: int = Field(default=300, ge=60)
 
@@ -95,6 +113,14 @@ class Settings(BaseSettings):
     def database_url_safe(self) -> str:
         """Database URL with password masked — safe to log."""
         return re.sub(r"://[^:]+:[^@]+@", "://***:***@", self.database_url)
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.api_cors_origins.split(",") if o.strip()]
+
+    @property
+    def trusted_proxy_ip_set(self) -> set[str]:
+        return {ip.strip() for ip in self.trusted_proxy_ips.split(",") if ip.strip()}
 
 
 settings = Settings()  # type: ignore[call-arg]

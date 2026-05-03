@@ -42,7 +42,7 @@ async def fetch_window_transactions(
     """
     rows = await conn.fetch(
         """
-        SELECT block_time, success, sol_change
+        SELECT block_time, success, sol_change, program_ids, fee
         FROM agent_transactions
         WHERE agent_wallet = $1
           AND block_time >= $2
@@ -56,6 +56,8 @@ async def fetch_window_transactions(
             block_time=row["block_time"],
             success=row["success"],
             sol_change=row["sol_change"],
+            program_ids=tuple(row["program_ids"] or ()),
+            fee=row["fee"] or 0,
         )
         for row in rows
     ]

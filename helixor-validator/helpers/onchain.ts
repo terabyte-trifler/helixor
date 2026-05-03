@@ -39,10 +39,11 @@ export function deriveAgentPdas(programId: PublicKey, agentWallet: string): {
 export async function registerAgentOnchain(
   env: ValidationEnv,
   owner: Keypair,
-  agentWallet: string,
+  agentSigner: Keypair,
   name: string,
 ): Promise<{ signature: string; registrationPda: string; escrowVaultPda: string }> {
   const conn = new Connection(env.solanaRpcUrl, "confirmed");
+  const agentWallet = agentSigner.publicKey.toBase58();
   const agent = new PublicKey(agentWallet);
   const { registrationPda, escrowVaultPda } = deriveAgentPdas(env.programId, agentWallet);
 
@@ -68,7 +69,7 @@ export async function registerAgentOnchain(
     programId: env.programId,
     keys: [
       { pubkey: owner.publicKey, isSigner: true, isWritable: true },
-      { pubkey: agent, isSigner: false, isWritable: false },
+      { pubkey: agent, isSigner: true, isWritable: false },
       { pubkey: registrationPda, isSigner: false, isWritable: true },
       { pubkey: escrowVaultPda, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
@@ -82,7 +83,7 @@ export async function registerAgentOnchain(
     recentBlockhash: latest.blockhash,
   }).add(ix);
 
-  tx.sign(owner);
+  tx.sign(owner, agentSigner);
   const signature = await conn.sendRawTransaction(tx.serialize(), {
     skipPreflight: false,
     preflightCommitment: "confirmed",

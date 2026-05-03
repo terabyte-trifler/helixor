@@ -2,6 +2,8 @@ import * as anchor from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import type { HealthOracle } from "../target/types/health_oracle";
 
+const BOOTSTRAP_AUTHORITY = new PublicKey("ANoJSqqxqih1kSkjYaRno9YeBMVaYB8gmcPnBdV5NqQJ");
+
 async function main() {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
@@ -19,6 +21,11 @@ async function main() {
 
   const oracleKey = new PublicKey(oracleKeyArg);
   const adminKey = new PublicKey(adminKeyArg);
+  if (!provider.wallet.publicKey.equals(BOOTSTRAP_AUTHORITY)) {
+    throw new Error(
+      `OracleConfig bootstrap must be signed by ${BOOTSTRAP_AUTHORITY.toBase58()}, got ${provider.wallet.publicKey.toBase58()}`,
+    );
+  }
 
   const [oracleConfig] = PublicKey.findProgramAddressSync(
     [Buffer.from("oracle_config")],

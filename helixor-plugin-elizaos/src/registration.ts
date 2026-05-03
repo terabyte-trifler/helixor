@@ -146,7 +146,7 @@ export async function prepareRegistration(args: RegistrationArgs): Promise<Prepa
     programId: HELIXOR_PROGRAM_ID,
     keys: [
       { pubkey: owner,            isSigner: true,  isWritable: true  },
-      { pubkey: agent,            isSigner: false, isWritable: false },
+      { pubkey: agent,            isSigner: true,  isWritable: false },
       { pubkey: registrationPda,  isSigner: false, isWritable: true  },
       { pubkey: escrowVaultPda,   isSigner: false, isWritable: true  },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },

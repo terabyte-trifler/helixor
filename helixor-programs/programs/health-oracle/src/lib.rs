@@ -12,16 +12,17 @@
 use anchor_lang::prelude::*;
 
 pub mod errors;
-pub mod state;
 pub mod instructions;
+pub mod state;
 
 pub use state::{
-    InitOracleConfigParams, RegisterParams, ScorePayload, TrustScore,
-    UpdateOracleConfigParams, AgentRegistration, AlertLevel, OracleConfig, ScoreSource,
-    TrustCertificate,
+    AgentRegistration, AlertLevel, InitOracleConfigParams, OracleConfig, RegisterParams,
+    ScorePayload, ScoreSource, TrustCertificate, TrustScore, UpdateOracleConfigParams,
 };
 
 declare_id!("Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P");
+
+pub const BOOTSTRAP_AUTHORITY: Pubkey = pubkey!("ANoJSqqxqih1kSkjYaRno9YeBMVaYB8gmcPnBdV5NqQJ");
 
 #[program]
 pub mod health_oracle {
@@ -43,7 +44,7 @@ pub mod health_oracle {
 
     /// Bootstrap singleton OracleConfig PDA. Run once after deploy.
     pub fn initialize_oracle_config(
-        ctx:    Context<InitializeOracleConfig>,
+        ctx: Context<InitializeOracleConfig>,
         params: InitOracleConfigParams,
     ) -> Result<()> {
         instructions::initialize_oracle_config::handler(ctx, params)
@@ -51,7 +52,7 @@ pub mod health_oracle {
 
     /// Admin-only: rotate keys or pause/unpause.
     pub fn update_oracle_config(
-        ctx:    Context<UpdateOracleConfig>,
+        ctx: Context<UpdateOracleConfig>,
         params: UpdateOracleConfigParams,
     ) -> Result<()> {
         instructions::update_oracle_config::handler(ctx, params)
@@ -63,8 +64,7 @@ pub struct RegisterAgent<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
 
-    /// CHECK: validated in handler
-    pub agent_wallet: UncheckedAccount<'info>,
+    pub agent_wallet: Signer<'info>,
 
     #[account(
         init,

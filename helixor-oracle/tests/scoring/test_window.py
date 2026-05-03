@@ -19,8 +19,18 @@ from scoring.window import (
 UTC = timezone.utc
 
 
-def _tx(t: datetime, success: bool = True, sol_change: int = 0) -> TransactionRecord:
-    return TransactionRecord(block_time=t, success=success, sol_change=sol_change)
+def _tx(
+    t: datetime,
+    success: bool = True,
+    sol_change: int = 0,
+    program_ids: tuple[str, ...] = (),
+) -> TransactionRecord:
+    return TransactionRecord(
+        block_time=t,
+        success=success,
+        sol_change=sol_change,
+        program_ids=program_ids,
+    )
 
 
 # =============================================================================
@@ -105,3 +115,21 @@ class TestStats:
         )
         assert ws.active_days == 1
         assert ws.sol_volatility_mad == 0
+
+    def test_padding_ratio_flags_system_only_micro_transfers(self):
+        now = datetime.now(tz=UTC)
+        txs = [
+            _tx(now - timedelta(hours=i), sol_change=5000,
+                program_ids=("11111111111111111111111111111111",))
+            for i in range(9)
+        ]
+        txs.append(_tx(now - timedelta(hours=10), sol_change=500_000,
+                       program_ids=("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",)))
+
+        ws = compute_window(
+            txs,
+            window_start=now - timedelta(days=7),
+            window_end=now,
+        )
+
+        assert ws.padding_tx_ratio == 0.9

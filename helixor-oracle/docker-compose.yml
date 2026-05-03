@@ -9,10 +9,9 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER:     helixor
-      POSTGRES_PASSWORD: helixor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your local env}
       POSTGRES_DB:       helixor
-    # Use 55433 on the host so we don't collide with any local Postgres.
-    ports: ["55433:5432"]
+    expose: ["5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -27,12 +26,16 @@ services:
     build: .
     depends_on: { postgres: { condition: service_healthy } }
     environment: &shared
-      DATABASE_URL:                postgresql://helixor:helixor@postgres:5432/helixor
-      HELIUS_API_KEY:              ${HELIUS_API_KEY:-changeme}
-      HELIUS_WEBHOOK_URL:          ${HELIUS_WEBHOOK_URL:-https://example.com/webhook}
-      HELIUS_WEBHOOK_AUTH_TOKEN:   ${HELIUS_WEBHOOK_AUTH_TOKEN:-changeme-make-it-32-chars-long}
+      DATABASE_URL:                postgresql://helixor:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your local env}@postgres:5432/helixor
+      HELIUS_API_KEY:              ${HELIUS_API_KEY:?Set HELIUS_API_KEY in your local env}
+      HELIUS_WEBHOOK_URL:          ${HELIUS_WEBHOOK_URL:?Set HELIUS_WEBHOOK_URL in your local env}
+      HELIUS_WEBHOOK_AUTH_TOKEN:   ${HELIUS_WEBHOOK_AUTH_TOKEN:?Set HELIUS_WEBHOOK_AUTH_TOKEN in your local env}
       HEALTH_ORACLE_PROGRAM_ID:    ${HEALTH_ORACLE_PROGRAM_ID:-Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P}
       SOLANA_RPC_URL:              ${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+      MONITORING_ADMIN_TOKEN:      ${MONITORING_ADMIN_TOKEN:?Set MONITORING_ADMIN_TOKEN in your local env}
+      API_CORS_ORIGINS:            ${API_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      TRUST_X_FORWARDED_FOR:       ${TRUST_X_FORWARDED_FOR:-false}
+      TRUSTED_PROXY_IPS:           ${TRUSTED_PROXY_IPS:-127.0.0.1,::1}
     ports: ["8000:8000"]
     command: ["uvicorn", "indexer.webhook_receiver:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped

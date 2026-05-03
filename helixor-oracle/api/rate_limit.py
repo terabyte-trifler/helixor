@@ -18,6 +18,8 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, Request, status
 
+from indexer.config import settings
+
 
 @dataclass
 class _Bucket:
@@ -68,12 +70,18 @@ _limiter = RateLimiter()
 
 def rate_limit_dep(request: Request) -> None:
     """FastAPI dependency: 429 if the caller's IP is over its budget."""
-    # Honour X-Forwarded-For if behind a trusted proxy
+    peer_ip = request.client.host if request.client else "unknown"
+
+    # Honour X-Forwarded-For only when the immediate peer is a trusted proxy.
     forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
+    if (
+        forwarded
+        and settings.trust_x_forwarded_for
+        and peer_ip in settings.trusted_proxy_ip_set
+    ):
         client_ip = forwarded.split(",")[0].strip()
     else:
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = peer_ip
 
     if not _limiter.consume(client_ip):
         raise HTTPException(

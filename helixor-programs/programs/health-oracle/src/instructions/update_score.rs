@@ -52,9 +52,9 @@ pub fn handler(ctx: Context<crate::UpdateScore>, payload: ScorePayload) -> Resul
     let reg = &ctx.accounts.agent_registration;
     require!(reg.active, HelixorError::AgentDeactivated);
 
-    let cert  = &mut ctx.accounts.trust_certificate;
+    let cert = &mut ctx.accounts.trust_certificate;
     let clock = Clock::get()?;
-    let now   = clock.unix_timestamp;
+    let now = clock.unix_timestamp;
 
     // ── 5. Cooldown + guard rail (if not first update) ───────────────────────
     if cert.updated_at > 0 {
@@ -76,37 +76,34 @@ pub fn handler(ctx: Context<crate::UpdateScore>, payload: ScorePayload) -> Resul
     }
 
     // ── 6. Write certificate ─────────────────────────────────────────────────
-    cert.agent_wallet         = reg.agent_wallet;
-    cert.score                = payload.score;
-    cert.alert                = AlertLevel::from_score(payload.score);
-    cert.success_rate         = payload.success_rate;
-    cert.tx_count_7d          = payload.tx_count_7d;
-    cert.anomaly_flag         = payload.anomaly_flag;
-    cert.updated_at           = now;
-    cert.bump                 = ctx.bumps.trust_certificate;
+    cert.agent_wallet = reg.agent_wallet;
+    cert.score = payload.score;
+    cert.alert = AlertLevel::from_score(payload.score);
+    cert.success_rate = payload.success_rate;
+    cert.tx_count_7d = payload.tx_count_7d;
+    cert.anomaly_flag = payload.anomaly_flag;
+    cert.updated_at = now;
+    cert.bump = ctx.bumps.trust_certificate;
     cert.baseline_hash_prefix = payload.baseline_hash_prefix;
     cert.scoring_algo_version = payload.scoring_algo_version;
-    cert.weights_version      = payload.weights_version;
+    cert.weights_version = payload.weights_version;
 
     // ── 7. Bump epoch counter ────────────────────────────────────────────────
-    cfg.epoch = cfg
-        .epoch
-        .checked_add(1)
-        .ok_or(HelixorError::MathOverflow)?;
+    cfg.epoch = cfg.epoch.checked_add(1).ok_or(HelixorError::MathOverflow)?;
 
     // ── 8. Emit event ────────────────────────────────────────────────────────
     emit!(ScoreUpdated {
-        agent:                reg.agent_wallet,
-        score:                cert.score,
-        alert:                cert.alert,
-        anomaly_flag:         cert.anomaly_flag,
-        success_rate:         cert.success_rate,
-        tx_count_7d:          cert.tx_count_7d,
+        agent: reg.agent_wallet,
+        score: cert.score,
+        alert: cert.alert,
+        anomaly_flag: cert.anomaly_flag,
+        success_rate: cert.success_rate,
+        tx_count_7d: cert.tx_count_7d,
         baseline_hash_prefix: cert.baseline_hash_prefix,
         scoring_algo_version: cert.scoring_algo_version,
-        weights_version:      cert.weights_version,
-        epoch:                cfg.epoch,
-        timestamp:            now,
+        weights_version: cert.weights_version,
+        epoch: cfg.epoch,
+        timestamp: now,
     });
 
     msg!(
@@ -131,15 +128,15 @@ pub fn handler(ctx: Context<crate::UpdateScore>, payload: ScorePayload) -> Resul
 /// build score timelines, alert dashboards, and anomaly notifications.
 #[event]
 pub struct ScoreUpdated {
-    pub agent:                Pubkey,
-    pub score:                u16,
-    pub alert:                AlertLevel,
-    pub anomaly_flag:         bool,
-    pub success_rate:         u16,
-    pub tx_count_7d:          u32,
+    pub agent: Pubkey,
+    pub score: u16,
+    pub alert: AlertLevel,
+    pub anomaly_flag: bool,
+    pub success_rate: u16,
+    pub tx_count_7d: u32,
     pub baseline_hash_prefix: [u8; 16],
     pub scoring_algo_version: u8,
-    pub weights_version:      u8,
-    pub epoch:                u64,
-    pub timestamp:            i64,
+    pub weights_version: u8,
+    pub epoch: u64,
+    pub timestamp: i64,
 }

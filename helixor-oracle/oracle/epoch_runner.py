@@ -85,7 +85,6 @@ async def submit_with_retry(
     except ValueError:
         bound_log = log.bind(agent=agent_wallet[:12] + "...")
         bound_log.warning("invalid_agent_wallet_skipping")
-        await score_repo.mark_score_onchain(conn, agent_wallet, "INVALID_AGENT_WALLET")
         return ("invalid_wallet", None)
 
     # Reconstruct ScoreResult-shaped object for submit (we only need the
@@ -149,8 +148,6 @@ async def submit_with_retry(
         except SubmissionError as e:
             if "agent_deactivated" in str(e):
                 bound_log.warning("agent_deactivated_skipping")
-                # Mark as synced so we stop trying for this agent
-                await score_repo.mark_score_onchain(conn, agent_wallet, "DEACTIVATED")
                 return ("deactivated", None)
             # Other unrecognised submission error — treat as transient
             bound_log.warning("unknown_submission_error", error=str(e))

@@ -79,7 +79,7 @@ async function main(): Promise<number> {
   console.log("  • registering agents on-chain:");
   for (const { profile, agent } of agents) {
     process.stdout.write(`      ${profile.id.padEnd(11)} ... `);
-    const reg = await registerAgentOnchain(env, owner, agent.wallet, `validation_${profile.id}`);
+    const reg = await registerAgentOnchain(env, owner, agent.agentKp, `validation_${profile.id}`);
     agent.registrationPda = reg.registrationPda;
     agent.onchainSignature = reg.signature;
     console.log(`\x1b[32m✓\x1b[0m  (${reg.signature.slice(0, 12)}...)`);

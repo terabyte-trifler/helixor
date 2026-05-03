@@ -6,20 +6,48 @@ api/routes/monitoring.py — operator-facing monitoring endpoints.
   GET /monitoring/slos           — SLO percentiles per check
   GET /monitoring/runbook/{key}  — runbook for an alert key
 
-These are NOT public — operators only. In production gate behind admin auth.
-For Day 11 we keep them open since the API itself is on a private network.
+These are NOT public — operators only. Every route requires the configured
+MONITORING_ADMIN_TOKEN bearer token.
 """
 
 from __future__ import annotations
 
+import hmac
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from indexer import db
+from indexer.config import settings
 from monitoring import slo
 
-router = APIRouter()
+
+def require_monitoring_admin(
+    authorization: str | None = Header(None, alias="Authorization"),
+) -> None:
+    token = settings.monitoring_admin_token
+    if token is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"error": "Monitoring admin token is not configured", "code": "MONITORING_AUTH_NOT_CONFIGURED"},
+        )
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "Monitoring admin token required", "code": "AUTH_REQUIRED"},
+        )
+
+    supplied = authorization.removeprefix("Bearer ").strip()
+    expected = token.get_secret_value()
+    if not hmac.compare_digest(supplied, expected):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"error": "Invalid monitoring admin token", "code": "FORBIDDEN"},
+        )
+
+
+router = APIRouter(dependencies=[Depends(require_monitoring_admin)])
 
 
 @router.get("/monitoring/agents")

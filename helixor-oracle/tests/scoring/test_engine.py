@@ -58,6 +58,7 @@ def _window(
     daily_tx_avg: float = 10.0,
     sol_volatility_mad: int = 1_000_000,
     tx_count: int = 70,
+    padding_tx_ratio: float = 0.0,
 ) -> WindowStats:
     """Build a synthetic window."""
     now = datetime.now(tz=UTC)
@@ -70,6 +71,7 @@ def _window(
         elapsed_days       = 7.0,
         window_start       = now - timedelta(days=7),
         window_end         = now,
+        padding_tx_ratio   = padding_tx_ratio,
     )
 
 
@@ -469,3 +471,12 @@ class TestOutputShape:
             assert 0 <= r.breakdown.success_rate_score <= 500
             assert 0 <= r.breakdown.consistency_score  <= 300
             assert 0 <= r.breakdown.stability_score    <= 200
+
+    def test_padding_heavy_window_is_capped_and_anomalous(self):
+        b = _baseline(success_rate=0.99)
+        w = _window(success_rate=1.0, padding_tx_ratio=0.9)
+
+        r = score_agent(w, b)
+
+        assert r.score <= 650
+        assert r.anomaly_flag is True

@@ -109,7 +109,7 @@ async def prepare_registration(
         program_id=program_id,
         accounts=[
             AccountMeta(pubkey=owner,             is_signer=True,  is_writable=True),
-            AccountMeta(pubkey=agent,             is_signer=False, is_writable=False),
+            AccountMeta(pubkey=agent,             is_signer=True,  is_writable=False),
             AccountMeta(pubkey=registration_pda,  is_signer=False, is_writable=True),
             AccountMeta(pubkey=escrow_vault_pda,  is_signer=False, is_writable=True),
             AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),

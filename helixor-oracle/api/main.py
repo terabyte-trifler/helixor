@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 
 from api.routes import monitoring, registration, score, status, telemetry
 from indexer import db
+from indexer.config import settings
 
 log = structlog.get_logger(__name__)
 
@@ -60,10 +61,10 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# CORS — allow browser apps to call us. Tighten origins in production.
+# CORS — public reads are open via server-to-server calls; browsers use allow-list.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # TODO: restrict to known consumers in prod
+    allow_origins=settings.cors_origin_list,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],

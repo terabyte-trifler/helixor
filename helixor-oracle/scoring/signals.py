@@ -63,6 +63,8 @@ class TransactionRecord:
     block_time: datetime          # tz-aware UTC
     success:    bool
     sol_change: int               # lamports, signed
+    program_ids: tuple[str, ...] = ()
+    fee:        int = 0
 
 
 @dataclass(frozen=True, slots=True)

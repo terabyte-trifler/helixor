@@ -47,4 +47,7 @@ pub enum HelixorError {
     // Safety 6017
     #[msg("Integer arithmetic overflow — please report this bug.")]
     MathOverflow,
+
+    #[msg("Caller is not the hard-coded bootstrap authority.")]
+    UnauthorizedBootstrap,
 }

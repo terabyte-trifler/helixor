@@ -13,10 +13,7 @@
 
 use anchor_lang::prelude::*;
 
-use crate::{
-    errors::HelixorError,
-    state::UpdateOracleConfigParams,
-};
+use crate::{errors::HelixorError, state::UpdateOracleConfigParams};
 
 pub fn handler(
     ctx: Context<crate::UpdateOracleConfig>,
@@ -32,14 +29,16 @@ pub fn handler(
 
     if let Some(new_oracle) = params.new_oracle_key {
         require_keys_neq!(
-            new_oracle, cfg.admin_key,
+            new_oracle,
+            cfg.admin_key,
             HelixorError::OracleKeyEqualsAdmin
         );
         cfg.oracle_key = new_oracle;
     }
     if let Some(new_admin) = params.new_admin_key {
         require_keys_neq!(
-            new_admin, cfg.oracle_key,
+            new_admin,
+            cfg.oracle_key,
             HelixorError::OracleKeyEqualsAdmin
         );
         cfg.admin_key = new_admin;
@@ -50,9 +49,9 @@ pub fn handler(
 
     emit!(OracleConfigUpdated {
         oracle_key: cfg.oracle_key,
-        admin_key:  cfg.admin_key,
-        paused:     cfg.paused,
-        timestamp:  Clock::get()?.unix_timestamp,
+        admin_key: cfg.admin_key,
+        paused: cfg.paused,
+        timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())
@@ -61,7 +60,7 @@ pub fn handler(
 #[event]
 pub struct OracleConfigUpdated {
     pub oracle_key: Pubkey,
-    pub admin_key:  Pubkey,
-    pub paused:     bool,
-    pub timestamp:  i64,
+    pub admin_key: Pubkey,
+    pub paused: bool,
+    pub timestamp: i64,
 }

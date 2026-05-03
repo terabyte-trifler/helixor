@@ -97,7 +97,7 @@ async function registerAgent(
       escrowVault:       vaultPda,
       systemProgram:     SystemProgram.programId,
     })
-    .signers([owner])
+    .signers([owner, agent])
     .rpc({ commitment: "confirmed" });
 
   return { owner, agent, regPda, vaultPda, certPda };

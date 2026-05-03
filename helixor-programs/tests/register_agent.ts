@@ -45,7 +45,7 @@ describe("Day 2 carry-over (register_agent still works)", () => {
         escrowVault:       vaultPda,
         systemProgram:     SystemProgram.programId,
       })
-      .signers([owner])
+      .signers([owner, agent])
       .rpc({ commitment: "confirmed" });
 
     const reg = await program.account.agentRegistration.fetch(regPda);
@@ -70,7 +70,7 @@ describe("Day 2 carry-over (register_agent still works)", () => {
         escrowVault:       vaultPda,
         systemProgram:     SystemProgram.programId,
       })
-      .signers([owner])
+      .signers([owner, agent])
       .rpc();
 
     const balance = await conn.getBalance(vaultPda);
@@ -92,7 +92,7 @@ describe("Day 2 carry-over (register_agent still works)", () => {
           agentRegistration: regPda, escrowVault: vaultPda,
           systemProgram: SystemProgram.programId,
         })
-        .signers([owner])
+        .signers([owner, agent])
         .rpc();
       assert.fail("expected NameEmpty");
     } catch (err: any) {
