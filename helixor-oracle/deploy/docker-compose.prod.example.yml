@@ -1,0 +1,73 @@
+version: "3.9"
+
+# Production shape:
+# - Postgres is managed outside this compose file (RDS, Neon, Supabase, Render,
+#   Fly Postgres, Crunchy, etc.).
+# - App containers connect to PgBouncer.
+# - PgBouncer connects to the managed Postgres host over TLS.
+
+services:
+  pgbouncer:
+    image: bitnami/pgbouncer:1.23.1
+    environment:
+      POSTGRESQL_HOST:       ${MANAGED_DATABASE_HOST:?Set managed DB host}
+      POSTGRESQL_PORT:       ${MANAGED_DATABASE_PORT:-5432}
+      POSTGRESQL_USERNAME:   ${MANAGED_DATABASE_USER:?Set managed DB user}
+      POSTGRESQL_PASSWORD:   ${MANAGED_DATABASE_PASSWORD:?Set managed DB password}
+      POSTGRESQL_DATABASE:   ${MANAGED_DATABASE_NAME:-helixor}
+      PGBOUNCER_PORT:        6432
+      PGBOUNCER_AUTH_TYPE:   scram-sha-256
+      PGBOUNCER_POOL_MODE:   transaction
+      PGBOUNCER_MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-2000}
+      PGBOUNCER_DEFAULT_POOL_SIZE: ${PGBOUNCER_DEFAULT_POOL_SIZE:-50}
+      PGBOUNCER_RESERVE_POOL_SIZE: ${PGBOUNCER_RESERVE_POOL_SIZE:-20}
+      PGBOUNCER_SERVER_TLS_SSLMODE: require
+    expose: ["6432"]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    expose: ["6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+
+  api:
+    build: ..
+    depends_on:
+      - pgbouncer
+      - redis
+    environment: &shared
+      DATABASE_URL:                postgresql://${MANAGED_DATABASE_USER:?Set managed DB user}:${MANAGED_DATABASE_PASSWORD:?Set managed DB password}@pgbouncer:6432/${MANAGED_DATABASE_NAME:-helixor}
+      DB_STATEMENT_CACHE_SIZE:     0
+      DB_POOL_MIN:                 ${DB_POOL_MIN:-2}
+      DB_POOL_MAX:                 ${DB_POOL_MAX:-10}
+      REDIS_URL:                   redis://redis:6379/0
+      REDIS_PREFIX:                ${REDIS_PREFIX:-helixor}
+      HELIUS_API_KEY:              ${HELIUS_API_KEY:?Set HELIUS_API_KEY}
+      HELIUS_WEBHOOK_URL:          ${HELIUS_WEBHOOK_URL:?Set HELIUS_WEBHOOK_URL}
+      HELIUS_WEBHOOK_AUTH_TOKEN:   ${HELIUS_WEBHOOK_AUTH_TOKEN:?Set HELIUS_WEBHOOK_AUTH_TOKEN}
+      HEALTH_ORACLE_PROGRAM_ID:    ${HEALTH_ORACLE_PROGRAM_ID:?Set HEALTH_ORACLE_PROGRAM_ID}
+      SOLANA_RPC_URL:              ${SOLANA_RPC_URL:-https://api.mainnet-beta.solana.com}
+      ORACLE_KEYPAIR_PATH:         ${ORACLE_KEYPAIR_PATH:-/app/keys/oracle-node.json}
+      MONITORING_ADMIN_TOKEN:      ${MONITORING_ADMIN_TOKEN:?Set MONITORING_ADMIN_TOKEN}
+      API_CORS_ORIGINS:            ${API_CORS_ORIGINS:?Set API_CORS_ORIGINS}
+      TRUST_X_FORWARDED_FOR:       ${TRUST_X_FORWARDED_FOR:-true}
+      TRUSTED_PROXY_IPS:           ${TRUSTED_PROXY_IPS:?Set trusted edge/load-balancer IPs}
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    expose: ["8001"]
+    restart: unless-stopped
+
+  webhook_receiver:
+    build: ..
+    depends_on:
+      - pgbouncer
+      - redis
+    environment: *shared
+    command: ["uvicorn", "indexer.webhook_receiver:app", "--host", "0.0.0.0", "--port", "8000"]
+    expose: ["8000"]
+    restart: unless-stopped
+
+volumes:
+  redisdata:

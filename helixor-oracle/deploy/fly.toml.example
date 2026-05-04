@@ -9,6 +9,7 @@ primary_region = "iad"
   PORT = "8001"
   API_CORS_ORIGINS = "https://app.helixor.xyz"
   TRUST_X_FORWARDED_FOR = "false"
+  DB_STATEMENT_CACHE_SIZE = "0"
 
 [http_service]
   internal_port = 8001

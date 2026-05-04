@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     # Connection pool sizing for asyncpg
     db_pool_min: int = Field(default=2,  ge=1, le=20)
     db_pool_max: int = Field(default=10, ge=2, le=100)
+    db_statement_cache_size: int = Field(
+        default=100,
+        ge=0,
+        le=10_000,
+        description="Set to 0 when using PgBouncer transaction pooling.",
+    )
 
     # ── Redis ────────────────────────────────────────────────────────────────
     redis_url: str | None = Field(

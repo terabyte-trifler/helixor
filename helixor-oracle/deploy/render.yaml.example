@@ -13,6 +13,8 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+      - key: DB_STATEMENT_CACHE_SIZE
+        value: "0"
       - key: REDIS_URL
         sync: false
       - key: HELIUS_API_KEY

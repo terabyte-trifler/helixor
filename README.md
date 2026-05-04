@@ -279,6 +279,11 @@ helixor-sdk/                      ← NEW PACKAGE
 in-process L1 plus Redis L2, and rate limits are enforced globally across API
 containers instead of multiplying by replica count.
 
+**Protect Postgres with PgBouncer.** App containers should connect to
+PgBouncer, not directly to Postgres. Production Postgres should be managed
+with backups, PITR, TLS, and alerts. See
+`helixor-oracle/deploy/PGBOUNCER_MANAGED_POSTGRES.md`.
+
 **Tighten CORS in production.** Set `API_CORS_ORIGINS` to the exact browser
 origins allowed to call authenticated routes.
 

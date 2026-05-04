@@ -12,7 +12,8 @@ Internet
   -> Fly / Render / AWS ALB HTTPS origin
   -> Helixor API container on :8001
   -> Redis for rate limits + score cache
-  -> Postgres
+  -> PgBouncer
+  -> Managed Postgres
 ```
 
 The API container should not be exposed directly to the public internet.
@@ -43,7 +44,8 @@ Fly gives you automatic TLS and anycast routing. Keep Postgres and Redis as
 managed services or private-network services.
 
 Environment variables required for API:
-- `DATABASE_URL`
+- `DATABASE_URL` pointing at PgBouncer, not Postgres directly
+- `DB_STATEMENT_CACHE_SIZE=0`
 - `REDIS_URL`
 - `HELIUS_API_KEY`
 - `HELIUS_WEBHOOK_URL`
@@ -92,7 +94,7 @@ Minimum AWS controls:
 - HTTP `80` redirects to HTTPS.
 - AWS WAF attached to ALB or CloudFront.
 - Security group: ALB can reach API tasks on `8001`; public internet cannot.
-- API tasks use ElastiCache Redis and RDS Postgres.
+- API tasks use ElastiCache Redis, PgBouncer, and RDS Postgres.
 - Health check path: `/health`.
 - Use rolling deploys with at least two API tasks.
 
@@ -122,6 +124,7 @@ The API key quota is the application-level customer contract.
 ## Production Checklist
 
 - `REDIS_URL` is set and `/metrics` shows Redis-backed cache available.
+- `DATABASE_URL` points at PgBouncer and `DB_STATEMENT_CACHE_SIZE=0`.
 - Only edge/load balancer can reach the API container.
 - TLS certificate is valid for `api.helixor.xyz`.
 - WAF is enabled in log mode, then enforce mode.

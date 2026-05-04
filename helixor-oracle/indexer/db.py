@@ -38,12 +38,14 @@ async def init_pool() -> asyncpg.Pool:
         url=settings.database_url_safe,
         min_size=settings.db_pool_min,
         max_size=settings.db_pool_max,
+        statement_cache_size=settings.db_statement_cache_size,
     )
 
     _pool = await asyncpg.create_pool(
         dsn=settings.database_url,
         min_size=settings.db_pool_min,
         max_size=settings.db_pool_max,
+        statement_cache_size=settings.db_statement_cache_size,
         # Recycle connections that have been idle for > 5 min — avoids
         # PG's idle_session_timeout killing them out from under us
         max_inactive_connection_lifetime=300.0,
