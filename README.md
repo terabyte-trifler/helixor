@@ -283,8 +283,11 @@ containers instead of multiplying by replica count.
 origins allowed to call authenticated routes.
 
 **Add API keys for rate-limit tiers.** The current Redis limiter is per IP;
-production still needs per-API-key tiers (free: 100/min, partner: 10000/min,
-etc). Add a middleware that resolves `Authorization: Bearer` to a tier ID.
+valid operator API keys get Redis-backed per-key buckets by tier.
+
+**Put the API behind an edge.** Use Cloudflare/Fly/Render/AWS ALB for TLS,
+WAF, coarse abuse filtering, and private origin networking. See
+`helixor-oracle/deploy/EDGE_GATEWAY.md`.
 
 **Cache TTL trade-off.** 60s server cache + 30s client cache = up to ~90s
 delay for score updates to propagate. Unknown agents are cached for 30s to

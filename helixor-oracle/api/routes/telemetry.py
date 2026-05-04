@@ -11,7 +11,6 @@ field, audit it against the schema before merging.
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import json
 from datetime import datetime, timezone
@@ -22,6 +21,7 @@ import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 
+from api.auth import extract_bearer_token, hash_api_key
 from api.rate_limit import rate_limit_dep
 from api.validation import validate_agent_wallet
 from indexer import db
@@ -108,11 +108,6 @@ class TelemetryAck(BaseModel):
 # Operator resolution from API key
 # =============================================================================
 
-def hash_api_key(raw: str) -> str:
-    """sha256 hex of raw API key. Never store the raw key."""
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
 def _safe_source_ip(request: Request) -> str | None:
     """Return a DB-safe IP string, or None for non-IP clients like TestClient."""
     host = request.client.host if request.client else None
@@ -170,9 +165,7 @@ async def receive_beacon(
     """
     pool = await db.get_pool()
 
-    api_key: str | None = None
-    if authorization and authorization.startswith("Bearer "):
-        api_key = authorization.removeprefix("Bearer ").strip()
+    api_key = extract_bearer_token(authorization)
 
     request_id = request.headers.get("x-request-id", "unknown")
 
@@ -277,14 +270,14 @@ async def whoami(
     Operator hits this endpoint with their API key. Returns confirmation +
     recent activity. Used by the `npx @elizaos/plugin-helixor status` CLI.
     """
-    if not authorization or not authorization.startswith("Bearer "):
+    api_key = extract_bearer_token(authorization)
+    if not api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"error": "API key required for /telemetry/whoami",
                     "code": "AUTH_REQUIRED"},
         )
 
-    api_key  = authorization.removeprefix("Bearer ").strip()
     pool     = await db.get_pool()
 
     async with pool.acquire() as conn:

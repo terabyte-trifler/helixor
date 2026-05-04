@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     )
     rate_limit_capacity: int = Field(default=100, ge=1, le=100_000)
     rate_limit_refill_per_second: float = Field(default=100 / 60, gt=0, le=10_000)
+    rate_limit_free_capacity: int = Field(default=300, ge=1, le=1_000_000)
+    rate_limit_partner_capacity: int = Field(default=10_000, ge=1, le=1_000_000)
+    rate_limit_team_capacity: int = Field(default=50_000, ge=1, le=5_000_000)
+    api_key_tier_cache_seconds: int = Field(default=300, ge=1, le=86_400)
     score_cache_ttl_seconds: int = Field(default=60, ge=1, le=86_400)
     negative_cache_ttl_seconds: int = Field(default=30, ge=1, le=3_600)
 

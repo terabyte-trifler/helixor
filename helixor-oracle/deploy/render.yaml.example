@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: helixor-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: standard
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: PORT
+        value: "8001"
+      - key: API_CORS_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: HELIUS_API_KEY
+        sync: false
+      - key: HELIUS_WEBHOOK_URL
+        sync: false
+      - key: HELIUS_WEBHOOK_AUTH_TOKEN
+        sync: false
+      - key: HEALTH_ORACLE_PROGRAM_ID
+        sync: false
+      - key: ORACLE_KEYPAIR_PATH
+        sync: false
+      - key: MONITORING_ADMIN_TOKEN
+        sync: false
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port 8001

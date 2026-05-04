@@ -5,7 +5,8 @@ import time
 import pytest
 
 from api import redis_client
-from api.rate_limit import _consume_redis
+from api.auth import looks_like_operator_key
+from api.rate_limit import _consume_redis, _quota_for_tier
 from api.schemas import ScoreResponse
 from api.service import ScoreService
 
@@ -15,6 +16,7 @@ class FakeRedis:
         self.values: dict[str, str] = {}
         self.expires: dict[str, int] = {}
         self.eval_calls = 0
+        self.eval_args = None
 
     async def get(self, key: str) -> str | None:
         return self.values.get(key)
@@ -31,6 +33,7 @@ class FakeRedis:
 
     async def eval(self, *args):
         self.eval_calls += 1
+        self.eval_args = args
         return 1
 
 
@@ -81,7 +84,29 @@ async def test_negative_cache_marks_unknown_agent(fake_redis):
 
 @pytest.mark.asyncio
 async def test_rate_limit_uses_redis_bucket(fake_redis):
-    allowed = await _consume_redis("203.0.113.10")
+    capacity, refill = _quota_for_tier(None)
+    allowed = await _consume_redis(
+        "ip:203.0.113.10",
+        capacity=capacity,
+        refill_per_second=refill,
+    )
 
     assert allowed is True
     assert fake_redis.eval_calls == 1
+    assert fake_redis.eval_args[2] == "helixor:rate:ip:203.0.113.10"
+
+
+def test_operator_tiers_have_larger_quotas_than_anonymous():
+    anon_capacity, _ = _quota_for_tier(None)
+    free_capacity, _ = _quota_for_tier("free")
+    partner_capacity, _ = _quota_for_tier("partner")
+    team_capacity, _ = _quota_for_tier("team")
+
+    assert anon_capacity < free_capacity < partner_capacity < team_capacity
+
+
+def test_operator_key_shape_rejects_random_bearer_tokens():
+    assert looks_like_operator_key("Bearer nope") is False
+    assert looks_like_operator_key("not-a-real-key") is False
+    assert looks_like_operator_key("hxop_short") is False
+    assert looks_like_operator_key("hxop_" + "a" * 32) is True
