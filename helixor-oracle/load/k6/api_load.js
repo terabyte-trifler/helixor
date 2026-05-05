@@ -16,42 +16,65 @@ const SCORE_WALLETS = csvEnv(
 );
 const SCORE_EXPECTED_STATUS = Number(optionalEnv("SCORE_EXPECTED_STATUS", "200"));
 const AGENTS_LIMIT = Number(optionalEnv("AGENTS_LIMIT", "50"));
+const PROFILE = optionalEnv("K6_PROFILE", "staging");
+const IS_LAUNCH = PROFILE === "launch";
+
+const DEFAULT_SCORE_RPS = IS_LAUNCH ? "1000" : "20";
+const DEFAULT_UNCACHED_SCORE_RPS = IS_LAUNCH ? "25" : "0";
+const DEFAULT_AGENTS_RPS = IS_LAUNCH ? "50" : "5";
+const DEFAULT_TELEMETRY_RPS = IS_LAUNCH ? "100" : "10";
+const DEFAULT_DURATION = IS_LAUNCH ? "10m" : "2m";
+const DEFAULT_FAILURE_RATE = IS_LAUNCH ? "0.001" : "0.01";
+const DEFAULT_SCORE_P95_MS = IS_LAUNCH ? "100" : "250";
+const DEFAULT_UNCACHED_SCORE_P95_MS = IS_LAUNCH ? "300" : "300";
 
 export const options = {
   scenarios: {
     score_reads: {
       executor: "constant-arrival-rate",
       exec: "scoreRead",
-      rate: Number(optionalEnv("SCORE_RPS", "20")),
+      rate: Number(optionalEnv("SCORE_RPS", DEFAULT_SCORE_RPS)),
       timeUnit: "1s",
-      duration: optionalEnv("DURATION", "2m"),
-      preAllocatedVUs: Number(optionalEnv("SCORE_VUS", "20")),
-      maxVUs: Number(optionalEnv("SCORE_MAX_VUS", "100")),
+      duration: optionalEnv("DURATION", DEFAULT_DURATION),
+      preAllocatedVUs: Number(optionalEnv("SCORE_VUS", IS_LAUNCH ? "250" : "20")),
+      maxVUs: Number(optionalEnv("SCORE_MAX_VUS", IS_LAUNCH ? "1500" : "100")),
+    },
+    uncached_score_reads: {
+      executor: "constant-arrival-rate",
+      exec: "uncachedScoreRead",
+      rate: Number(optionalEnv("UNCACHED_SCORE_RPS", DEFAULT_UNCACHED_SCORE_RPS)),
+      timeUnit: "1s",
+      duration: optionalEnv("DURATION", DEFAULT_DURATION),
+      preAllocatedVUs: Number(optionalEnv("UNCACHED_SCORE_VUS", IS_LAUNCH ? "50" : "1")),
+      maxVUs: Number(optionalEnv("UNCACHED_SCORE_MAX_VUS", IS_LAUNCH ? "250" : "10")),
     },
     agents_listing: {
       executor: "constant-arrival-rate",
       exec: "agentsList",
-      rate: Number(optionalEnv("AGENTS_RPS", "5")),
+      rate: Number(optionalEnv("AGENTS_RPS", DEFAULT_AGENTS_RPS)),
       timeUnit: "1s",
-      duration: optionalEnv("DURATION", "2m"),
-      preAllocatedVUs: Number(optionalEnv("AGENTS_VUS", "5")),
-      maxVUs: Number(optionalEnv("AGENTS_MAX_VUS", "25")),
+      duration: optionalEnv("DURATION", DEFAULT_DURATION),
+      preAllocatedVUs: Number(optionalEnv("AGENTS_VUS", IS_LAUNCH ? "25" : "5")),
+      maxVUs: Number(optionalEnv("AGENTS_MAX_VUS", IS_LAUNCH ? "150" : "25")),
     },
     telemetry_beacons: {
       executor: "constant-arrival-rate",
       exec: "telemetryBeacon",
-      rate: Number(optionalEnv("TELEMETRY_RPS", "10")),
+      rate: Number(optionalEnv("TELEMETRY_RPS", DEFAULT_TELEMETRY_RPS)),
       timeUnit: "1s",
-      duration: optionalEnv("DURATION", "2m"),
-      preAllocatedVUs: Number(optionalEnv("TELEMETRY_VUS", "10")),
-      maxVUs: Number(optionalEnv("TELEMETRY_MAX_VUS", "50")),
+      duration: optionalEnv("DURATION", DEFAULT_DURATION),
+      preAllocatedVUs: Number(optionalEnv("TELEMETRY_VUS", IS_LAUNCH ? "50" : "10")),
+      maxVUs: Number(optionalEnv("TELEMETRY_MAX_VUS", IS_LAUNCH ? "300" : "50")),
     },
   },
   thresholds: {
-    http_req_failed: [`rate<${optionalEnv("MAX_FAILURE_RATE", "0.01")}`],
+    http_req_failed: [`rate<${optionalEnv("MAX_FAILURE_RATE", DEFAULT_FAILURE_RATE)}`],
     "http_req_duration{endpoint:score}": [
-      `p(95)<${optionalEnv("SCORE_P95_MS", "250")}`,
+      `p(95)<${optionalEnv("SCORE_P95_MS", DEFAULT_SCORE_P95_MS)}`,
       `p(99)<${optionalEnv("SCORE_P99_MS", "500")}`,
+    ],
+    "http_req_duration{endpoint:score_uncached}": [
+      `p(95)<${optionalEnv("UNCACHED_SCORE_P95_MS", DEFAULT_UNCACHED_SCORE_P95_MS)}`,
     ],
     "http_req_duration{endpoint:agents}": [
       `p(95)<${optionalEnv("AGENTS_P95_MS", "400")}`,
@@ -69,6 +92,16 @@ export function scoreRead() {
     tags: { endpoint: "score" },
   });
   checkHttp(res, "/score", SCORE_EXPECTED_STATUS);
+  sleep(0.05);
+}
+
+export function uncachedScoreRead() {
+  const wallet = pick(SCORE_WALLETS);
+  const res = http.get(`${API_BASE_URL}/score/${wallet}?force_refresh=true`, {
+    headers: headers(),
+    tags: { endpoint: "score_uncached" },
+  });
+  checkHttp(res, "/score uncached", SCORE_EXPECTED_STATUS);
   sleep(0.05);
 }
 

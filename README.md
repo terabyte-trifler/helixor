@@ -290,6 +290,9 @@ with backups, PITR, TLS, and alerts. See
 
 **Load-test the hot paths.** k6 scripts cover `/score`, `/agents`,
 `/telemetry/beacon`, and `/webhook`. See `helixor-oracle/load/k6/README.md`.
+Hard launch requires `1000 RPS` cached score reads, p95 `< 100ms` cached,
+p95 `< 300ms` uncached, and failed requests `< 0.1%`. See
+`helixor-oracle/deploy/LAUNCH_TARGETS.md`.
 
 **Tighten CORS in production.** Set `API_CORS_ORIGINS` to the exact browser
 origins allowed to call authenticated routes.

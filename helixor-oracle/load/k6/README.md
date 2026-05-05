@@ -53,18 +53,29 @@ DURATION=2m \
 k6 run load/k6/webhook_load.js
 ```
 
-## Suggested Gates
+## Hard Launch Gates
 
-Initial staging gates:
+Staging defaults are intentionally modest for local/dev runs. Hard launch uses
+`K6_PROFILE=launch` and must run against the public edge URL.
 
-- API failure rate `< 1%`
-- `/score` p95 `< 250ms`, p99 `< 500ms`
+- API failure rate `< 0.1%`
+- `/score` cached: `1000 RPS`, p95 `< 100ms`, p99 `< 500ms`
+- `/score?force_refresh=true` uncached: p95 `< 300ms`
 - `/agents` p95 `< 400ms`
 - `/telemetry/beacon` p95 `< 500ms`
 - `/webhook` p95 `< 500ms`, p99 `< 1000ms`
 
+```bash
+K6_PROFILE=launch \
+API_BASE_URL=https://api.helixor.xyz \
+SCORE_WALLETS=<registered-wallets> \
+HELIXOR_API_KEY=<partner-or-team-key> \
+k6 run load/k6/api_load.js
+```
+
 For production readiness, run against the public edge URL, not localhost. Keep
 Redis, PgBouncer, the API, webhook receiver, and webhook workers enabled.
+See `../deploy/LAUNCH_TARGETS.md`.
 
 ## Environment Knobs
 
@@ -80,10 +91,12 @@ API:
 - `SCORE_WALLETS`
 - `SCORE_EXPECTED_STATUS`
 - `SCORE_RPS`
+- `UNCACHED_SCORE_RPS`
 - `AGENTS_RPS`
 - `TELEMETRY_RPS`
 - `SCORE_P95_MS`
 - `SCORE_P99_MS`
+- `UNCACHED_SCORE_P95_MS`
 - `AGENTS_P95_MS`
 - `TELEMETRY_P95_MS`
 
