@@ -155,42 +155,49 @@ async def insert_transactions_batch(
     if not eligible:
         return (0, skipped_inactive)
 
-    # Build value tuples for executemany
-    rows = [
-        (
-            tx.fee_payer,
-            tx.signature,
-            tx.slot,
-            tx.block_time,
-            tx.success,
-            tx.program_ids,
-            tx.sol_change,
-            tx.fee,
-            json.dumps(tx.raw_meta),
-            source,
-        )
-        for tx in eligible
-    ]
-
-    # Use COPY for max throughput? executemany is fine for batches < 1000.
-    # We track inserted count via RETURNING; ON CONFLICT skipped rows
-    # don't appear in RETURNING.
-    inserted = 0
-    async with conn.transaction():
-        for row in rows:
-            result = await conn.execute(
-                """
-                INSERT INTO agent_transactions
-                    (agent_wallet, tx_signature, slot, block_time, success,
-                     program_ids, sol_change, fee, raw_meta, source)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
-                ON CONFLICT (tx_signature) DO NOTHING
-                """,
-                *row,
+    inserted = await conn.fetchval(
+        """
+        WITH input AS (
+            SELECT *
+            FROM unnest(
+                $1::text[],
+                $2::text[],
+                $3::bigint[],
+                $4::timestamptz[],
+                $5::boolean[],
+                $6::text[][],
+                $7::bigint[],
+                $8::bigint[],
+                $9::text[]
+            ) AS t(
+                agent_wallet, tx_signature, slot, block_time, success,
+                program_ids, sol_change, fee, raw_meta_text
             )
-            # asyncpg returns 'INSERT 0 1' or 'INSERT 0 0' — split off the count
-            if result.endswith(" 1"):
-                inserted += 1
+        ),
+        inserted AS (
+            INSERT INTO agent_transactions
+                (agent_wallet, tx_signature, slot, block_time, success,
+                 program_ids, sol_change, fee, raw_meta, source)
+            SELECT
+                agent_wallet, tx_signature, slot, block_time, success,
+                program_ids, sol_change, fee, raw_meta_text::jsonb, $10
+            FROM input
+            ON CONFLICT (tx_signature) DO NOTHING
+            RETURNING 1
+        )
+        SELECT COUNT(*)::int FROM inserted
+        """,
+        [tx.fee_payer for tx in eligible],
+        [tx.signature for tx in eligible],
+        [tx.slot for tx in eligible],
+        [tx.block_time for tx in eligible],
+        [tx.success for tx in eligible],
+        [tx.program_ids for tx in eligible],
+        [tx.sol_change for tx in eligible],
+        [tx.fee for tx in eligible],
+        [json.dumps(tx.raw_meta) for tx in eligible],
+        source,
+    )
 
     skipped_duplicates = len(eligible) - inserted
     return (inserted, skipped_inactive + skipped_duplicates)

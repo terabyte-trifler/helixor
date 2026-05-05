@@ -284,6 +284,10 @@ PgBouncer, not directly to Postgres. Production Postgres should be managed
 with backups, PITR, TLS, and alerts. See
 `helixor-oracle/deploy/PGBOUNCER_MANAGED_POSTGRES.md`.
 
+**Queue webhook ingestion.** Helius webhooks enqueue parsed batches into Redis;
+`indexer.webhook_worker` drains them with batched Postgres writes. See
+`helixor-oracle/deploy/WEBHOOK_QUEUE.md`.
+
 **Tighten CORS in production.** Set `API_CORS_ORIGINS` to the exact browser
 origins allowed to call authenticated routes.
 

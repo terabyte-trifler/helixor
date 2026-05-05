@@ -75,6 +75,10 @@ services:
       API_KEY_TIER_CACHE_SECONDS:  ${API_KEY_TIER_CACHE_SECONDS:-300}
       SCORE_CACHE_TTL_SECONDS:     ${SCORE_CACHE_TTL_SECONDS:-60}
       NEGATIVE_CACHE_TTL_SECONDS:  ${NEGATIVE_CACHE_TTL_SECONDS:-30}
+      WEBHOOK_QUEUE_ENABLED:       ${WEBHOOK_QUEUE_ENABLED:-true}
+      WEBHOOK_QUEUE_NAME:          ${WEBHOOK_QUEUE_NAME:-webhook_batches}
+      WEBHOOK_WORKER_BATCH_SIZE:   ${WEBHOOK_WORKER_BATCH_SIZE:-100}
+      WEBHOOK_WORKER_POLL_TIMEOUT_SECONDS: ${WEBHOOK_WORKER_POLL_TIMEOUT_SECONDS:-5}
       HELIUS_API_KEY:              ${HELIUS_API_KEY:?Set HELIUS_API_KEY in your local env}
       HELIUS_WEBHOOK_URL:          ${HELIUS_WEBHOOK_URL:?Set HELIUS_WEBHOOK_URL in your local env}
       HELIUS_WEBHOOK_AUTH_TOKEN:   ${HELIUS_WEBHOOK_AUTH_TOKEN:?Set HELIUS_WEBHOOK_AUTH_TOKEN in your local env}
@@ -86,6 +90,15 @@ services:
       TRUSTED_PROXY_IPS:           ${TRUSTED_PROXY_IPS:-127.0.0.1,::1}
     ports: ["8000:8000"]
     command: ["uvicorn", "indexer.webhook_receiver:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+
+  webhook_worker:
+    build: .
+    depends_on:
+      pgbouncer: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment: *shared
+    command: ["python", "-m", "indexer.webhook_worker"]
     restart: unless-stopped
 
   agent_sync:

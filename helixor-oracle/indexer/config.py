@@ -97,6 +97,13 @@ class Settings(BaseSettings):
     # ── Operational ───────────────────────────────────────────────────────────
     # Maximum tx age accepted in webhook (rejects replay attacks of old data)
     max_webhook_tx_age_seconds: int = Field(default=3_600, ge=60)
+    webhook_queue_enabled: bool = Field(
+        default=False,
+        description="When true, /webhook enqueues parsed transactions for batch workers.",
+    )
+    webhook_queue_name: str = Field(default="webhook_batches", min_length=1, max_length=128)
+    webhook_worker_batch_size: int = Field(default=100, ge=1, le=5_000)
+    webhook_worker_poll_timeout_seconds: int = Field(default=5, ge=1, le=60)
 
     # Public API hardening
     api_cors_origins: str = Field(

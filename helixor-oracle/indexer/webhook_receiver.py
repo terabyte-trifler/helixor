@@ -8,7 +8,7 @@ Endpoints:
   GET  /metrics  — Prometheus text format.
 
 Lifecycle:
-  startup  → init asyncpg pool, init Helius client
+  startup  → init asyncpg pool, Redis queue client, init Helius client
   shutdown → close pool, close Helius client
 
 Production notes:
@@ -29,11 +29,13 @@ import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 
+from api.redis_client import close_redis, init_redis
 from indexer import db, repo
 from indexer.auth import verify_webhook_auth
 from indexer.config import settings
 from indexer.helius import HeliusClient
 from indexer.parser import ParseError, parse_helius_tx
+from indexer.webhook_queue import QueuedWebhookBatch, enqueue_webhook_batch
 
 log = structlog.get_logger(__name__)
 
@@ -62,6 +64,8 @@ async def lifespan(app: FastAPI):
 
     # ── DB pool ───────────────────────────────────────────────────────────────
     await db.init_pool()
+    if settings.webhook_queue_enabled:
+        await init_redis()
 
     # ── Helius client ─────────────────────────────────────────────────────────
     _helius = HeliusClient()
@@ -73,6 +77,7 @@ async def lifespan(app: FastAPI):
         log.info("indexer shutting down")
         if _helius is not None:
             await _helius.aclose()
+        await close_redis()
         await db.close_pool()
         log.info("indexer stopped")
 
@@ -157,45 +162,62 @@ async def receive_transactions(request: Request):
             too_old=too_old,
         )
 
-    # ── Insert into DB ────────────────────────────────────────────────────────
+    # ── Enqueue or insert ─────────────────────────────────────────────────────
     error_msg: str | None = None
     inserted = 0
     skipped  = parse_failures + too_old
 
     if parsed:
-        pool = await db.get_pool()
-        try:
-            async with pool.acquire() as conn:
-                ins, skp = await repo.insert_transactions_batch(conn, parsed, source="webhook")
-                inserted += ins
-                skipped  += skp
-        except Exception as e:
-            # DB-level error — log it, audit it, return 500 so Helius retries
-            error_msg = f"{type(e).__name__}: {e}"
-            bound_log.error("db_insert_failed", error=error_msg)
+        if settings.webhook_queue_enabled:
+            try:
+                await enqueue_webhook_batch(
+                    QueuedWebhookBatch(
+                        request_id=request_id,
+                        received=len(body),
+                        skipped=skipped,
+                        duration_ms=int((time.perf_counter() - started) * 1000),
+                        txs=parsed,
+                    )
+                )
+            except Exception as e:
+                error_msg = f"{type(e).__name__}: {e}"
+                bound_log.error("webhook_enqueue_failed", error=error_msg)
+        else:
+            pool = await db.get_pool()
+            try:
+                async with pool.acquire() as conn:
+                    ins, skp = await repo.insert_transactions_batch(conn, parsed, source="webhook")
+                    inserted += ins
+                    skipped  += skp
+            except Exception as e:
+                # DB-level error — log it, audit it, return 500 so Helius retries
+                error_msg = f"{type(e).__name__}: {e}"
+                bound_log.error("db_insert_failed", error=error_msg)
 
     duration_ms = int((time.perf_counter() - started) * 1000)
 
     # ── Audit ─────────────────────────────────────────────────────────────────
-    # Best-effort: if audit logging fails, don't fail the webhook
-    try:
-        pool = await db.get_pool()
-        async with pool.acquire() as conn:
-            await repo.record_webhook_event(
-                conn,
-                request_id     = request_id,
-                tx_count       = len(body),
-                inserted_count = inserted,
-                skipped_count  = skipped,
-                duration_ms    = duration_ms,
-                error          = error_msg,
-            )
-    except Exception as e:
-        bound_log.warning("audit_log_failed", error=str(e))
+    # Queued batches are audited by webhook_worker after durable DB insert.
+    if not settings.webhook_queue_enabled or error_msg or not parsed:
+        try:
+            pool = await db.get_pool()
+            async with pool.acquire() as conn:
+                await repo.record_webhook_event(
+                    conn,
+                    request_id     = request_id,
+                    tx_count       = len(body),
+                    inserted_count = inserted,
+                    skipped_count  = skipped,
+                    duration_ms    = duration_ms,
+                    error          = error_msg,
+                )
+        except Exception as e:
+            bound_log.warning("audit_log_failed", error=str(e))
 
     bound_log.info(
-        "webhook_processed",
+        "webhook_received",
         received=len(body), inserted=inserted, skipped=skipped,
+        queued=len(parsed) if settings.webhook_queue_enabled and not error_msg else 0,
         duration_ms=duration_ms, error=error_msg,
     )
 
@@ -208,6 +230,7 @@ async def receive_transactions(request: Request):
         "received":  len(body),
         "inserted":  inserted,
         "skipped":   skipped,
+        "queued":    len(parsed) if settings.webhook_queue_enabled else 0,
         "duration_ms": duration_ms,
         "request_id": request_id,
     }
