@@ -155,23 +155,35 @@ async def insert_transactions_batch(
     if not eligible:
         return (0, skipped_inactive)
 
+    rows = [
+        {
+            "agent_wallet": tx.fee_payer,
+            "tx_signature": tx.signature,
+            "slot": tx.slot,
+            "block_time": tx.block_time.isoformat(),
+            "success": tx.success,
+            "program_ids": tx.program_ids,
+            "sol_change": tx.sol_change,
+            "fee": tx.fee,
+            "raw_meta": tx.raw_meta,
+        }
+        for tx in eligible
+    ]
+
     inserted = await conn.fetchval(
         """
         WITH input AS (
             SELECT *
-            FROM unnest(
-                $1::text[],
-                $2::text[],
-                $3::bigint[],
-                $4::timestamptz[],
-                $5::boolean[],
-                $6::text[][],
-                $7::bigint[],
-                $8::bigint[],
-                $9::text[]
-            ) AS t(
-                agent_wallet, tx_signature, slot, block_time, success,
-                program_ids, sol_change, fee, raw_meta_text
+            FROM jsonb_to_recordset($1::jsonb) AS t(
+                agent_wallet text,
+                tx_signature text,
+                slot bigint,
+                block_time timestamptz,
+                success boolean,
+                program_ids text[],
+                sol_change bigint,
+                fee bigint,
+                raw_meta jsonb
             )
         ),
         inserted AS (
@@ -180,22 +192,14 @@ async def insert_transactions_batch(
                  program_ids, sol_change, fee, raw_meta, source)
             SELECT
                 agent_wallet, tx_signature, slot, block_time, success,
-                program_ids, sol_change, fee, raw_meta_text::jsonb, $10
+                program_ids, sol_change, fee, raw_meta, $2
             FROM input
             ON CONFLICT (tx_signature) DO NOTHING
             RETURNING 1
         )
         SELECT COUNT(*)::int FROM inserted
         """,
-        [tx.fee_payer for tx in eligible],
-        [tx.signature for tx in eligible],
-        [tx.slot for tx in eligible],
-        [tx.block_time for tx in eligible],
-        [tx.success for tx in eligible],
-        [tx.program_ids for tx in eligible],
-        [tx.sol_change for tx in eligible],
-        [tx.fee for tx in eligible],
-        [json.dumps(tx.raw_meta) for tx in eligible],
+        json.dumps(rows),
         source,
     )
 

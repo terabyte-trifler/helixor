@@ -288,6 +288,9 @@ with backups, PITR, TLS, and alerts. See
 `indexer.webhook_worker` drains them with batched Postgres writes. See
 `helixor-oracle/deploy/WEBHOOK_QUEUE.md`.
 
+**Load-test the hot paths.** k6 scripts cover `/score`, `/agents`,
+`/telemetry/beacon`, and `/webhook`. See `helixor-oracle/load/k6/README.md`.
+
 **Tighten CORS in production.** Set `API_CORS_ORIGINS` to the exact browser
 origins allowed to call authenticated routes.
 
