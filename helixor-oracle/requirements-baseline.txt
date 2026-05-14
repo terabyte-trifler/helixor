@@ -1,0 +1,14 @@
+# helixor-oracle / baseline — Day 2 dependencies
+#
+# The baseline ENGINE (compute_baseline) and HASHING (compute_stats_hash) have
+# ZERO runtime dependencies — pure Python stdlib. Same rationale as Day 1's
+# feature extractor: this code runs on 3 independent oracle nodes in Phase 4
+# and must be byte-for-byte deterministic. No numpy, no scipy.
+#
+# Dependencies are only needed by the persistence layer + the backfill job:
+asyncpg>=0.29.0          # baseline/repository.py — Postgres access
+structlog>=24.1.0        # scripts/backfill_baselines_v2.py — structured logging
+
+# Test-only:
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

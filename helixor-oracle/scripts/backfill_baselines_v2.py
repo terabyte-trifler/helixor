@@ -74,13 +74,41 @@ async def _load_transactions(
     window: ExtractionWindow,
 ) -> list[Transaction]:
     """Load an agent's transactions in the window from agent_transactions."""
+    columns = {
+        r["column_name"]
+        for r in await conn.fetch(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'agent_transactions'
+            """
+        )
+    }
+    optional_exprs = {
+        "priority_fee": (
+            "COALESCE(priority_fee, 0) AS priority_fee"
+            if "priority_fee" in columns
+            else "0::BIGINT AS priority_fee"
+        ),
+        "compute_units": (
+            "COALESCE(compute_units, 0) AS compute_units"
+            if "compute_units" in columns
+            else "0::BIGINT AS compute_units"
+        ),
+        "counterparty": (
+            "counterparty"
+            if "counterparty" in columns
+            else "NULL::TEXT AS counterparty"
+        ),
+    }
     rows = await conn.fetch(
-        """
+        f"""
         SELECT tx_signature, slot, block_time, success,
                program_ids, sol_change, fee,
-               COALESCE(priority_fee, 0)  AS priority_fee,
-               COALESCE(compute_units, 0) AS compute_units,
-               counterparty
+               {optional_exprs["priority_fee"]},
+               {optional_exprs["compute_units"]},
+               {optional_exprs["counterparty"]}
         FROM agent_transactions
         WHERE agent_wallet = $1
           AND block_time >= $2
