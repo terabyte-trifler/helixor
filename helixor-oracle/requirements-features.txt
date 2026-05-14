@@ -1,0 +1,10 @@
+# helixor-oracle / features — Day 1 dependencies
+#
+# The feature extractor itself has ZERO runtime dependencies — it is pure
+# Python stdlib (dataclasses, hashlib, math, collections, datetime). This is
+# deliberate: the extractor runs in the oracle hot path and on 3 independent
+# cluster nodes; fewer dependencies = fewer determinism risks + smaller
+# attack surface.
+#
+# Test-only:
+pytest>=8.0.0
