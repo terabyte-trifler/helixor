@@ -113,6 +113,8 @@ def compute_baseline(
 
     # 6. The commitment hash — over statistical content only.
     schema_fp = FeatureVector.feature_schema_fingerprint()
+    from scoring.weights import scoring_schema_fingerprint
+    scoring_fp = scoring_schema_fingerprint()
     stats_hash = hashing.compute_stats_hash(
         baseline_algo_version=BASELINE_ALGO_VERSION,
         feature_schema_fingerprint=schema_fp,
@@ -129,6 +131,7 @@ def compute_baseline(
         baseline_algo_version=BASELINE_ALGO_VERSION,
         feature_schema_version=FEATURE_SCHEMA_VERSION,
         feature_schema_fingerprint=schema_fp,
+        scoring_schema_fingerprint=scoring_fp,
         window_start=window.start,
         window_end=window.end,
         feature_means=feature_means,

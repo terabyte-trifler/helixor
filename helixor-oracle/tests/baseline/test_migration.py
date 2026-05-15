@@ -30,6 +30,7 @@ def test_adds_v2_columns_to_agent_baselines(sql):
     for col in (
         "feature_means", "feature_stds", "stats_hash",
         "feature_schema_version", "feature_schema_fingerprint",
+        "scoring_schema_fingerprint",
         "baseline_algo_version", "txtype_distribution",
         "action_entropy", "success_rate_30d",
         "transaction_count", "days_with_activity", "is_provisional",
@@ -87,6 +88,7 @@ def test_adds_v2_columns_to_existing_history_table(sql):
         "baseline_algo_version",
         "feature_schema_version",
         "feature_schema_fingerprint",
+        "scoring_schema_fingerprint",
         "feature_means",
         "feature_stds",
         "txtype_distribution",

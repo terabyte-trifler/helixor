@@ -67,6 +67,7 @@ class BaselineStats:
     baseline_algo_version:     int
     feature_schema_version:    int
     feature_schema_fingerprint:str           # sha256 of the ordered feature names
+    scoring_schema_fingerprint:str           # sha256 of ordered dimensions + maxes + weights
 
     # ─── Window ──────────────────────────────────────────────────────────────
     window_start:              datetime      # tz-aware UTC
@@ -142,6 +143,12 @@ class BaselineStats:
                 raise ValueError(f"{name} must be timezone-aware UTC")
         if self.window_end < self.window_start:
             raise ValueError("window_end must be >= window_start")
+        if not isinstance(self.scoring_schema_fingerprint, str) or len(self.scoring_schema_fingerprint) != 64:
+            raise ValueError("scoring_schema_fingerprint must be a 64-char hex string")
+        try:
+            int(self.scoring_schema_fingerprint, 16)
+        except ValueError as e:
+            raise ValueError("scoring_schema_fingerprint must be hex") from e
 
     # ─── Compatibility checks — used by the scoring engine ───────────────────
 
@@ -152,10 +159,12 @@ class BaselineStats:
         baseline must be recomputed, not used.
         """
         from features import FeatureVector
+        from scoring.weights import scoring_schema_fingerprint
         return (
             self.baseline_algo_version == BASELINE_ALGO_VERSION
             and self.feature_schema_version == FEATURE_SCHEMA_VERSION
             and self.feature_schema_fingerprint == FeatureVector.feature_schema_fingerprint()
+            and self.scoring_schema_fingerprint == scoring_schema_fingerprint()
         )
 
     def assert_compatible(self) -> None:
@@ -166,7 +175,8 @@ class BaselineStats:
                 f"schema v{self.feature_schema_version} "
                 f"(fp {self.feature_schema_fingerprint[:12]}...); "
                 f"current engine is algo v{BASELINE_ALGO_VERSION} / "
-                f"schema v{FEATURE_SCHEMA_VERSION}"
+                f"schema v{FEATURE_SCHEMA_VERSION}; "
+                f"scoring fp {self.scoring_schema_fingerprint[:12]}..."
             )
 
     @property

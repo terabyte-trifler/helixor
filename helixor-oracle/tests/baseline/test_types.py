@@ -14,6 +14,7 @@ from baseline.types import (
     IncompatibleBaselineError,
 )
 from features import FEATURE_SCHEMA_VERSION, TOTAL_FEATURES, FeatureVector
+from scoring.weights import scoring_schema_fingerprint
 
 REF = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -24,6 +25,7 @@ def _valid_kwargs(**overrides):
         baseline_algo_version=BASELINE_ALGO_VERSION,
         feature_schema_version=FEATURE_SCHEMA_VERSION,
         feature_schema_fingerprint=FeatureVector.feature_schema_fingerprint(),
+        scoring_schema_fingerprint=scoring_schema_fingerprint(),
         window_start=REF - timedelta(days=30),
         window_end=REF,
         feature_means=tuple(0.5 for _ in range(TOTAL_FEATURES)),
@@ -117,6 +119,12 @@ class TestCompatibility:
 
     def test_wrong_schema_fingerprint_incompatible(self):
         b = BaselineStats(**_valid_kwargs(feature_schema_fingerprint="deadbeef" * 8))
+        assert b.is_compatible_with_current_engine() is False
+        with pytest.raises(IncompatibleBaselineError):
+            b.assert_compatible()
+
+    def test_wrong_scoring_schema_fingerprint_incompatible(self):
+        b = BaselineStats(**_valid_kwargs(scoring_schema_fingerprint="deadbeef" * 8))
         assert b.is_compatible_with_current_engine() is False
         with pytest.raises(IncompatibleBaselineError):
             b.assert_compatible()

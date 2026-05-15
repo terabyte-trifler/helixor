@@ -30,6 +30,7 @@ ALTER TABLE agent_baselines
     ADD COLUMN IF NOT EXISTS baseline_algo_version      INTEGER,
     ADD COLUMN IF NOT EXISTS feature_schema_version     INTEGER,
     ADD COLUMN IF NOT EXISTS feature_schema_fingerprint TEXT,
+    ADD COLUMN IF NOT EXISTS scoring_schema_fingerprint TEXT,
     ADD COLUMN IF NOT EXISTS feature_means              DOUBLE PRECISION[],
     ADD COLUMN IF NOT EXISTS feature_stds               DOUBLE PRECISION[],
     ADD COLUMN IF NOT EXISTS txtype_distribution        DOUBLE PRECISION[],
@@ -104,6 +105,15 @@ BEGIN
             CHECK (stats_hash IS NULL OR char_length(stats_hash) = 64)
             NOT VALID;
     END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'agent_baselines_scoring_fp_len'
+    ) THEN
+        ALTER TABLE agent_baselines
+            ADD CONSTRAINT agent_baselines_scoring_fp_len
+            CHECK (scoring_schema_fingerprint IS NULL OR char_length(scoring_schema_fingerprint) = 64)
+            NOT VALID;
+    END IF;
 END $$;
 
 
@@ -116,6 +126,7 @@ CREATE TABLE IF NOT EXISTS agent_baseline_history (
     baseline_algo_version       INTEGER NOT NULL,
     feature_schema_version      INTEGER,
     feature_schema_fingerprint  TEXT,
+    scoring_schema_fingerprint  TEXT,
     window_start                TIMESTAMPTZ NOT NULL,
     window_end                  TIMESTAMPTZ NOT NULL,
     feature_means               DOUBLE PRECISION[],
@@ -138,6 +149,7 @@ ALTER TABLE agent_baseline_history
     ADD COLUMN IF NOT EXISTS baseline_algo_version      INTEGER,
     ADD COLUMN IF NOT EXISTS feature_schema_version     INTEGER,
     ADD COLUMN IF NOT EXISTS feature_schema_fingerprint TEXT,
+    ADD COLUMN IF NOT EXISTS scoring_schema_fingerprint TEXT,
     ADD COLUMN IF NOT EXISTS feature_means              DOUBLE PRECISION[],
     ADD COLUMN IF NOT EXISTS feature_stds               DOUBLE PRECISION[],
     ADD COLUMN IF NOT EXISTS txtype_distribution        DOUBLE PRECISION[],

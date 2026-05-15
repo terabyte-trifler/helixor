@@ -65,14 +65,14 @@ async def save_baseline(conn: asyncpg.Connection, baseline: BaselineStats) -> No
             INSERT INTO agent_baseline_history (
                 agent_wallet,
                 baseline_algo_version, feature_schema_version,
-                feature_schema_fingerprint,
+                feature_schema_fingerprint, scoring_schema_fingerprint,
                 window_start, window_end,
                 feature_means, feature_stds,
                 txtype_distribution, action_entropy, success_rate_30d,
                 transaction_count, days_with_activity, is_provisional,
                 computed_at, stats_hash
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
             )
             ON CONFLICT (agent_wallet, stats_hash, window_end) DO NOTHING
             """,
@@ -80,6 +80,7 @@ async def save_baseline(conn: asyncpg.Connection, baseline: BaselineStats) -> No
             baseline.baseline_algo_version,
             baseline.feature_schema_version,
             baseline.feature_schema_fingerprint,
+            baseline.scoring_schema_fingerprint,
             baseline.window_start,
             baseline.window_end,
             _to_float_list(baseline.feature_means),
@@ -100,19 +101,20 @@ async def save_baseline(conn: asyncpg.Connection, baseline: BaselineStats) -> No
             INSERT INTO agent_baselines (
                 agent_wallet,
                 baseline_algo_version, feature_schema_version,
-                feature_schema_fingerprint,
+                feature_schema_fingerprint, scoring_schema_fingerprint,
                 window_start, window_end,
                 feature_means, feature_stds,
                 txtype_distribution, action_entropy, success_rate_30d,
                 transaction_count, days_with_activity, is_provisional,
                 computed_at, stats_hash
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
             )
             ON CONFLICT (agent_wallet) DO UPDATE SET
                 baseline_algo_version      = EXCLUDED.baseline_algo_version,
                 feature_schema_version     = EXCLUDED.feature_schema_version,
                 feature_schema_fingerprint = EXCLUDED.feature_schema_fingerprint,
+                scoring_schema_fingerprint = EXCLUDED.scoring_schema_fingerprint,
                 window_start               = EXCLUDED.window_start,
                 window_end                 = EXCLUDED.window_end,
                 feature_means              = EXCLUDED.feature_means,
@@ -130,6 +132,7 @@ async def save_baseline(conn: asyncpg.Connection, baseline: BaselineStats) -> No
             baseline.baseline_algo_version,
             baseline.feature_schema_version,
             baseline.feature_schema_fingerprint,
+            baseline.scoring_schema_fingerprint,
             baseline.window_start,
             baseline.window_end,
             _to_float_list(baseline.feature_means),
@@ -156,6 +159,7 @@ def _row_to_baseline(row: asyncpg.Record) -> BaselineStats:
         baseline_algo_version      = row["baseline_algo_version"],
         feature_schema_version     = row["feature_schema_version"],
         feature_schema_fingerprint = row["feature_schema_fingerprint"],
+        scoring_schema_fingerprint = row["scoring_schema_fingerprint"],
         window_start               = _as_utc(row["window_start"]),
         window_end                 = _as_utc(row["window_end"]),
         feature_means              = tuple(float(x) for x in row["feature_means"]),
