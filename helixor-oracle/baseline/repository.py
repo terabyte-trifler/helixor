@@ -69,10 +69,11 @@ async def save_baseline(conn: asyncpg.Connection, baseline: BaselineStats) -> No
                 window_start, window_end,
                 feature_means, feature_stds,
                 txtype_distribution, action_entropy, success_rate_30d,
+                daily_success_rate_series,
                 transaction_count, days_with_activity, is_provisional,
                 computed_at, stats_hash
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
             )
             ON CONFLICT (agent_wallet, stats_hash, window_end) DO NOTHING
             """,
@@ -88,6 +89,7 @@ async def save_baseline(conn: asyncpg.Connection, baseline: BaselineStats) -> No
             _to_float_list(baseline.txtype_distribution),
             baseline.action_entropy,
             baseline.success_rate_30d,
+            _to_float_list(baseline.daily_success_rate_series),
             baseline.transaction_count,
             baseline.days_with_activity,
             baseline.is_provisional,
@@ -105,10 +107,11 @@ async def save_baseline(conn: asyncpg.Connection, baseline: BaselineStats) -> No
                 window_start, window_end,
                 feature_means, feature_stds,
                 txtype_distribution, action_entropy, success_rate_30d,
+                daily_success_rate_series,
                 transaction_count, days_with_activity, is_provisional,
                 computed_at, stats_hash
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
             )
             ON CONFLICT (agent_wallet) DO UPDATE SET
                 baseline_algo_version      = EXCLUDED.baseline_algo_version,
@@ -122,6 +125,7 @@ async def save_baseline(conn: asyncpg.Connection, baseline: BaselineStats) -> No
                 txtype_distribution        = EXCLUDED.txtype_distribution,
                 action_entropy             = EXCLUDED.action_entropy,
                 success_rate_30d           = EXCLUDED.success_rate_30d,
+                daily_success_rate_series  = EXCLUDED.daily_success_rate_series,
                 transaction_count          = EXCLUDED.transaction_count,
                 days_with_activity         = EXCLUDED.days_with_activity,
                 is_provisional             = EXCLUDED.is_provisional,
@@ -140,6 +144,7 @@ async def save_baseline(conn: asyncpg.Connection, baseline: BaselineStats) -> No
             _to_float_list(baseline.txtype_distribution),
             baseline.action_entropy,
             baseline.success_rate_30d,
+            _to_float_list(baseline.daily_success_rate_series),
             baseline.transaction_count,
             baseline.days_with_activity,
             baseline.is_provisional,
@@ -167,6 +172,9 @@ def _row_to_baseline(row: asyncpg.Record) -> BaselineStats:
         txtype_distribution        = tuple(float(x) for x in row["txtype_distribution"]),
         action_entropy             = float(row["action_entropy"]),
         success_rate_30d           = float(row["success_rate_30d"]),
+        daily_success_rate_series  = tuple(
+            float(x) for x in (row["daily_success_rate_series"] or ())
+        ),
         transaction_count          = row["transaction_count"],
         days_with_activity         = row["days_with_activity"],
         is_provisional             = row["is_provisional"],

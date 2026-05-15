@@ -60,7 +60,7 @@ class TestOutputShape:
     def test_carries_correct_versions(self):
         txs = make_active_agent_txs(days=10, txs_per_day=4)
         b = compute_baseline("agentX", txs, WINDOW)
-        assert b.baseline_algo_version == BASELINE_ALGO_VERSION == 2
+        assert b.baseline_algo_version == BASELINE_ALGO_VERSION == 3
         assert b.feature_schema_version == FEATURE_SCHEMA_VERSION
         assert b.feature_schema_fingerprint == FeatureVector.feature_schema_fingerprint()
 

@@ -42,20 +42,6 @@ ALTER TABLE agent_baselines
     ADD COLUMN IF NOT EXISTS stats_hash                 TEXT,
     ADD COLUMN IF NOT EXISTS computed_at                TIMESTAMPTZ;
 
--- V2 rows no longer populate the old MVP scalar columns. Keep those columns
--- for backwards compatibility, but make them nullable so v1 and v2 rows can
--- coexist in the same tables during rollout.
-ALTER TABLE agent_baselines
-    ALTER COLUMN success_rate       DROP NOT NULL,
-    ALTER COLUMN median_daily_tx    DROP NOT NULL,
-    ALTER COLUMN sol_volatility_mad DROP NOT NULL,
-    ALTER COLUMN tx_count           DROP NOT NULL,
-    ALTER COLUMN active_days        DROP NOT NULL,
-    ALTER COLUMN window_days        DROP NOT NULL,
-    ALTER COLUMN baseline_hash      DROP NOT NULL,
-    ALTER COLUMN valid_until        DROP NOT NULL,
-    ALTER COLUMN algo_version       DROP NOT NULL;
-
 -- Any pre-existing MVP rows: tag them as algo v1 so the backfill finds them.
 UPDATE agent_baselines
     SET baseline_algo_version = 1
@@ -98,20 +84,20 @@ BEGIN
     END IF;
 
     IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'agent_baselines_hash_len'
-    ) THEN
-        ALTER TABLE agent_baselines
-            ADD CONSTRAINT agent_baselines_hash_len
-            CHECK (stats_hash IS NULL OR char_length(stats_hash) = 64)
-            NOT VALID;
-    END IF;
-
-    IF NOT EXISTS (
         SELECT 1 FROM pg_constraint WHERE conname = 'agent_baselines_scoring_fp_len'
     ) THEN
         ALTER TABLE agent_baselines
             ADD CONSTRAINT agent_baselines_scoring_fp_len
             CHECK (scoring_schema_fingerprint IS NULL OR char_length(scoring_schema_fingerprint) = 64)
+            NOT VALID;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'agent_baselines_hash_len'
+    ) THEN
+        ALTER TABLE agent_baselines
+            ADD CONSTRAINT agent_baselines_hash_len
+            CHECK (stats_hash IS NULL OR char_length(stats_hash) = 64)
             NOT VALID;
     END IF;
 END $$;
@@ -146,7 +132,6 @@ CREATE TABLE IF NOT EXISTS agent_baseline_history (
 
 -- If the table pre-existed from the MVP, add any missing v2 columns.
 ALTER TABLE agent_baseline_history
-    ADD COLUMN IF NOT EXISTS baseline_algo_version      INTEGER,
     ADD COLUMN IF NOT EXISTS feature_schema_version     INTEGER,
     ADD COLUMN IF NOT EXISTS feature_schema_fingerprint TEXT,
     ADD COLUMN IF NOT EXISTS scoring_schema_fingerprint TEXT,
@@ -155,34 +140,9 @@ ALTER TABLE agent_baseline_history
     ADD COLUMN IF NOT EXISTS txtype_distribution        DOUBLE PRECISION[],
     ADD COLUMN IF NOT EXISTS action_entropy             DOUBLE PRECISION,
     ADD COLUMN IF NOT EXISTS success_rate_30d           DOUBLE PRECISION,
-    ADD COLUMN IF NOT EXISTS transaction_count          INTEGER,
     ADD COLUMN IF NOT EXISTS days_with_activity         INTEGER,
     ADD COLUMN IF NOT EXISTS is_provisional             BOOLEAN,
     ADD COLUMN IF NOT EXISTS stats_hash                 TEXT;
-
-ALTER TABLE agent_baseline_history
-    ALTER COLUMN success_rate       DROP NOT NULL,
-    ALTER COLUMN median_daily_tx    DROP NOT NULL,
-    ALTER COLUMN sol_volatility_mad DROP NOT NULL,
-    ALTER COLUMN tx_count           DROP NOT NULL,
-    ALTER COLUMN active_days        DROP NOT NULL,
-    ALTER COLUMN baseline_hash      DROP NOT NULL,
-    ALTER COLUMN algo_version       DROP NOT NULL;
-
-UPDATE agent_baseline_history
-    SET baseline_algo_version = COALESCE(baseline_algo_version, algo_version, 1)
-    WHERE baseline_algo_version IS NULL;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'agent_baseline_history_dedup'
-    ) THEN
-        ALTER TABLE agent_baseline_history
-            ADD CONSTRAINT agent_baseline_history_dedup
-            UNIQUE (agent_wallet, stats_hash, window_end);
-    END IF;
-END $$;
 
 CREATE INDEX IF NOT EXISTS idx_baseline_history_agent_time
     ON agent_baseline_history (agent_wallet, computed_at DESC);

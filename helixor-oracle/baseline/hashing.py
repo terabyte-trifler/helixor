@@ -74,6 +74,7 @@ def build_hash_payload(
     txtype_distribution:        Sequence[float],
     action_entropy:             float,
     success_rate_30d:           float,
+    daily_success_rate_series:  Sequence[float],
 ) -> dict:
     """
     Build the canonical dict that gets hashed. Pure. Exposed (not just the
@@ -81,6 +82,10 @@ def build_hash_payload(
 
     All floats are pre-canonicalised to strings here, so json.dumps never
     sees a raw float.
+
+    NOTE (Day 6 / v3): `daily_success_rate_series` is included in the
+    commitment. Adding it bumps `BASELINE_ALGO_VERSION` to 3. v2 baselines
+    are not silently compatible — they must be recomputed.
     """
     return {
         "v":            int(baseline_algo_version),
@@ -90,6 +95,7 @@ def build_hash_payload(
         "txtype_dist":  _canon_float_list(txtype_distribution),
         "action_entropy":   _canon_float(action_entropy),
         "success_rate_30d": _canon_float(success_rate_30d),
+        "daily_success_rate_series": _canon_float_list(daily_success_rate_series),
     }
 
 
@@ -102,6 +108,7 @@ def compute_stats_hash(
     txtype_distribution:        Sequence[float],
     action_entropy:             float,
     success_rate_30d:           float,
+    daily_success_rate_series:  Sequence[float],
 ) -> str:
     """
     Compute the canonical SHA-256 commitment hash for a baseline.
@@ -117,6 +124,7 @@ def compute_stats_hash(
         txtype_distribution=txtype_distribution,
         action_entropy=action_entropy,
         success_rate_30d=success_rate_30d,
+        daily_success_rate_series=daily_success_rate_series,
     )
     canonical_json = json.dumps(
         payload,

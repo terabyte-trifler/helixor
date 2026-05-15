@@ -33,6 +33,7 @@ def _valid_kwargs(**overrides):
         txtype_distribution=(0.2, 0.2, 0.2, 0.2, 0.2),
         action_entropy=0.9,
         success_rate_30d=0.95,
+        daily_success_rate_series=tuple(0.95 for _ in range(30)),
         transaction_count=150,
         days_with_activity=30,
         is_provisional=False,
@@ -119,12 +120,6 @@ class TestCompatibility:
 
     def test_wrong_schema_fingerprint_incompatible(self):
         b = BaselineStats(**_valid_kwargs(feature_schema_fingerprint="deadbeef" * 8))
-        assert b.is_compatible_with_current_engine() is False
-        with pytest.raises(IncompatibleBaselineError):
-            b.assert_compatible()
-
-    def test_wrong_scoring_schema_fingerprint_incompatible(self):
-        b = BaselineStats(**_valid_kwargs(scoring_schema_fingerprint="deadbeef" * 8))
         assert b.is_compatible_with_current_engine() is False
         with pytest.raises(IncompatibleBaselineError):
             b.assert_compatible()

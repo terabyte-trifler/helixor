@@ -105,6 +105,11 @@ def compute_baseline(
     action_entropy      = _action_entropy(txs)
     success_rate_30d    = st.fraction(sum(1 for t in txs if t.success), len(txs))
 
+    # 4b. Daily success-rate series — required by drift detectors that
+    # operate on a sequential stream (CUSUM, ADWIN, DDM). One rate per
+    # active day, chronological. Days with zero activity are NOT included.
+    daily_success_rate_series = _daily_success_rate_series(txs)
+
     # 5. Data sufficiency.
     is_provisional = (
         days_with_activity < MIN_DAYS_WITH_ACTIVITY
@@ -123,6 +128,7 @@ def compute_baseline(
         txtype_distribution=txtype_distribution,
         action_entropy=action_entropy,
         success_rate_30d=success_rate_30d,
+        daily_success_rate_series=daily_success_rate_series,
     )
 
     # 7. Construct the frozen, self-validating BaselineStats.
@@ -139,6 +145,7 @@ def compute_baseline(
         txtype_distribution=txtype_distribution,
         action_entropy=action_entropy,
         success_rate_30d=success_rate_30d,
+        daily_success_rate_series=daily_success_rate_series,
         transaction_count=len(txs),
         days_with_activity=days_with_activity,
         is_provisional=is_provisional,
@@ -238,4 +245,25 @@ def _action_entropy(txs: list[Transaction]) -> float:
     return st.shannon_entropy(
         [float(counts[a]) for a in ActionType.ordered()],
         normalised=True,
+    )
+
+
+def _daily_success_rate_series(txs: list[Transaction]) -> tuple[float, ...]:
+    """
+    Per-active-day success rate, in chronological order.
+
+    The day key is the UTC calendar date. Days with zero transactions are NOT
+    included — they are absence of data, not a 0% success day. Length equals
+    `days_with_activity`.
+
+    Each rate is in [0, 1] (fraction of that day's transactions that succeeded).
+    Empty input → empty tuple.
+    """
+    by_day: dict[str, list[bool]] = {}
+    for t in txs:
+        key = t.block_time.strftime("%Y-%m-%d")
+        by_day.setdefault(key, []).append(t.success)
+    return tuple(
+        st.fraction(sum(1 for s in by_day[day] if s), len(by_day[day]))
+        for day in sorted(by_day)
     )

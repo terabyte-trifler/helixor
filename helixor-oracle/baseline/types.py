@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from features import FEATURE_SCHEMA_VERSION, TOTAL_FEATURES
 
 
-BASELINE_ALGO_VERSION = 2
+BASELINE_ALGO_VERSION = 3
 
 # A v2 baseline needs enough data to be meaningful. Below these bars the
 # baseline is still computed but flagged `provisional` — the scoring engine
@@ -83,6 +83,13 @@ class BaselineStats:
     action_entropy:            float               # Shannon entropy of the action distribution
     success_rate_30d:          float               # overall success fraction over the window
 
+    # ─── Time series (NEW in v3, Day 6) ──────────────────────────────────────
+    # Per-active-day success rate, in chronological order. Used by drift
+    # detectors (CUSUM / ADWIN / DDM) that operate on a sequential stream.
+    # Length equals `days_with_activity` (NOT padded — a no-activity day is
+    # not a 0% success day; it's absence of data).
+    daily_success_rate_series: tuple[float, ...]
+
     # ─── Data-sufficiency metadata ───────────────────────────────────────────
     transaction_count:         int                 # txs in the window
     days_with_activity:        int                 # distinct calendar days with >=1 tx
@@ -119,10 +126,24 @@ class BaselineStats:
             ("feature_means", self.feature_means),
             ("feature_stds", self.feature_stds),
             ("txtype_distribution", self.txtype_distribution),
+            ("daily_success_rate_series", self.daily_success_rate_series),
         ):
             for i, v in enumerate(seq):
                 if not isinstance(v, float) or not math.isfinite(v):
                     raise ValueError(f"{name}[{i}] is not a finite float: {v!r}")
+        # Each daily success rate is a fraction in [0, 1].
+        for i, r in enumerate(self.daily_success_rate_series):
+            if not (0.0 <= r <= 1.0):
+                raise ValueError(
+                    f"daily_success_rate_series[{i}] = {r} outside [0, 1]"
+                )
+        # Length contract: one rate per active day.
+        if len(self.daily_success_rate_series) != self.days_with_activity:
+            raise ValueError(
+                f"daily_success_rate_series must have one entry per active day: "
+                f"got {len(self.daily_success_rate_series)} entries vs "
+                f"days_with_activity={self.days_with_activity}"
+            )
         for name, v in (
             ("action_entropy", self.action_entropy),
             ("success_rate_30d", self.success_rate_30d),

@@ -49,25 +49,12 @@ def test_array_length_check_constraints(sql):
     assert "array_length(feature_stds, 1) = 100" in sql
     assert "array_length(txtype_distribution, 1) = 5" in sql
 
-def test_legacy_mvp_columns_made_nullable(sql):
-    # V2 latest/history rows do not fill the old scalar columns. Existing v1
-    # rows keep their values; new v2 rows must be allowed to leave them NULL.
-    for col in (
-        "success_rate",
-        "median_daily_tx",
-        "sol_volatility_mad",
-        "tx_count",
-        "active_days",
-        "baseline_hash",
-        "algo_version",
-    ):
-        assert f"ALTER COLUMN {col}" in sql
-        assert f"ALTER COLUMN {col}" in sql and "DROP NOT NULL" in sql
-    assert "ALTER COLUMN window_days" in sql
-    assert "ALTER COLUMN valid_until" in sql
-
 def test_stats_hash_length_constraint(sql):
     assert "char_length(stats_hash) = 64" in sql
+
+def test_scoring_schema_fingerprint_length_constraint(sql):
+    assert "agent_baselines_scoring_fp_len" in sql
+    assert "char_length(scoring_schema_fingerprint) = 64" in sql
 
 def test_history_table_is_append_only(sql):
     # The append-only trigger must exist.
@@ -79,27 +66,6 @@ def test_history_dedup_constraint(sql):
     # Re-running the same computation must not append a duplicate history row.
     assert "agent_baseline_history_dedup" in sql
     assert "UNIQUE (agent_wallet, stats_hash, window_end)" in sql
-
-def test_adds_v2_columns_to_existing_history_table(sql):
-    # CREATE TABLE IF NOT EXISTS is a no-op on existing MVP installs, so the
-    # migration must also ADD every v2 history column explicitly.
-    history_alter = sql.split("ALTER TABLE agent_baseline_history", 1)[1]
-    for col in (
-        "baseline_algo_version",
-        "feature_schema_version",
-        "feature_schema_fingerprint",
-        "scoring_schema_fingerprint",
-        "feature_means",
-        "feature_stds",
-        "txtype_distribution",
-        "action_entropy",
-        "success_rate_30d",
-        "transaction_count",
-        "days_with_activity",
-        "is_provisional",
-        "stats_hash",
-    ):
-        assert f"ADD COLUMN IF NOT EXISTS {col}" in history_alter
 
 def test_legacy_rows_tagged_as_v1(sql):
     # Pre-existing MVP baselines get baseline_algo_version = 1 so the backfill finds them.

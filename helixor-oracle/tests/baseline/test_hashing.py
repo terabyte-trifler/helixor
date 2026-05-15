@@ -22,13 +22,14 @@ from baseline.types import HASH_FLOAT_PRECISION
 def _base_kwargs(**overrides):
     """A complete, valid set of compute_stats_hash kwargs; override as needed."""
     kwargs = dict(
-        baseline_algo_version=2,
+        baseline_algo_version=3,
         feature_schema_fingerprint="a" * 64,
         feature_means=[0.1, 0.2, 0.3],
         feature_stds=[0.01, 0.02, 0.03],
         txtype_distribution=[0.2, 0.2, 0.2, 0.2, 0.2],
         action_entropy=0.95,
         success_rate_30d=0.88,
+        daily_success_rate_series=[0.95, 0.93, 0.97, 0.90, 0.95],
     )
     kwargs.update(overrides)
     return kwargs
@@ -145,6 +146,7 @@ class TestPayload:
         assert set(payload.keys()) == {
             "v", "schema_fp", "means", "stds",
             "txtype_dist", "action_entropy", "success_rate_30d",
+            "daily_success_rate_series",
         }
 
     def test_payload_floats_are_strings(self):
@@ -154,6 +156,7 @@ class TestPayload:
         assert all(isinstance(s, str) for s in payload["stds"])
         assert isinstance(payload["action_entropy"], str)
         assert isinstance(payload["success_rate_30d"], str)
+        assert all(isinstance(r, str) for r in payload["daily_success_rate_series"])
 
     def test_payload_excludes_context_fields(self):
         # agent_wallet, timestamps, counts are NOT in the hashed payload.

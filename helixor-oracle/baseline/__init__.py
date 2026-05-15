@@ -1,10 +1,10 @@
 """
-helixor-oracle / baseline — Baseline Engine v2.
+helixor-oracle / baseline — Baseline Engine v3.
 
 Public API:
     compute_baseline(agent_wallet, transactions, window) -> BaselineStats
     BaselineStats                       frozen, self-describing baseline
-    BASELINE_ALGO_VERSION               version constant (= 2)
+    BASELINE_ALGO_VERSION               version constant (= 3)
     compute_stats_hash(...)             the on-chain commitment hash
     stats_hash_to_bytes(hex)            64-hex -> 32 raw bytes for on-chain
 

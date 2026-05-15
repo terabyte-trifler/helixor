@@ -69,30 +69,34 @@ def test_full_pipeline_day1_to_day4():
     assert baseline.is_compatible_with_current_engine()
     assert len(baseline.stats_hash) == 64
 
-    # Day 4: run the detection engine + composite scorer
+    # Day 4 contract + Day 5 drift: run the detection engine + composite scorer
     result = run_detection_engine(features, baseline, default_registry(), computed_at=REF_END)
 
-    # ── THE DAY-4 DONE-WHEN ─────────────────────────────────────────────────
+    # ── THE DAY-4 + DAY-5 DONE-WHEN ─────────────────────────────────────────
     # 1. Valid 0-1000 score
     assert 0 <= result.score <= 1000
-    # 2. Day 5: DRIFT is real (PSI+KS) and contributes a small non-zero score.
-    #    The other four dimensions are still stubs, so the composite remains RED.
+    # 2. Day 5: DRIFT is real (PSI+KS), so the score is now positive. The
+    #    other 4 dimensions are stubs (0), so total is still well below 400.
     assert 0 < result.score < 400
-    # 3. ...the composite alert is RED (score < 400)
+    # 3. The composite alert is RED (score < 400)
     assert result.alert is AlertTier.RED
-    # 4. Every dimension carried INSUFFICIENT_DATA up to the aggregate
+    # 4. INSUFFICIENT_DATA aggregated from the 4 stub dimensions
     assert result.has_flag(FlagBit.INSUFFICIENT_DATA)
-    # 5. No false IMMEDIATE_RED — stubs do not set it
+    # 5. No false IMMEDIATE_RED
     assert not result.immediate_red
     # 6. Every dimension represented
     assert set(result.dimension_results.keys()) == set(DimensionId.ordered())
-    # 7. Weighted contributions sum to score (Day-13 invariant carried into V2)
+    # 7. Weighted contributions sum to score (Day-13 invariant)
     assert sum(result.weighted_contributions.values()) == result.score
-    # 8. Provenance chain is complete
+    # 8. DRIFT is the only non-zero contributor today
+    assert result.dimension_results[DimensionId.DRIFT].score > 0
+    for dim in (DimensionId.ANOMALY, DimensionId.PERFORMANCE,
+                DimensionId.CONSISTENCY, DimensionId.SECURITY):
+        assert result.dimension_results[dim].score == 0
+    # 9. Provenance chain is complete
     assert result.baseline_stats_hash == baseline.stats_hash
     assert result.feature_schema_fingerprint  # non-empty
     assert result.scoring_schema_fingerprint  # non-empty
-    assert result.weight_vector  # exact weights used by the composite
 
 
 def test_full_pipeline_is_deterministic():

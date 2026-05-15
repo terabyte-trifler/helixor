@@ -218,3 +218,169 @@ class TestBonferroni:
             bonferroni_alpha(0.0, 10)
         with pytest.raises(ValueError, match="alpha"):
             bonferroni_alpha(1.0, 10)
+
+
+# =============================================================================
+# CUSUM — Page's two-sided cumulative-sum change-point
+# =============================================================================
+
+from detection._drift_math import (
+    CUSUM_MIN_SIGMA,
+    adwin_detect,
+    adwin_normalised_score,
+    cusum_normalised_score,
+    cusum_two_sided,
+    ddm_detect,
+    ddm_normalised_score,
+)
+
+
+class TestCUSUM:
+
+    def test_empty_stream_no_trigger(self):
+        r = cusum_two_sided([], reference_mean=0.5, sigma=0.1)
+        assert r["triggered"] is False
+        assert r["trigger_idx"] == -1
+        assert r["pos_max"] == 0.0
+        assert r["neg_max"] == 0.0
+
+    def test_constant_stream_at_reference_no_trigger(self):
+        r = cusum_two_sided([0.95]*30, reference_mean=0.95, sigma=0.05)
+        assert not r["triggered"]
+        assert r["pos_max"] == 0.0
+        assert r["neg_max"] == 0.0
+        assert cusum_normalised_score(r) == 1.0
+
+    def test_abrupt_drop_below_reference_triggers_negative(self):
+        # First 20 obs at the reference, then 20 at a lower level.
+        stream = [0.95]*20 + [0.50]*20
+        r = cusum_two_sided(stream, reference_mean=0.95, sigma=0.05)
+        assert r["triggered"]
+        assert r["neg_max"] > r["pos_max"]      # downward shift dominates
+        assert r["trigger_idx"] >= 20           # trigger only AFTER the shift
+        assert cusum_normalised_score(r) < 0.2
+
+    def test_abrupt_rise_above_reference_triggers_positive(self):
+        # Start below reference, then jump above.
+        stream = [0.50]*20 + [0.95]*20
+        r = cusum_two_sided(stream, reference_mean=0.50, sigma=0.05)
+        assert r["triggered"]
+        assert r["pos_max"] > r["neg_max"]
+        assert r["trigger_idx"] >= 20
+
+    def test_min_sigma_floor_protects_zero_variance_baseline(self):
+        # σ = 0 in input → engine uses CUSUM_MIN_SIGMA floor.
+        r = cusum_two_sided([0.95]*30, reference_mean=0.95, sigma=0.0)
+        assert r["h"] == pytest.approx(5.0 * CUSUM_MIN_SIGMA)
+        # Still no trigger on constant stream.
+        assert not r["triggered"]
+
+    def test_deterministic(self):
+        a = cusum_two_sided([0.95, 0.50, 0.95, 0.60], reference_mean=0.8, sigma=0.1)
+        b = cusum_two_sided([0.95, 0.50, 0.95, 0.60], reference_mean=0.8, sigma=0.1)
+        assert a == b
+
+    def test_normalised_score_bounds(self):
+        # Triggered → score 0; clean → score 1.
+        triggered = cusum_two_sided([0.0]*30, reference_mean=1.0, sigma=0.05)
+        clean     = cusum_two_sided([0.95]*30, reference_mean=0.95, sigma=0.05)
+        assert cusum_normalised_score(triggered) == 0.0
+        assert cusum_normalised_score(clean) == 1.0
+
+
+# =============================================================================
+# ADWIN — adaptive windowing
+# =============================================================================
+
+class TestADWIN:
+
+    def test_empty_stream(self):
+        r = adwin_detect([])
+        assert r["cuts"] == 0
+        assert not r["drifted"]
+        assert r["width_loss_ratio"] == 0.0
+
+    def test_single_observation_no_cut(self):
+        r = adwin_detect([0.5])
+        assert r["cuts"] == 0
+        assert not r["drifted"]
+
+    def test_constant_stream_no_cut(self):
+        r = adwin_detect([0.95]*40)
+        assert r["cuts"] == 0
+        assert not r["drifted"]
+        assert r["width_loss_ratio"] == 0.0
+        assert adwin_normalised_score(r) == 1.0
+
+    def test_abrupt_change_triggers_cut(self):
+        # Long stable run then sudden drop — ADWIN should drop the old window.
+        stream = [0.95]*30 + [0.30]*30
+        r = adwin_detect(stream)
+        assert r["drifted"]
+        assert r["cuts"] >= 1
+        # The window should shrink — width loss > 0.
+        assert r["width_loss_ratio"] > 0.0
+        assert adwin_normalised_score(r) < 1.0
+
+    def test_deterministic(self):
+        stream = [0.95]*20 + [0.30]*20
+        assert adwin_detect(stream) == adwin_detect(stream)
+
+    def test_normalised_score_bounds(self):
+        # All-zero width loss → 1.0; full loss → 0.0.
+        zero   = {"window_size_final": 10, "window_size_initial": 10,
+                  "cuts": 0, "drifted": False, "last_cut_idx": -1,
+                  "width_loss_ratio": 0.0}
+        full   = {"window_size_final": 0, "window_size_initial": 10,
+                  "cuts": 1, "drifted": True, "last_cut_idx": 5,
+                  "width_loss_ratio": 1.0}
+        assert adwin_normalised_score(zero) == 1.0
+        assert adwin_normalised_score(full) == 0.0
+
+
+# =============================================================================
+# DDM — drift detection method (Gama 2004)
+# =============================================================================
+
+class TestDDM:
+
+    def test_too_few_samples_no_drift(self):
+        # min_n default is 30; 10 samples → not enough to trip
+        r = ddm_detect([0.5]*10)
+        assert not r["drift"]
+        assert not r["warning"]
+        assert r["warning_ratio"] == 0.0
+
+    def test_stable_low_error_rate(self):
+        # 30 samples at 5% error rate, the rate stays put → no drift.
+        r = ddm_detect([0.05]*30)
+        assert not r["drift"]
+        assert r["warning_ratio"] == 0.0
+        assert ddm_normalised_score(r) == 1.0
+
+    def test_abrupt_error_rate_climb_triggers_drift(self):
+        # First 30 samples at 5%, then 30 at 80% — DDM must catch this.
+        r = ddm_detect([0.05]*30 + [0.80]*30)
+        assert r["drift"]
+        assert r["warning"]
+        assert r["warning_ratio"] > 1.0      # well past drift threshold
+        assert ddm_normalised_score(r) == 0.0
+
+    def test_gradual_climb_caught(self):
+        # Gradual climb from 5% to 60% — DDM's bread-and-butter case.
+        stream = [0.05 + i * 0.018 for i in range(40)]
+        r = ddm_detect(stream)
+        assert r["drift"] or r["warning"]
+        assert ddm_normalised_score(r) < 1.0
+
+    def test_deterministic(self):
+        s = [0.05]*30 + [0.50]*20
+        assert ddm_detect(s) == ddm_detect(s)
+
+    def test_normalised_score_bounds(self):
+        clean   = {"warning": False, "drift": False, "warning_idx": -1,
+                   "drift_idx": -1, "warning_ratio": 0.0}
+        drifted = {"warning": True, "drift": True, "warning_idx": 10,
+                   "drift_idx": 12, "warning_ratio": 5.0}
+        assert ddm_normalised_score(clean) == 1.0
+        assert ddm_normalised_score(drifted) == 0.0

@@ -1,10 +1,10 @@
 """
 detection/drift.py — Dimension 1: statistical drift from baseline.
 
-STATUS: Day 5 — PSI + KS landed. CUSUM/ADWIN/DDM follow on Day 6.
+STATUS: Day 6 — full PSI + KS + CUSUM + ADWIN + DDM detector.
 
-ALGORITHMS WIRED TODAY (Day 5)
-------------------------------
+ALGORITHMS WIRED
+----------------
 PSI (Population Stability Index):
     Compares the agent's CURRENT tx-type distribution (5 categories: swap,
     lend, stake, transfer, other) against the baseline's tx-type distribution.
@@ -23,26 +23,36 @@ KS test (one-sample, against N(0, 1)):
     individual z-score has |z| > 3 (a robust per-feature outlier signal
     complementing the global KS test).
 
-SCORE LAYOUT (today: partial implementation)
---------------------------------------------
-Drift dimension MAX_SCORE = 200. PSI + KS together carry up to 80 of those:
+CUSUM:
+    Runs Page's two-sided cumulative-sum detector over the baseline's daily
+    success-rate series. Uses k = 0.5σ and h = 5σ, with a low-variance floor.
+
+ADWIN:
+    Runs adaptive windowing over the same daily success-rate series and cuts
+    stale history when a Hoeffding-bound split detects a mean shift.
+
+DDM:
+    Runs Drift Detection Method over per-day failure rates (1 - success rate),
+    warning at 2σ over the historical minimum and drift at 3σ.
+
+SCORE LAYOUT
+------------
+Drift dimension MAX_SCORE = 200. Each algorithm carries 40 points:
    - PSI sub-score    0..40
    - KS sub-score     0..40
-   - CUSUM            (Day 6)   reserves 40
-   - ADWIN            (Day 6)   reserves 40
-   - DDM              (Day 6)   reserves 40
+   - CUSUM            0..40
+   - ADWIN            0..40
+   - DDM              0..40
                                  ─────
                                   200
-
-When the dimension is partial (PROVISIONAL bit set today), the composite
-scorer still produces a meaningful drift contribution from PSI+KS; Day 6
-fills in the remaining 120.
 
 FLAGS SET BY THIS DETECTOR
 --------------------------
     FLAG_PSI            PSI > 0.25 (major shift)
-    FLAG_KS             KS test rejected H0 at corrected α
-    FlagBit.PROVISIONAL   always set today (algorithms partial)
+    FLAG_KS             per-feature rejection rate exceeds threshold
+    FLAG_CUSUM          CUSUM crosses the decision threshold
+    FLAG_ADWIN          ADWIN drops enough of the historical window
+    FLAG_DDM            DDM severity reaches drift territory
     FlagBit.DEGRADED_BASELINE  if baseline.is_provisional
 """
 
@@ -52,8 +62,12 @@ from collections.abc import Mapping
 
 from baseline import BaselineStats
 from detection._drift_math import (
-    bonferroni_alpha,
-    ks_one_sample_normal,
+    adwin_detect,
+    adwin_normalised_score,
+    cusum_normalised_score,
+    cusum_two_sided,
+    ddm_detect,
+    ddm_normalised_score,
     population_stability_index,
     psi_normalised_score,
 )
@@ -64,6 +78,7 @@ from detection.base import (
 )
 from detection.types import DimensionId, DimensionResult, FlagBit
 from features import FeatureVector
+from features import _stats as st
 
 
 # Dimension-specific flag bits. Order matches the Day-4 stub — do not renumber.
@@ -77,8 +92,6 @@ FLAG_DDM    = 1 << 12    # Day 6
 SUB_SCORE_KEYS: tuple[str, ...] = (
     "psi_normalised",        # in [0, 1]; 1.0 = no shift
     "ks_rejection_rate",     # in [0, 1]; fraction of per-feature outliers
-    "ks_statistic",          # in [0, 1]; one-sample KS D statistic
-    "ks_p_value",            # in [0, 1]; Bonferroni-tested p-value
     "cusum_normalised",      # Day 6
     "adwin_drift_score",     # Day 6
     "ddm_warning_ratio",     # Day 6
@@ -86,15 +99,18 @@ SUB_SCORE_KEYS: tuple[str, ...] = (
 
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
-PSI_MAX_POINTS = 40
-KS_MAX_POINTS  = 40
+# Drift dimension MAX_SCORE = 200. Each algorithm carries 40 of those points.
+PSI_MAX_POINTS   = 40
+KS_MAX_POINTS    = 40
+CUSUM_MAX_POINTS = 40
+ADWIN_MAX_POINTS = 40
+DDM_MAX_POINTS   = 40   # 5 * 40 = 200, the full dimension
 
 # Per-feature outlier threshold. A feature with |z| > KS_FEATURE_Z_FLOOR is
 # counted as a per-feature rejection.
-KS_FEATURE_Z_FLOOR = 3.0
-KS_ALPHA           = 0.05
-KS_N_TESTS         = 100
-KS_CORRECTED_ALPHA = bonferroni_alpha(KS_ALPHA, KS_N_TESTS)
+KS_FEATURE_Z_FLOOR  = 3.0
+# If the fraction of features that reject exceeds this, FLAG_KS fires.
+KS_REJECT_RATE_FLAG = 0.05
 
 STD_EPSILON = 1e-6
 
@@ -105,8 +121,7 @@ STD_EPSILON = 1e-6
 
 class DriftDetector:
     """
-    Day 5: PSI + KS. CUSUM/ADWIN/DDM still stubbed; PROVISIONAL flag stays
-    set until Day 6 lands.
+    Day 6: full PSI + KS + CUSUM + ADWIN + DDM implementation.
 
     Pure, deterministic. Stdlib-only math means three Phase-4 oracle nodes
     given the same (features, baseline) produce byte-identical DimensionResults.
@@ -118,8 +133,8 @@ class DriftDetector:
 
     @property
     def algo_version(self) -> int:
-        # Day-4 stub was algo v1. Real PSI+KS is v2.
-        return 2
+        # Day-4 stub = 1; Day-5 (PSI + KS, partial) = 2; Day-6 (all 5) = 3.
+        return 3
 
     def score(
         self,
@@ -129,7 +144,7 @@ class DriftDetector:
         # 1. Refuse if the baseline isn't comparable.
         assert_baseline_compatible(baseline)
 
-        flags = int(FlagBit.PROVISIONAL)
+        flags = 0
         if baseline.is_provisional:
             flags |= int(FlagBit.DEGRADED_BASELINE)
 
@@ -141,51 +156,83 @@ class DriftDetector:
         if psi > 0.25:
             flags |= FLAG_PSI
 
-        # 3. KS test on per-feature z-scores.
-        #
-        #    The KS p-value is the canonical flag path: reject H0 when
-        #    p <= bonferroni_alpha(0.05, 100) = 5e-4. The per-feature
-        #    |z| > 3 rejection rate is retained as a diagnostic sub-score
-        #    because it is easier to explain to operators.
-        #
-        #    Zero-variance baseline features are excluded from the sample
-        #    (they carry no drift signal).
+        # 3. KS — per-feature outlier rate (primary signal).
         z_scores, n_active = _feature_z_scores(features, baseline)
         if n_active >= 5:
             feature_rejections = sum(1 for z in z_scores if abs(z) > KS_FEATURE_Z_FLOOR)
             ks_rejection_rate = feature_rejections / n_active
-            ks_statistic, ks_p_value = ks_one_sample_normal(z_scores)
         else:
-            # Too few features have baseline variance to evaluate drift meaningfully.
             ks_rejection_rate = 0.0
-            ks_statistic = 0.0
-            ks_p_value = 1.0
             flags |= int(FlagBit.DEGRADED_BASELINE)
-        if ks_p_value <= KS_CORRECTED_ALPHA:
+        if ks_rejection_rate > KS_REJECT_RATE_FLAG:
             flags |= FLAG_KS
 
-        # 4. Combine into a partial 0..200 score.
-        # psi_sub is "good": 1.0 = stable, 0.0 = shifted.
-        # ks_rejection_rate is "bad": invert to "good".
+        # 4. CUSUM on the agent's daily success-rate series.
+        #    Reference mean = baseline.success_rate_30d.
+        #    σ = stddev of the daily series stored on the baseline.
+        daily_series = baseline.daily_success_rate_series
+        if len(daily_series) >= 2:
+            sigma = st.stddev(daily_series)
+            cusum_result = cusum_two_sided(
+                daily_series,
+                reference_mean=baseline.success_rate_30d,
+                sigma=sigma,
+            )
+            cusum_sub = cusum_normalised_score(cusum_result)
+            if cusum_result["triggered"]:
+                flags |= FLAG_CUSUM
+        else:
+            cusum_sub = 1.0   # not enough data to detect change → assume stable
+            flags |= int(FlagBit.DEGRADED_BASELINE)
+
+        # 5. ADWIN on the daily success-rate series.
+        if len(daily_series) >= 2:
+            adwin_result = adwin_detect(daily_series)
+            adwin_sub = adwin_normalised_score(adwin_result)
+            # Use severity (width-loss > 25%), not the bare cut boolean,
+            # so a single Hoeffding cut on a noisy tail doesn't false-trip.
+            if adwin_sub < 0.75:
+                flags |= FLAG_ADWIN
+        else:
+            adwin_sub = 1.0
+
+        # 6. DDM on the daily FAILURE-rate series (1 - success_rate per day).
+        if len(daily_series) >= 1:
+            failure_series = tuple(1.0 - r for r in daily_series)
+            ddm_result = ddm_detect(failure_series)
+            ddm_sub = ddm_normalised_score(ddm_result)
+            # Only set the flag when the SEVERITY (not the bare boolean) is real.
+            # The boolean tripping at index N reflects "we just crossed the
+            # warning level at this exact sample" — which can happen due to a
+            # single tail observation in clean data. The severity score
+            # captures sustained drift; threshold at <= 0.5 → real drift.
+            if ddm_sub < 0.5:
+                flags |= FLAG_DDM
+        else:
+            ddm_sub = 1.0
+
+        # 7. Combine. All five sub-scores are "good" (1.0 = stable, 0.0 = drift).
         ks_sub_good = max(0.0, 1.0 - ks_rejection_rate)
-        score_partial = int(round(
-            psi_sub * PSI_MAX_POINTS + ks_sub_good * KS_MAX_POINTS
+        score_total = int(round(
+            psi_sub   * PSI_MAX_POINTS   +
+            ks_sub_good * KS_MAX_POINTS  +
+            cusum_sub * CUSUM_MAX_POINTS +
+            adwin_sub * ADWIN_MAX_POINTS +
+            ddm_sub   * DDM_MAX_POINTS
         ))
-        score_partial = max(0, min(score_partial, 200))
+        score_total = max(0, min(score_total, 200))
 
         sub_scores: Mapping[str, float] = {
             "psi_normalised":    psi_sub,
             "ks_rejection_rate": ks_rejection_rate,
-            "ks_statistic":      ks_statistic,
-            "ks_p_value":        ks_p_value,
-            "cusum_normalised":  0.0,
-            "adwin_drift_score": 0.0,
-            "ddm_warning_ratio": 0.0,
+            "cusum_normalised":  cusum_sub,
+            "adwin_drift_score": adwin_sub,
+            "ddm_warning_ratio": ddm_sub,
         }
 
         return DimensionResult(
             dimension=DimensionId.DRIFT,
-            score=score_partial,
+            score=score_total,
             max_score=200,
             flags=flags,
             sub_scores=sub_scores,
