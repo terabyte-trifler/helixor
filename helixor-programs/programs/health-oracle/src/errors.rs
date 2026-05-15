@@ -44,10 +44,29 @@ pub enum HelixorError {
     #[msg("Success rate basis points must be 0-10000.")]
     SuccessRateOutOfRange,
 
-    // Safety 6017
+    // Safety 6017-6018
     #[msg("Integer arithmetic overflow — please report this bug.")]
     MathOverflow,
-
     #[msg("Caller is not the hard-coded bootstrap authority.")]
     UnauthorizedBootstrap,
+
+    // Day 3 baseline commitment 6019-6026
+    #[msg("signer is not the configured oracle node")]
+    NotOracleAuthority,
+    #[msg("signer is not the agent owner")]
+    NotAgentOwner,
+    #[msg("signer is neither the oracle node nor the agent owner")]
+    NotAuthorisedCommitter,
+    #[msg("agent is not active; activate before committing")]
+    AgentInactive,
+    #[msg("agent registration layout version is incompatible — run migrate_registration")]
+    LayoutMigrationRequired,
+    #[msg("commit_nonce must be strictly greater than the current on-chain nonce")]
+    NonMonotonicNonce,
+    #[msg("baseline_hash is all zeros — refusing to commit an empty commitment")]
+    ZeroHash,
+    #[msg("baseline_algo_version is zero — refusing to commit an unversioned hash")]
+    ZeroAlgoVersion,
+    #[msg("registration is already at the current layout version")]
+    AlreadyMigrated,
 }

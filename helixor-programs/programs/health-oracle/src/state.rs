@@ -12,17 +12,29 @@ use anchor_lang::prelude::*;
 // ─────────────────────────────────────────────────────────────────────────────
 #[account]
 pub struct AgentRegistration {
-    pub agent_wallet: Pubkey, // 32
-    pub owner_wallet: Pubkey, // 32
-    pub registered_at: i64,   // 8
-    pub escrow_lamports: u64, // 8
-    pub active: bool,         // 1
-    pub bump: u8,             // 1
-    pub vault_bump: u8,       // 1
+    pub agent_wallet: Pubkey,       // 32
+    pub owner_wallet: Pubkey,       // 32
+    pub registered_at: i64,         // 8
+    pub escrow_lamports: u64,       // 8
+    pub active: bool,               // 1
+    pub bump: u8,                   // 1
+    pub vault_bump: u8,             // 1
+    pub baseline_committed: bool,   // 1
+    pub baseline_hash: [u8; 32],    // 32
+    pub baseline_algo_version: u8,  // 1
+    pub baseline_committer: Pubkey, // 32
+    pub baseline_committed_at: i64, // 8
+    pub commit_nonce: u64,          // 8
+    pub layout_version: u8,         // 1
+    pub _reserved: [u8; 64],        // 64
 }
 
 impl AgentRegistration {
-    pub const INIT_SPACE: usize = 83;
+    pub const CURRENT_LAYOUT_VERSION: u8 = 2;
+    pub const V1_SPACE: usize = 8 + 83;
+    pub const SIZE_WITHOUT_DISCRIMINATOR: usize = 83 + 1 + 32 + 1 + 32 + 8 + 8 + 1 + 64;
+    pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;
+    pub const INIT_SPACE: usize = Self::SIZE_WITHOUT_DISCRIMINATOR;
     pub const MIN_ESCROW_LAMPORTS: u64 = 10_000_000;
     pub const MAX_NAME_BYTES: usize = 64;
 }

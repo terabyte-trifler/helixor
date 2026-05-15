@@ -1,20 +1,24 @@
 // =============================================================================
-// Helixor health-oracle program — Day 7 COMPLETE
+// Helixor health-oracle program — V2 Day 3 merged
 //
-// Five instructions:
-//   register_agent             (Day 2)
-//   get_health                 (Day 3)
-//   update_score               (Day 7) — oracle writes trust certificate
-//   initialize_oracle_config   (Day 7) — bootstrap singleton
-//   update_oracle_config       (Day 7) — admin rotates oracle/admin keys + pause
+// Existing MVP instructions stay live, and Day 3 adds baseline commitment:
+//   register_agent
+//   get_health
+//   update_score
+//   initialize_oracle_config
+//   update_oracle_config
+//   commit_baseline
+//   migrate_registration
 // =============================================================================
 
 use anchor_lang::prelude::*;
 
 pub mod errors;
+pub mod events;
 pub mod instructions;
 pub mod state;
 
+pub use instructions::CommitBaselineArgs;
 pub use state::{
     AgentRegistration, AlertLevel, InitOracleConfigParams, OracleConfig, RegisterParams,
     ScorePayload, ScoreSource, TrustCertificate, TrustScore, UpdateOracleConfigParams,
@@ -56,6 +60,18 @@ pub mod health_oracle {
         params: UpdateOracleConfigParams,
     ) -> Result<()> {
         instructions::update_oracle_config::handler(ctx, params)
+    }
+
+    /// Day-3 NEW: commit a baseline-hash to an agent's registration.
+    /// See commit_baseline::handler for the full authority + replay logic.
+    pub fn commit_baseline(ctx: Context<CommitBaseline>, args: CommitBaselineArgs) -> Result<()> {
+        instructions::commit_baseline::handler(ctx, args)
+    }
+
+    /// Day-3 NEW: one-time per-agent realloc from v1 (MVP) to v2 layout.
+    /// Owner-only; pays the additional rent for the larger account.
+    pub fn migrate_registration(ctx: Context<MigrateRegistration>) -> Result<()> {
+        instructions::migrate_registration::handler(ctx)
     }
 }
 
@@ -165,4 +181,51 @@ pub struct UpdateOracleConfig<'info> {
         bump  = oracle_config.bump,
     )]
     pub oracle_config: Account<'info, OracleConfig>,
+}
+
+#[derive(Accounts)]
+#[instruction(args: CommitBaselineArgs)]
+pub struct CommitBaseline<'info> {
+    /// The agent registration we are committing on. Must be active and at
+    /// the current layout version (older layouts need migrate_registration).
+    #[account(
+        mut,
+        seeds = [b"agent", agent_registration.agent_wallet.as_ref()],
+        bump  = agent_registration.bump,
+        constraint = agent_registration.active @ errors::HelixorError::AgentInactive,
+        constraint = agent_registration.layout_version == AgentRegistration::CURRENT_LAYOUT_VERSION
+            @ errors::HelixorError::LayoutMigrationRequired,
+    )]
+    pub agent_registration: Account<'info, AgentRegistration>,
+
+    /// OracleConfig is the source of truth for oracle authority.
+    #[account(
+        seeds = [b"oracle_config"],
+        bump  = oracle_config.bump,
+    )]
+    pub oracle_config: Account<'info, OracleConfig>,
+
+    /// The signer claiming the right to commit. Validated in the handler.
+    pub signer: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct MigrateRegistration<'info> {
+    #[account(
+        mut,
+        seeds = [b"agent", agent_registration.agent_wallet.as_ref()],
+        bump  = agent_registration.bump,
+        realloc            = AgentRegistration::SPACE,
+        realloc::payer     = owner,
+        realloc::zero      = true,
+    )]
+    pub agent_registration: Account<'info, AgentRegistration>,
+
+    #[account(
+        mut,
+        constraint = owner.key() == agent_registration.owner_wallet @ errors::HelixorError::NotAgentOwner,
+    )]
+    pub owner: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
 }

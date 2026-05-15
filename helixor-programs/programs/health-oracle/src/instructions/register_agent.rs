@@ -28,6 +28,14 @@ pub fn handler(ctx: Context<crate::RegisterAgent>, params: RegisterParams) -> Re
     reg.active = true;
     reg.bump = ctx.bumps.agent_registration;
     reg.vault_bump = ctx.bumps.escrow_vault;
+    reg.baseline_committed = false;
+    reg.baseline_hash = [0; 32];
+    reg.baseline_algo_version = 0;
+    reg.baseline_committer = Pubkey::default();
+    reg.baseline_committed_at = 0;
+    reg.commit_nonce = 0;
+    reg.layout_version = AgentRegistration::CURRENT_LAYOUT_VERSION;
+    reg._reserved = [0; 64];
 
     system_program::transfer(
         CpiContext::new(

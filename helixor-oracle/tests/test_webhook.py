@@ -17,15 +17,20 @@ from fastapi.testclient import TestClient
 
 
 @pytest_asyncio.fixture
-async def app_client(db_pool, postgres_url, monkeypatch):
+async def app_client(postgres_url, monkeypatch):
     """Spin up the FastAPI app with a real DB pool, return a TestClient."""
     monkeypatch.setenv("DATABASE_URL", postgres_url)
+    monkeypatch.setenv("WEBHOOK_QUEUE_ENABLED", "false")
 
     # Import lazily so env vars are set first
+    from indexer.config import settings
     from indexer import db, webhook_receiver
 
-    # Replace the global pool with our test pool so handlers use it
-    db._pool = db_pool
+    # TestClient runs the ASGI app in its own event loop. asyncpg pools are
+    # loop-bound, so the app must create/close its own pool inside that loop.
+    settings.database_url = postgres_url
+    settings.webhook_queue_enabled = False
+    db._pool = None
 
     with TestClient(webhook_receiver.app) as client:
         yield client

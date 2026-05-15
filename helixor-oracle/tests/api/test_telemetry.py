@@ -17,8 +17,10 @@ VALID_AGENT = "AGENT11111111111111111111111111111111111111"
 @pytest_asyncio.fixture
 async def app_client(db_pool, postgres_url, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", postgres_url)
+    monkeypatch.delenv("REDIS_URL", raising=False)
     from api import main
     from api.rate_limit import reset_rate_limiter
+    from indexer.config import settings
     from indexer import db
 
     async with db_pool.acquire() as conn:
@@ -26,6 +28,8 @@ async def app_client(db_pool, postgres_url, monkeypatch):
         await conn.execute("DELETE FROM plugin_telemetry")
         await conn.execute("DELETE FROM operators")
 
+    settings.database_url = postgres_url
+    settings.redis_url = None
     db._pool = None
     reset_rate_limiter()
     with TestClient(main.app) as client:

@@ -26,8 +26,11 @@ async def app_client(db_pool, postgres_url, monkeypatch):
     from api import main
     from api.rate_limit import reset_rate_limiter
     from api.service import score_service
+    from indexer.config import settings
     from indexer import db
 
+    settings.database_url = postgres_url
+    settings.redis_url = None
     db._pool = None
     score_service._cache.clear()  # fresh cache per test
     reset_rate_limiter()

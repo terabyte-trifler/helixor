@@ -1,0 +1,13 @@
+# Day 3 — additional Python deps on top of Day 1/2.
+#
+# Day 1 + 2 core: pure stdlib (the determinism rule, unchanged).
+# Day 3 adds the on-chain submitter, so we need:
+
+solders>=0.21.0          # Solana types (Pubkey, Keypair, MessageV0, ...)
+solana>=0.34.0           # AsyncClient + RPC layer
+structlog>=24.1.0
+asyncpg>=0.29.0          # carried from Day 2's persistence layer
+
+# Test-only:
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
