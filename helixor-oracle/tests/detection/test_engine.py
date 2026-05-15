@@ -36,15 +36,17 @@ from scoring import AlertTier, ScoreResult
 
 class TestHappyPath:
 
-    def test_runs_end_to_end_with_stubs(self, features, baseline):
+    def test_runs_end_to_end_with_default_registry(self, features, baseline):
         result = run_detection_engine(features, baseline, default_registry())
         assert isinstance(result, ScoreResult)
-        # All five dimensions are zero -> composite is zero -> alert is RED
-        assert result.score == 0
+        # Day 5: DRIFT is real (PSI+KS) and contributes a non-zero score against
+        # a clean baseline. The other 4 dimensions are still stubs returning 0.
+        # So the total score is small (~16/1000 from drift alone) → still RED.
+        assert 0 <= result.score < 400
         assert result.alert is AlertTier.RED
-        # Every dimension flagged INSUFFICIENT_DATA
+        # INSUFFICIENT_DATA still aggregated from the 4 stub dimensions.
         assert result.has_flag(FlagBit.INSUFFICIENT_DATA)
-        # No IMMEDIATE_RED came from stubs
+        # No IMMEDIATE_RED came from any detector.
         assert not result.immediate_red
 
     def test_all_five_dimension_results_present(self, features, baseline):
@@ -53,7 +55,11 @@ class TestHappyPath:
         for dim in DimensionId.ordered():
             r = result.dimension_results[dim]
             assert r.dimension is dim
-            assert r.score == 0
+        # DRIFT is real now → may be non-zero. The other four are stubs → zero.
+        assert result.dimension_results[DimensionId.ANOMALY].score == 0
+        assert result.dimension_results[DimensionId.PERFORMANCE].score == 0
+        assert result.dimension_results[DimensionId.CONSISTENCY].score == 0
+        assert result.dimension_results[DimensionId.SECURITY].score == 0
 
     def test_weighted_contributions_sum_to_score(self, features, baseline):
         # Day-13 invariant carried into V2.

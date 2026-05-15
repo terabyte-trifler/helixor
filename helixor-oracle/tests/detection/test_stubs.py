@@ -24,7 +24,7 @@ from detection.performance import PerformanceDetector
 from detection.security import SecurityDetector
 
 
-ALL_STUBS = [
+ALL_DETECTORS = [
     (DimensionId.DRIFT,       DriftDetector()),
     (DimensionId.ANOMALY,     AnomalyDetector()),
     (DimensionId.PERFORMANCE, PerformanceDetector()),
@@ -32,24 +32,34 @@ ALL_STUBS = [
     (DimensionId.SECURITY,    SecurityDetector()),
 ]
 
+# Detectors that are still Day-4 stubs (return empty INSUFFICIENT_DATA).
+# DRIFT became real on Day 5; remove its entry from this list as later days
+# land their detectors.
+STILL_STUBBED = [
+    (DimensionId.ANOMALY,     AnomalyDetector()),       # Days 7-8
+    (DimensionId.PERFORMANCE, PerformanceDetector()),   # Day 11
+    (DimensionId.CONSISTENCY, ConsistencyDetector()),   # Day 12
+    (DimensionId.SECURITY,    SecurityDetector()),      # Days 9-10
+]
 
-@pytest.mark.parametrize("expected_dim,detector", ALL_STUBS)
-def test_stub_dimension_matches(expected_dim, detector):
+
+@pytest.mark.parametrize("expected_dim,detector", ALL_DETECTORS)
+def test_detector_dimension_matches(expected_dim, detector):
     assert detector.dimension is expected_dim
 
 
-@pytest.mark.parametrize("_dim,detector", ALL_STUBS)
-def test_stub_conforms_to_detector_protocol(_dim, detector):
+@pytest.mark.parametrize("_dim,detector", ALL_DETECTORS)
+def test_detector_conforms_to_protocol(_dim, detector):
     assert isinstance(detector, Detector)
 
 
-@pytest.mark.parametrize("_dim,detector", ALL_STUBS)
-def test_stub_algo_version_is_positive(_dim, detector):
+@pytest.mark.parametrize("_dim,detector", ALL_DETECTORS)
+def test_detector_algo_version_is_positive(_dim, detector):
     assert isinstance(detector.algo_version, int)
     assert detector.algo_version >= 1
 
 
-@pytest.mark.parametrize("expected_dim,detector", ALL_STUBS)
+@pytest.mark.parametrize("expected_dim,detector", STILL_STUBBED)
 def test_stub_score_returns_empty_with_insufficient_data(expected_dim, detector, features, baseline):
     result = detector.score(features, baseline)
     assert isinstance(result, DimensionResult)
@@ -60,8 +70,8 @@ def test_stub_score_returns_empty_with_insufficient_data(expected_dim, detector,
     assert dict(result.sub_scores) == {}
 
 
-@pytest.mark.parametrize("_dim,detector", ALL_STUBS)
-def test_stub_is_deterministic(_dim, detector, features, baseline):
+@pytest.mark.parametrize("_dim,detector", ALL_DETECTORS)
+def test_detector_is_deterministic(_dim, detector, features, baseline):
     r1 = detector.score(features, baseline)
     r2 = detector.score(features, baseline)
     assert r1 == r2

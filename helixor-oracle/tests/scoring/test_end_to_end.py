@@ -75,8 +75,9 @@ def test_full_pipeline_day1_to_day4():
     # ── THE DAY-4 DONE-WHEN ─────────────────────────────────────────────────
     # 1. Valid 0-1000 score
     assert 0 <= result.score <= 1000
-    # 2. Since all five detectors are stubs returning empty zero results...
-    assert result.score == 0
+    # 2. Day 5: DRIFT is real (PSI+KS) and contributes a small non-zero score.
+    #    The other four dimensions are still stubs, so the composite remains RED.
+    assert 0 < result.score < 400
     # 3. ...the composite alert is RED (score < 400)
     assert result.alert is AlertTier.RED
     # 4. Every dimension carried INSUFFICIENT_DATA up to the aggregate
