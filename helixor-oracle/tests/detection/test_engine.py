@@ -55,8 +55,8 @@ class TestHappyPath:
         for dim in DimensionId.ordered():
             r = result.dimension_results[dim]
             assert r.dimension is dim
-        # DRIFT is real now → may be non-zero. The other four are stubs → zero.
-        assert result.dimension_results[DimensionId.ANOMALY].score == 0
+        # DRIFT + ANOMALY are real now → may be non-zero.
+        # PERFORMANCE / CONSISTENCY / SECURITY are still Day-4 stubs → zero.
         assert result.dimension_results[DimensionId.PERFORMANCE].score == 0
         assert result.dimension_results[DimensionId.CONSISTENCY].score == 0
         assert result.dimension_results[DimensionId.SECURITY].score == 0

@@ -36,7 +36,6 @@ ALL_DETECTORS = [
 # DRIFT became real on Day 5; remove its entry from this list as later days
 # land their detectors.
 STILL_STUBBED = [
-    (DimensionId.ANOMALY,     AnomalyDetector()),       # Days 7-8
     (DimensionId.PERFORMANCE, PerformanceDetector()),   # Day 11
     (DimensionId.CONSISTENCY, ConsistencyDetector()),   # Day 12
     (DimensionId.SECURITY,    SecurityDetector()),      # Days 9-10

@@ -88,10 +88,11 @@ def test_full_pipeline_day1_to_day4():
     assert set(result.dimension_results.keys()) == set(DimensionId.ordered())
     # 7. Weighted contributions sum to score (Day-13 invariant)
     assert sum(result.weighted_contributions.values()) == result.score
-    # 8. DRIFT is the only non-zero contributor today
+    # 8. DRIFT + ANOMALY are real contributors now; the other three are stubs.
     assert result.dimension_results[DimensionId.DRIFT].score > 0
-    for dim in (DimensionId.ANOMALY, DimensionId.PERFORMANCE,
-                DimensionId.CONSISTENCY, DimensionId.SECURITY):
+    assert result.dimension_results[DimensionId.ANOMALY].score > 0
+    for dim in (DimensionId.PERFORMANCE, DimensionId.CONSISTENCY,
+                DimensionId.SECURITY):
         assert result.dimension_results[dim].score == 0
     # 9. Provenance chain is complete
     assert result.baseline_stats_hash == baseline.stats_hash
