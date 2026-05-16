@@ -49,13 +49,22 @@ def window_30d() -> ExtractionWindow:
 
 @pytest.fixture
 def features(window_30d):
-    """A real 100-feature vector from the Day-1 extractor."""
-    return extract(_make_txs(), window_30d)
+    """
+    A real 100-feature 'current' vector from the Day-1 extractor.
+
+    A current vector is ONE day's behaviour — the baseline stores per-feature
+    means of DAILY vectors, so the current vector must also be a single day
+    for the z-scores (current - daily_mean)/daily_std to be meaningful. A
+    30-day aggregate would have window-length-scaled features (counts, sums)
+    that are structurally incomparable to daily means.
+    """
+    one_day = ExtractionWindow.ending_at(REF_END, days=1)
+    return extract(_make_txs(days=1), one_day)
 
 
 @pytest.fixture
 def baseline(window_30d) -> BaselineStats:
-    """A real v2 BaselineStats from the Day-2 engine."""
+    """A real v3 BaselineStats from the Day-2/6 engine (30-day window)."""
     return compute_baseline(
         agent_wallet="11111111111111111111111111111112",
         transactions=_make_txs(),

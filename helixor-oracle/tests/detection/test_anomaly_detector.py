@@ -28,9 +28,12 @@ from baseline.types import BASELINE_ALGO_VERSION, BaselineStats
 from detection import DimensionId, DimensionResult, FlagBit, default_registry
 from detection.anomaly import (
     AnomalyDetector,
+    FLAG_ISOFOREST,
     FLAG_METHOD_1,
     FLAG_METHOD_2,
     FLAG_METHOD_3,
+    FLAG_METHOD_4,
+    FLAG_METHOD_5,
 )
 from features import FEATURE_SCHEMA_VERSION, FeatureVector
 from features.vector import TOTAL_FEATURES, group_of
@@ -183,10 +186,10 @@ class TestFlags:
         r = AnomalyDetector().score(_features(vals), _baseline())
         assert r.has_flag(FlagBit.IMMEDIATE_RED)
 
-    def test_provisional_flag_set_day7(self):
-        # Day 7 ensemble is partial → PROVISIONAL always set.
+    def test_provisional_flag_dropped_day8(self):
+        # Day 8 completes the 6-component ensemble → PROVISIONAL no longer set.
         r = AnomalyDetector().score(_normal(), _baseline())
-        assert r.has_flag(FlagBit.PROVISIONAL)
+        assert not r.has_flag(FlagBit.PROVISIONAL)
 
     def test_degraded_baseline_flag_propagates(self):
         r = AnomalyDetector().score(_normal(), _baseline(is_provisional=True))
@@ -206,9 +209,9 @@ class TestContract:
         assert r.max_score == 200
         assert 0 <= r.score <= 200
 
-    def test_algo_version_is_2(self):
+    def test_algo_version_is_3(self):
         r = AnomalyDetector().score(_normal(), _baseline())
-        assert r.algo_version == 2
+        assert r.algo_version == 3
 
     def test_all_six_sub_scores_present(self):
         r = AnomalyDetector().score(_normal(), _baseline())
@@ -218,10 +221,10 @@ class TestContract:
             assert key in r.sub_scores
             assert 0.0 <= r.sub_scores[key] <= 1.0
 
-    def test_day7_partial_budget_is_100(self):
-        # Perfectly healthy → full Day-7 partial budget of 100 (of 200).
+    def test_day8_full_budget_is_200(self):
+        # Perfectly healthy → full 200-point budget (all 6 components at 1.0).
         r = AnomalyDetector().score(_normal(), _baseline())
-        assert r.score == 100
+        assert r.score == 200
 
     def test_deterministic(self):
         vals = [0.5] * TOTAL_FEATURES
@@ -245,7 +248,110 @@ class TestContract:
 
 class TestRegistry:
 
-    def test_default_registry_anomaly_is_real_v2(self):
+    def test_default_registry_anomaly_is_real_v3(self):
         det = default_registry().get(DimensionId.ANOMALY)
-        assert det.algo_version == 2
+        assert det.algo_version == 3
         assert isinstance(det, AnomalyDetector)
+
+
+# =============================================================================
+# DAY-8 DONE-WHEN — Methods 4-5 + Isolation Forest
+# =============================================================================
+#
+# "AnomalyDetector.score() returns dim2 0-200; injecting an adversarial
+#  transaction pattern trips Isolation Forest within one scoring run."
+# =============================================================================
+
+class TestDay8FullEnsemble:
+
+    def test_full_budget_200_on_healthy(self):
+        # All 6 components healthy → the full 200-point budget.
+        r = AnomalyDetector().score(_normal(), _baseline())
+        assert r.score == 200
+        assert r.max_score == 200
+
+    def test_all_six_components_score_in_unit_range(self):
+        # An extreme fixture — every sub-score still bounded [0, 1].
+        vals = [5.0] * TOTAL_FEATURES
+        r = AnomalyDetector().score(_features(vals), _baseline())
+        for key in ("method_1_uncertainty", "method_2_mahalanobis",
+                    "method_3_zscore", "method_4_ngram_deviation",
+                    "method_5_adversarial", "isoforest_score"):
+            assert 0.0 <= r.sub_scores[key] <= 1.0
+
+    def test_method4_reacts_to_sequence_group_manipulation(self):
+        # Push ONLY the `sequence`-group features off (an n-gram pattern change).
+        vals = [0.5] * TOTAL_FEATURES
+        for i, name in enumerate(_FIELD_NAMES):
+            if group_of(name) == "sequence":
+                vals[i] = 1.2   # z = 7 on every sequence feature
+        r = AnomalyDetector().score(_features(vals), _baseline())
+        # Method 4 (n-gram sequence deviation) reacts.
+        assert r.sub_scores["method_4_ngram_deviation"] < 0.5
+        assert r.flags & FLAG_METHOD_4
+
+    def test_method5_reacts_to_sparse_adversarial_spike(self):
+        # A sparse spike — a few features extreme, the rest pristine.
+        vals = [0.5] * TOTAL_FEATURES
+        vals[10] = 3.0
+        vals[40] = 3.0
+        vals[70] = 3.0
+        r = AnomalyDetector().score(_features(vals), _baseline())
+        # Method 5 (kurtosis / spikiness) reacts to the sparse spike.
+        assert r.sub_scores["method_5_adversarial"] < 0.9
+
+    def test_isolation_forest_trips_on_adversarial_pattern(self):
+        # THE DAY-8 DONE-WHEN: an adversarial transaction pattern — a broad
+        # behaviour-class change shifting MANY features at once — trips the
+        # Isolation Forest within ONE scoring run.
+        vals = [2.5] * TOTAL_FEATURES   # every feature ~20σ off
+        r = AnomalyDetector().score(_features(vals), _baseline())
+        # IsoForest health collapses → FLAG_ISOFOREST fires.
+        assert r.sub_scores["isoforest_score"] < 0.5, \
+            f"isoforest health was {r.sub_scores['isoforest_score']}"
+        assert r.flags & FLAG_ISOFOREST
+
+    def test_isolation_forest_does_not_trip_on_healthy(self):
+        # The complement: a healthy agent must NOT trip the forest.
+        r = AnomalyDetector().score(_normal(), _baseline())
+        assert r.sub_scores["isoforest_score"] == pytest.approx(1.0, abs=1e-9)
+        assert not (r.flags & FLAG_ISOFOREST)
+
+    def test_isoforest_is_deterministic_across_runs(self):
+        # The forest's PRNG is seeded from baseline.stats_hash → the whole
+        # IsoForest is a pure function. Critical for Phase-4 BFT consensus.
+        vals = [2.5] * TOTAL_FEATURES
+        f, b = _features(vals), _baseline()
+        scores = [
+            AnomalyDetector().score(f, b).sub_scores["isoforest_score"]
+            for _ in range(10)
+        ]
+        assert len(set(scores)) == 1, f"non-deterministic isoforest: {set(scores)}"
+
+    def test_isoforest_and_method5_are_complementary(self):
+        # IsoForest catches BROAD anomalies; Method 5 catches SPARSE spikes.
+        # A broad shift → IsoForest reacts harder than Method 5.
+        broad = _features([2.5] * TOTAL_FEATURES)
+        rb = AnomalyDetector().score(broad, _baseline())
+        assert rb.sub_scores["isoforest_score"] < rb.sub_scores["method_5_adversarial"]
+        # A sparse spike → Method 5 reacts harder than IsoForest.
+        sparse_vals = [0.5] * TOTAL_FEATURES
+        for idx in (5, 25, 55):
+            sparse_vals[idx] = 3.0
+        rs = AnomalyDetector().score(_features(sparse_vals), _baseline())
+        assert rs.sub_scores["method_5_adversarial"] < rs.sub_scores["isoforest_score"]
+
+
+class TestDay8Flags:
+
+    def test_severe_broad_anomaly_sets_immediate_red(self):
+        vals = [9.0] * TOTAL_FEATURES   # maximally extreme everywhere
+        r = AnomalyDetector().score(_features(vals), _baseline())
+        assert r.has_flag(FlagBit.IMMEDIATE_RED)
+
+    def test_score_drops_monotonically_with_severity(self):
+        b = _baseline()
+        s_clean  = AnomalyDetector().score(_normal(), b).score
+        s_mild   = AnomalyDetector().score(_features([0.7] * TOTAL_FEATURES), b).score
+        s_severe = AnomalyDetector().score(_features([3.0] * TOTAL_FEATURES), b).score
+        assert s_clean > s_mild > s_severe

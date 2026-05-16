@@ -218,3 +218,142 @@ class TestMagnitudeToHealth:
     def test_negative_magnitude_is_healthy(self):
         # Defensive: a negative magnitude is nonsensical but maps to healthy.
         assert magnitude_to_health(-1.0, saturation=10.0) == 1.0
+
+
+# =============================================================================
+# Day 8 — Method 4, Method 5, Isolation Forest
+# =============================================================================
+
+from detection._anomaly_math import (
+    isolation_forest_health,
+    isolation_forest_score,
+    method4_sequence_deviation,
+    method5_adversarial_kurtosis,
+)
+
+
+class TestMethod4SequenceDeviation:
+
+    def test_empty_is_zero(self):
+        assert method4_sequence_deviation([]) == 0.0
+
+    def test_all_zero_is_zero(self):
+        # Sequence features all at baseline → no n-gram deviation.
+        assert method4_sequence_deviation([0.0] * 14) == 0.0
+
+    def test_known_rms_value(self):
+        # RMS of [3, 4] = sqrt((9+16)/2) = sqrt(12.5)
+        assert method4_sequence_deviation([3.0, 4.0]) == pytest.approx(
+            math.sqrt(12.5), abs=APPROX,
+        )
+
+    def test_sign_insensitive(self):
+        # n-gram structure shifting up or down is equally a deviation.
+        assert method4_sequence_deviation([-3.0, -4.0]) == \
+               method4_sequence_deviation([3.0, 4.0])
+
+    def test_large_deviation(self):
+        # All 14 sequence features 6σ off → RMS = 6.
+        assert method4_sequence_deviation([6.0] * 14) == pytest.approx(6.0, abs=APPROX)
+
+
+class TestMethod5AdversarialKurtosis:
+
+    def test_too_few_samples_is_zero(self):
+        assert method5_adversarial_kurtosis([1.0, 2.0, 3.0]) == 0.0
+
+    def test_zero_variance_is_zero(self):
+        # All identical → no spikiness.
+        assert method5_adversarial_kurtosis([2.0] * 50) == 0.0
+
+    def test_gaussian_like_is_near_zero(self):
+        # A broad, bell-shaped z-distribution → excess kurtosis ≈ 0.
+        import random
+        rng = random.Random(7)
+        sample = [rng.gauss(0.0, 1.0) for _ in range(500)]
+        k = method5_adversarial_kurtosis(sample)
+        assert k < 1.5    # close to 0 for a Gaussian
+
+    def test_sparse_spike_has_high_kurtosis(self):
+        # 97 features at 0, 3 at extreme → sharp spike → high excess kurtosis.
+        spiky = [0.0] * 97 + [12.0, 12.0, 12.0]
+        k = method5_adversarial_kurtosis(spiky)
+        assert k > 10.0
+
+    def test_spike_beats_broad(self):
+        # The signature of Method 5: a sparse spike scores far above a broad shift.
+        import random
+        rng = random.Random(11)
+        broad = [rng.gauss(0.0, 3.0) for _ in range(100)]   # broad but Gaussian
+        spiky = [0.0] * 95 + [10.0] * 5
+        assert method5_adversarial_kurtosis(spiky) > method5_adversarial_kurtosis(broad)
+
+    def test_floored_at_zero(self):
+        # A platykurtic (flat) distribution has negative excess kurtosis;
+        # Method 5 floors at 0 (only spikiness matters).
+        flat = [-1.0, -1.0, 1.0, 1.0] * 25   # bimodal → negative excess kurtosis
+        assert method5_adversarial_kurtosis(flat) >= 0.0
+
+
+class TestIsolationForest:
+
+    def _means_stds(self):
+        return [0.5] * 100, [0.1] * 100
+
+    def test_deterministic_same_seed(self):
+        means, stds = self._means_stds()
+        point = [0.5] * 100
+        s1 = isolation_forest_score(point, means, stds, seed=42)
+        s2 = isolation_forest_score(point, means, stds, seed=42)
+        assert s1 == s2
+
+    def test_different_seed_can_differ(self):
+        # Different seeds build different forests — but both are valid scores.
+        means, stds = self._means_stds()
+        point = [2.0] * 100
+        s1 = isolation_forest_score(point, means, stds, seed=1)
+        s2 = isolation_forest_score(point, means, stds, seed=2)
+        assert 0.0 <= s1 <= 1.0
+        assert 0.0 <= s2 <= 1.0
+
+    def test_score_in_unit_range(self):
+        means, stds = self._means_stds()
+        for point in ([0.5] * 100, [10.0] * 100, [-5.0] * 100):
+            s = isolation_forest_score(point, means, stds, seed=42)
+            assert 0.0 <= s <= 1.0
+
+    def test_normal_point_low_score(self):
+        # A point at the baseline centroid isolates SLOWLY → low anomaly score.
+        means, stds = self._means_stds()
+        s = isolation_forest_score([0.5] * 100, means, stds, seed=42)
+        assert s < 0.5
+
+    def test_broad_anomaly_high_score(self):
+        # A point far from the baseline on every feature isolates FAST.
+        means, stds = self._means_stds()
+        s = isolation_forest_score([5.0] * 100, means, stds, seed=42)
+        assert s > 0.6
+
+    def test_empty_point_neutral(self):
+        s = isolation_forest_score([], [], [], seed=42)
+        assert s == 0.5
+
+    def test_length_mismatch_rejected(self):
+        with pytest.raises(ValueError, match="length mismatch"):
+            isolation_forest_score([0.5, 0.5], [0.5], [0.1], seed=1)
+
+
+class TestIsolationForestHealth:
+
+    def test_low_score_is_healthy(self):
+        assert isolation_forest_health(0.3) == 1.0
+        assert isolation_forest_health(0.5) == 1.0
+
+    def test_high_score_is_unhealthy(self):
+        assert isolation_forest_health(1.0) == 0.0
+
+    def test_midpoint(self):
+        assert isolation_forest_health(0.75) == pytest.approx(0.5, abs=APPROX)
+
+    def test_nan_is_anomalous(self):
+        assert isolation_forest_health(float("nan")) == 0.0

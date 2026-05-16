@@ -28,10 +28,10 @@ from scoring import AlertTier
 REF_END = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
 
 
-def _make_txs():
-    """A realistic 30-day, 150-transaction agent history."""
+def _make_txs(days: int = 30):
+    """A realistic agent transaction history; `days` days x 5 tx/day."""
     txs = []
-    for day in range(30):
+    for day in range(days):
         for k in range(5):
             idx = day * 5 + k
             txs.append(Transaction(
@@ -53,13 +53,9 @@ def test_full_pipeline_day1_to_day4():
     """
     Day 1 (features) -> Day 2 (baseline) -> Day 4 (detection + scoring).
     """
-    # Day 1: extract the 100-feature vector
+    # Day 2: compute the baseline over the full 30-day window.
     window = ExtractionWindow.ending_at(REF_END, days=30)
     txs = _make_txs()
-    features = extract(txs, window)
-    assert len(features.to_list()) == 100
-
-    # Day 2: compute the baseline
     baseline = compute_baseline(
         agent_wallet="11111111111111111111111111111112",
         transactions=txs,
@@ -68,6 +64,12 @@ def test_full_pipeline_day1_to_day4():
     )
     assert baseline.is_compatible_with_current_engine()
     assert len(baseline.stats_hash) == 64
+
+    # Day 1: extract the CURRENT 100-feature vector — one day's behaviour,
+    # comparable to the baseline's per-feature daily means.
+    one_day = ExtractionWindow.ending_at(REF_END, days=1)
+    features = extract(_make_txs(days=1), one_day)
+    assert len(features.to_list()) == 100
 
     # Day 4 contract + Day 5 drift: run the detection engine + composite scorer
     result = run_detection_engine(features, baseline, default_registry(), computed_at=REF_END)
@@ -104,13 +106,14 @@ def test_full_pipeline_is_deterministic():
     """Two complete pipeline runs with identical inputs produce identical scores."""
     window = ExtractionWindow.ending_at(REF_END, days=30)
     txs = _make_txs()
-    features = extract(txs, window)
     baseline = compute_baseline(
         agent_wallet="11111111111111111111111111111112",
         transactions=txs,
         window=window,
         computed_at=REF_END,
     )
+    one_day = ExtractionWindow.ending_at(REF_END, days=1)
+    features = extract(_make_txs(days=1), one_day)
     r1 = run_detection_engine(features, baseline, default_registry(), computed_at=REF_END)
     r2 = run_detection_engine(features, baseline, default_registry(), computed_at=REF_END)
 
