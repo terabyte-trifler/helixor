@@ -62,6 +62,12 @@ def test_history_table_is_append_only(sql):
     assert "BEFORE UPDATE OR DELETE ON agent_baseline_history" in sql
     assert "append-only" in sql.lower()
 
+def test_history_baseline_algo_version_added_for_mvp_upgrade(sql):
+    # Fresh MVP tables used algo_version; v2 must add/backfill baseline_algo_version
+    # before indexing it.
+    assert "ADD COLUMN IF NOT EXISTS baseline_algo_version" in sql
+    assert "COALESCE(baseline_algo_version, algo_version, 1)" in sql
+
 def test_history_dedup_constraint(sql):
     # Re-running the same computation must not append a duplicate history row.
     assert "agent_baseline_history_dedup" in sql

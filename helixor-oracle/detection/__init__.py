@@ -42,13 +42,36 @@ __all__ = [
     "run_detection_engine",
     "assert_baseline_compatible",
     "assert_features_finite",
+    # Day-9 security layer
+    "scan",
+    "ScanMetadata",
+    "SecuritySignal",
+    "Severity",
+    "AttackCategory",
+    "DetectionMethod",
+    "PATTERN_LIBRARY",
+    "PATTERN_LIBRARY_VERSION",
 ]
+
+# Day-9 security layer — the attack-pattern library + scanner.
+from detection.security_patterns import (  # noqa: E402
+    PATTERN_LIBRARY,
+    PATTERN_LIBRARY_VERSION,
+)
+from detection.security_scan import scan  # noqa: E402
+from detection.security_types import (  # noqa: E402
+    AttackCategory,
+    DetectionMethod,
+    ScanMetadata,
+    SecuritySignal,
+    Severity,
+)
 
 
 def __getattr__(name: str):
     """
-    Keep the public `from detection import run_detection_engine` API without
-    eagerly importing detection.engine during package initialisation.
+    Keep the public engine/registry API without eagerly importing
+    detection.engine during package initialisation.
 
     That matters because scoring.composite imports detection.types. If
     detection.__init__ imports detection.engine at that moment, the engine
