@@ -57,6 +57,9 @@ __all__ = [
     "SybilGraph",
     "AgentCohortRecord",
     "SybilAssessment",
+    # Day-11 performance layer
+    "PerformanceDetector",
+    "MarketContext",
 ]
 
 # Day-9 security layer — the attack-pattern library + scanner.
@@ -80,6 +83,9 @@ from detection._sybil_graph import (  # noqa: E402
     SybilAssessment,
     SybilGraph,
 )
+# Day-11 performance layer.
+from detection.performance import PerformanceDetector  # noqa: E402
+from detection.performance_context import MarketContext  # noqa: E402
 
 
 def __getattr__(name: str):
