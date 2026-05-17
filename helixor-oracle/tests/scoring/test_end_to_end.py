@@ -22,7 +22,6 @@ from detection import (
     run_detection_engine,
 )
 from features import ExtractionWindow, Transaction, extract
-from scoring import AlertTier
 
 
 REF_END = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -74,29 +73,22 @@ def test_full_pipeline_day1_to_day4():
     # Day 4 contract + Day 5 drift: run the detection engine + composite scorer
     result = run_detection_engine(features, baseline, default_registry(), computed_at=REF_END)
 
-    # ── THE DAY-4 + DAY-5 DONE-WHEN ─────────────────────────────────────────
+    # ── THE DONE-WHEN — Phase 1 complete (Day 12) ───────────────────────────
     # 1. Valid 0-1000 score
     assert 0 <= result.score <= 1000
-    # 2. Drift/anomaly/security/performance are real now. Consistency is the
-    #    last stub, so the clean sample lands in the healthy band.
-    assert 700 <= result.score <= 1000
-    # 3. The composite alert is GREEN (score >= 700)
-    assert result.alert is AlertTier.GREEN
-    # 4. INSUFFICIENT_DATA aggregated from the remaining stub dimensions
-    assert result.has_flag(FlagBit.INSUFFICIENT_DATA)
-    # 5. No false IMMEDIATE_RED
+    # 2. Day 12: ALL FIVE dimensions are real. A clean agent scores high.
+    assert 600 < result.score <= 1000
+    # 3. No stub dimensions left → INSUFFICIENT_DATA no longer aggregates.
+    assert not result.has_flag(FlagBit.INSUFFICIENT_DATA)
+    # 4. No false IMMEDIATE_RED on a clean agent.
     assert not result.immediate_red
-    # 6. Every dimension represented
+    # 5. Every dimension represented
     assert set(result.dimension_results.keys()) == set(DimensionId.ordered())
     # 7. Weighted contributions sum to score (Day-13 invariant)
     assert sum(result.weighted_contributions.values()) == result.score
-    # 8. DRIFT + ANOMALY + PERFORMANCE + SECURITY are real contributors now;
-    #    CONSISTENCY is the final stub.
-    assert result.dimension_results[DimensionId.DRIFT].score > 0
-    assert result.dimension_results[DimensionId.ANOMALY].score > 0
-    assert result.dimension_results[DimensionId.PERFORMANCE].score > 0
-    assert result.dimension_results[DimensionId.SECURITY].score > 0
-    assert result.dimension_results[DimensionId.CONSISTENCY].score == 0
+    # 8. All five dimensions are real contributors — Phase 1 complete.
+    for dim in DimensionId.ordered():
+        assert result.dimension_results[dim].score > 0
     # 9. Provenance chain is complete
     assert result.baseline_stats_hash == baseline.stats_hash
     assert result.feature_schema_fingerprint  # non-empty

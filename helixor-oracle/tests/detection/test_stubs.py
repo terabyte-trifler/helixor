@@ -33,11 +33,9 @@ ALL_DETECTORS = [
 ]
 
 # Detectors that are still Day-4 stubs (return empty INSUFFICIENT_DATA).
-# DRIFT became real on Day 5; remove its entry from this list as later days
-# land their detectors.
-STILL_STUBBED = [
-    (DimensionId.CONSISTENCY, ConsistencyDetector()),   # Day 12
-]
+# Phase 1 complete (Day 12): all five dimensions have real detectors.
+# DRIFT (Day 5-6), ANOMALY (7-8), SECURITY (9-10), PERFORMANCE (11),
+# CONSISTENCY (12). There are no stub detectors left.
 
 
 @pytest.mark.parametrize("expected_dim,detector", ALL_DETECTORS)
@@ -56,15 +54,10 @@ def test_detector_algo_version_is_positive(_dim, detector):
     assert detector.algo_version >= 1
 
 
-@pytest.mark.parametrize("expected_dim,detector", STILL_STUBBED)
-def test_stub_score_returns_empty_with_insufficient_data(expected_dim, detector, features, baseline):
-    result = detector.score(features, baseline)
-    assert isinstance(result, DimensionResult)
-    assert result.dimension is expected_dim
-    assert result.score == 0
-    assert result.has_flag(FlagBit.INSUFFICIENT_DATA)
-    # No spurious sub-scores from a stub
-    assert dict(result.sub_scores) == {}
+@pytest.mark.parametrize("_dim,detector", ALL_DETECTORS)
+def test_all_detectors_are_real_not_stubs(_dim, detector):
+    """Phase 1 complete — every detector is a real implementation (algo >= 2)."""
+    assert detector.algo_version >= 2
 
 
 @pytest.mark.parametrize("_dim,detector", ALL_DETECTORS)

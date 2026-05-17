@@ -15,8 +15,10 @@ async def app_client(db_pool, postgres_url, monkeypatch):
 
     from api import main
     from api.rate_limit import reset_rate_limiter
+    from indexer.config import settings
     from indexer import db
 
+    settings.database_url = postgres_url
     db._pool = None
     reset_rate_limiter()
 

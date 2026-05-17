@@ -39,12 +39,10 @@ class TestHappyPath:
     def test_runs_end_to_end_with_default_registry(self, features, baseline):
         result = run_detection_engine(features, baseline, default_registry())
         assert isinstance(result, ScoreResult)
-        # Day 10: DRIFT, ANOMALY, SECURITY are real and contribute non-zero
-        # scores against a clean baseline; PERFORMANCE / CONSISTENCY are still
-        # stubs returning 0.
-        assert 300 < result.score < 800
-        # INSUFFICIENT_DATA still aggregated from the 2 remaining stub dimensions.
-        assert result.has_flag(FlagBit.INSUFFICIENT_DATA)
+        # Day 12: ALL FIVE dimensions are real. A clean agent scores high.
+        assert 600 < result.score <= 1000
+        # No stub dimensions left → INSUFFICIENT_DATA no longer aggregates.
+        assert not result.has_flag(FlagBit.INSUFFICIENT_DATA)
         # No IMMEDIATE_RED on a clean agent.
         assert not result.immediate_red
 
@@ -54,11 +52,9 @@ class TestHappyPath:
         for dim in DimensionId.ordered():
             r = result.dimension_results[dim]
             assert r.dimension is dim
-        # DRIFT + ANOMALY are real now → may be non-zero.
-        # DRIFT + ANOMALY + SECURITY are real now → may be non-zero.
-        # DRIFT + ANOMALY + SECURITY + PERFORMANCE are real now → may be
-        # non-zero. CONSISTENCY is the last Day-4 stub → zero.
-        assert result.dimension_results[DimensionId.CONSISTENCY].score == 0
+            # Phase 1 complete — every dimension is a real detector and
+            # contributes a non-zero score for a clean agent.
+            assert r.score > 0
 
     def test_weighted_contributions_sum_to_score(self, features, baseline):
         # Day-13 invariant carried into V2.
