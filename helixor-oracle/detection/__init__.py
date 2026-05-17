@@ -51,6 +51,12 @@ __all__ = [
     "DetectionMethod",
     "PATTERN_LIBRARY",
     "PATTERN_LIBRARY_VERSION",
+    # Day-10 security layer
+    "SecurityDetector",
+    "SecurityContext",
+    "SybilGraph",
+    "AgentCohortRecord",
+    "SybilAssessment",
 ]
 
 # Day-9 security layer — the attack-pattern library + scanner.
@@ -65,6 +71,14 @@ from detection.security_types import (  # noqa: E402
     ScanMetadata,
     SecuritySignal,
     Severity,
+)
+# Day-10 security layer — integrity, directed behaviour, Sybil.
+from detection.security import SecurityDetector  # noqa: E402
+from detection.security_context import SecurityContext  # noqa: E402
+from detection._sybil_graph import (  # noqa: E402
+    AgentCohortRecord,
+    SybilAssessment,
+    SybilGraph,
 )
 
 

@@ -1,8 +1,9 @@
 """
-tests/detection/test_stubs.py — the five stub detectors.
+tests/detection/test_stubs.py — detector protocol + remaining stubs.
 
-Day 4 status: every stub returns DimensionResult.empty() with INSUFFICIENT_DATA.
-These tests pin that behaviour AND verify each stub conforms to the Protocol.
+Day 4 started with five stubs. Later days progressively replace them with
+real detectors; these tests pin protocol conformance for all dimensions and
+empty-score behaviour only for dimensions that are still stubs.
 """
 
 from __future__ import annotations
@@ -33,12 +34,10 @@ ALL_DETECTORS = [
 ]
 
 # Detectors that are still Day-4 stubs (return empty INSUFFICIENT_DATA).
-# DRIFT became real on Day 5; remove its entry from this list as later days
-# land their detectors.
+# DRIFT became real on Day 5, ANOMALY on Days 7-8, and SECURITY on Days 9-10.
 STILL_STUBBED = [
     (DimensionId.PERFORMANCE, PerformanceDetector()),   # Day 11
     (DimensionId.CONSISTENCY, ConsistencyDetector()),   # Day 12
-    (DimensionId.SECURITY,    SecurityDetector()),      # Days 9-10
 ]
 
 

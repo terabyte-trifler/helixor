@@ -94,6 +94,13 @@ class Transaction:
     # the counterparty wallet, if the transaction has a clear single
     # counterparty (transfers, swaps). None for multi-party / unclear.
     counterparty:  str | None = None
+    # True when the transaction performed an authority-sensitive operation:
+    # owner/admin transfer, set-authority, program upgrade-authority change,
+    # delegate/approval change, freeze/thaw, or equivalent privileged control
+    # mutation. This is intentionally transaction metadata, not a FeatureVector
+    # field, so the Day-10 security detector can consume it through
+    # SecurityContext without changing the frozen 100-feature baseline schema.
+    authority_operation: bool = False
 
     def __post_init__(self) -> None:
         # Enforce the timezone-aware UTC contract at construction time.
