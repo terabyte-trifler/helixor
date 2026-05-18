@@ -33,22 +33,34 @@ from detection.base import (
 from detection.registry import DetectorRegistry
 from detection.types import DimensionId, DimensionResult, FlagBit
 from features import FeatureVector
-from scoring.composite import ScoreResult, compute_composite_score
+
+# NOTE: `scoring.composite` is imported lazily inside run_detection_engine().
+# A module-level import here would create a cycle: scoring/__init__ ->
+# scoring.composite -> detection.types -> detection/__init__ -> detection.engine
+# -> scoring.composite (partially initialised). The function-local import
+# breaks it — by the time run_detection_engine() is CALLED, both packages
+# are fully initialised.
+if False:  # pragma: no cover — type-checker hint only
+    from scoring.composite import ScoreResult
 
 
 log = logging.getLogger(__name__)
 
 
 def run_detection_engine(
-    features:    FeatureVector,
-    baseline:    BaselineStats,
-    registry:    DetectorRegistry,
+    features:       FeatureVector,
+    baseline:       BaselineStats,
+    registry:       DetectorRegistry,
     *,
-    computed_at: datetime | None = None,
+    previous_score: int | None = None,
+    computed_at:    datetime | None = None,
 ) -> ScoreResult:
     """
     Run all five detectors against (features, baseline) and produce the
     composite ScoreResult.
+
+    `previous_score`, if supplied, engages the 200-point delta guard rail
+    in the composite scorer.
 
     Pure given the registry (no I/O). Errors in any single detector are
     contained — the function ALWAYS returns a valid ScoreResult.
@@ -58,9 +70,14 @@ def run_detection_engine(
         detector = registry.get(dim)
         results[dim] = _safe_score(detector, features, baseline)
 
+    # Lazy import — see the module-level note on the import cycle.
+    from scoring.composite import compute_composite_score
+
     return compute_composite_score(
         results,
         baseline,
+        features=features,
+        previous_score=previous_score,
         computed_at=computed_at or datetime.now(timezone.utc),
     )
 

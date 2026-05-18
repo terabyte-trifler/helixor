@@ -24,6 +24,13 @@ from scoring.weights import (
     WEIGHTS,
     scoring_schema_fingerprint,
 )
+from scoring._gaming import (
+    GAMING_ENTROPY_DROP_THRESHOLD,
+    MAX_SCORE_DELTA,
+    apply_delta_guard_rail,
+    compute_confidence,
+    detect_entropy_gaming,
+)
 
 __all__ = [
     "compute_composite_score",
@@ -35,4 +42,10 @@ __all__ = [
     "scoring_schema_fingerprint",
     "GREEN_THRESHOLD",
     "YELLOW_THRESHOLD",
+    # Day-13 — gaming detection, confidence, delta guard rail
+    "detect_entropy_gaming",
+    "compute_confidence",
+    "apply_delta_guard_rail",
+    "GAMING_ENTROPY_DROP_THRESHOLD",
+    "MAX_SCORE_DELTA",
 ]

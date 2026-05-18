@@ -42,6 +42,11 @@ from types import MappingProxyType
 
 from baseline import BASELINE_ALGO_VERSION, BaselineStats
 from detection.types import DimensionId, DimensionResult, FlagBit
+from scoring._gaming import (
+    apply_delta_guard_rail,
+    compute_confidence,
+    detect_entropy_gaming,
+)
 from features import FEATURE_SCHEMA_VERSION, FeatureVector
 from scoring.weights import SCORING_WEIGHTS_VERSION, WEIGHTS, scoring_schema_fingerprint
 
@@ -84,6 +89,12 @@ class ScoreResult:
     # ── User-facing ─────────────────────────────────────────────────────────
     score:                       int                      # 0..1000
     alert:                       AlertTier
+
+    # ── Day-13: gaming + confidence ─────────────────────────────────────────
+    confidence:                  int       # 0..1000 — how much data backs `score`
+    gaming_detected:             bool      # behavioural entropy collapsed >25%
+    gaming_drop_fraction:        float     # how far entropy fell, [0, 1]
+    delta_clamped:               bool      # the 200-pt guard rail moved `score`
 
     # ── Evidence ────────────────────────────────────────────────────────────
     dimension_results:           Mapping[DimensionId, DimensionResult]
@@ -140,9 +151,11 @@ class ScoreResult:
             if not isinstance(weight, float) or not (0.0 <= weight <= 1.0):
                 raise ValueError(f"weight_vector[{dim.value}] must be a float in [0,1]")
         contrib_sum = sum(self.weighted_contributions.values())
-        # Allow ±1 rounding difference: the sum is rounded after weighting, so
-        # the integer parts can drift by up to len(DimensionId)-1 = 4 pts.
-        if abs(contrib_sum - self.score) > 5:
+        # Allow ±5 rounding difference: the sum is rounded after weighting.
+        # EXCEPTION: when the 200-point delta guard rail clamped the score,
+        # `score` is intentionally NOT the weighted sum — the contributions
+        # describe the uncapped aggregate, `score` is the rate-limited value.
+        if not self.delta_clamped and abs(contrib_sum - self.score) > 5:
             raise ValueError(
                 f"weighted_contributions sum {contrib_sum} disagrees with score "
                 f"{self.score} by > 5 (this is the Day-13 invariant)"
@@ -159,6 +172,20 @@ class ScoreResult:
         # 7. Timezone contract.
         if self.computed_at.tzinfo is None:
             raise ValueError("computed_at must be timezone-aware UTC")
+
+        # 7b. Day-13 fields.
+        if not isinstance(self.confidence, int) or isinstance(self.confidence, bool):
+            raise TypeError(f"confidence must be int, got {type(self.confidence).__name__}")
+        if not (0 <= self.confidence <= 1000):
+            raise ValueError(f"confidence {self.confidence} out of range [0, 1000]")
+        if not isinstance(self.gaming_detected, bool):
+            raise TypeError("gaming_detected must be bool")
+        if not isinstance(self.delta_clamped, bool):
+            raise TypeError("delta_clamped must be bool")
+        if not (0.0 <= self.gaming_drop_fraction <= 1.0):
+            raise ValueError(
+                f"gaming_drop_fraction {self.gaming_drop_fraction} out of [0, 1]"
+            )
 
         # 8. Freeze the mappings.
         if not isinstance(self.dimension_results, MappingProxyType):
@@ -195,10 +222,21 @@ def compute_composite_score(
     dimension_results: Mapping[DimensionId, DimensionResult],
     baseline:          BaselineStats,
     *,
+    features:          FeatureVector | None = None,
+    previous_score:    int | None = None,
     computed_at:       datetime | None = None,
 ) -> ScoreResult:
     """
     Combine the five DimensionResults into a 0-1000 ScoreResult.
+
+    Day-13 additions over the Day-4 weighted aggregate:
+      - GAMING CHECK: if `features` is supplied, the agent's current
+        behavioural entropy is compared against its baseline entropy; a
+        collapse > 25% sets `gaming_detected`.
+      - CONFIDENCE: a 0-1000 data-sufficiency score from the baseline's
+        transaction count, active days, and provisional / degraded flags.
+      - 200-POINT DELTA GUARD RAIL: if `previous_score` is supplied, the
+        new score cannot move more than 200 points from it. Not bypassable.
 
     Pure. Same inputs -> byte-identical ScoreResult.
 
@@ -244,6 +282,36 @@ def compute_composite_score(
     raw_score = sum(weighted_contributions.values())
     score = max(0, min(1000, raw_score))
 
+    # 3b. GAMING CHECK — behavioural-entropy collapse.
+    #     An agent gaming the score narrows its own behaviour to chase the
+    #     metric; behavioural entropy collapses. We compare the current
+    #     action entropy (from the feature vector) against the baseline.
+    #     With no feature vector supplied, the check abstains.
+    if features is not None:
+        gaming = detect_entropy_gaming(
+            current_entropy=features.seq_action_entropy,
+            baseline_entropy=baseline.action_entropy,
+        )
+    else:
+        gaming = {"gaming_detected": False, "drop_fraction": 0.0, "abstained": True}
+    gaming_detected      = bool(gaming["gaming_detected"])
+    gaming_drop_fraction = float(gaming["drop_fraction"])
+
+    # 3c. CONFIDENCE — how much data backs this score.
+    degraded = bool(aggregated_flags & int(FlagBit.DEGRADED_BASELINE))
+    confidence = compute_confidence(
+        transaction_count=baseline.transaction_count,
+        days_with_activity=baseline.days_with_activity,
+        is_provisional=baseline.is_provisional,
+        degraded_baseline=degraded,
+    )
+
+    # 3d. 200-POINT DELTA GUARD RAIL — preserved from the MVP, not bypassable.
+    #     Every score that leaves this function has passed through here.
+    rail = apply_delta_guard_rail(new_score=score, previous_score=previous_score)
+    score = rail["score"]
+    delta_clamped = bool(rail["clamped"])
+
     # 4. IMMEDIATE_RED fast-path.
     immediate_red = bool(aggregated_flags & int(FlagBit.IMMEDIATE_RED))
     alert = AlertTier.RED if immediate_red else _alert_for(score)
@@ -257,6 +325,10 @@ def compute_composite_score(
     return ScoreResult(
         score=score,
         alert=alert,
+        confidence=confidence,
+        gaming_detected=gaming_detected,
+        gaming_drop_fraction=gaming_drop_fraction,
+        delta_clamped=delta_clamped,
         dimension_results=MappingProxyType(dict(dimension_results)),
         weighted_contributions=MappingProxyType(weighted_contributions),
         weight_vector=MappingProxyType(dict(WEIGHTS)),
