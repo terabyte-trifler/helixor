@@ -1,0 +1,13 @@
+{
+  "name": "helixor-indexer",
+  "version": "0.16.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke:geyser": "node scripts/live_geyser_smoke.mjs"
+  },
+  "dependencies": {
+    "@triton-one/yellowstone-grpc": "5.0.8",
+    "bs58": "^6.0.0"
+  }
+}
