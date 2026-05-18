@@ -1,300 +1,292 @@
 """
-oracle/epoch_runner.py — the daily scoring + on-chain submission loop.
+oracle/epoch_runner.py — the epoch pipeline: V2 detection engine + on-chain submit.
 
-What it does each pass:
-  1. Find agents whose score is unsynced (Day 6's find_unsynced_scores)
-  2. For each: submit update_score on-chain via signed tx
-  3. On success: mark_score_onchain so we don't resubmit
-  4. On TooFrequent: silently skip (cooldown is by design)
-  5. On Paused/Unauthorized: log loudly, halt the pass (operator intervention)
-  6. On TransientError: retry the agent up to 3 times with exponential backoff
+WHAT THIS IS
+------------
+The epoch runner is the orchestration layer that, once per scoring epoch,
+walks every tracked agent through the full pipeline:
 
-Run as a long-lived service (docker-compose) or one-shot (cron).
+    transactions -> feature extraction -> baseline -> V2 detection engine
+                 -> composite ScoreResult -> on-chain submission
 
-Run as service:    python -m oracle.epoch_runner
-Run as one-shot:   python -m oracle.epoch_runner --once
+The Doc-3 MVP had an epoch runner that called the MVP scorer. This is the
+V2 runner: it calls `run_detection_engine` (the five-dimension V2 composite
+scorer built across Days 5-13). The MVP scorer is gone from the scoring
+call — but the ON-CHAIN SUBMISSION PATH is unchanged: the runner submits
+through the existing `oracle/submit.py` update_score machinery.
+
+WHY THE SUBMISSION FUNCTION IS INJECTED
+---------------------------------------
+`run_epoch` takes its submission step as a parameter (`submit_fn`). In
+production that is built by `make_onchain_submitter()`, which calls the real
+`update_score` transaction submitter. In tests it is a recording stub. This
+keeps the runner fully testable without a live validator while guaranteeing
+the production path remains the same on-chain machinery.
+
+Everything here is pure orchestration — deterministic given its inputs.
 """
 
 from __future__ import annotations
 
-import argparse
-import asyncio
-import sys
+import logging
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
-import structlog
-from solana.rpc.async_api import AsyncClient
-from solders.pubkey import Pubkey
+from baseline import BaselineStats, compute_baseline
+from detection import DetectorRegistry, default_registry, run_detection_engine
+from detection.consistency_context import ConsistencyContext
+from detection.performance_context import MarketContext, NEUTRAL_MARKET
+from detection.security_context import SecurityContext
+from features import ExtractionWindow, Transaction, extract
+from scoring import ScoreResult
 
-from indexer import db
-from indexer.config import settings
-from oracle.submit import (
-    DeltaTooLarge,
-    Paused,
-    SubmissionError,
-    SubmitResult,
-    TooFrequent,
-    TransientError,
-    Unauthorized,
-    load_oracle_keypair,
-    submit_score_update,
-)
-from scoring import score_engine, score_repo
-
-log = structlog.get_logger(__name__)
-
-
-# How often to wake when running as a service (vs --once mode)
-EPOCH_INTERVAL_SECONDS = 60 * 60        # 1 hour — checks for unsynced every hour
-
-# Per-agent retry budget for transient errors
-PER_AGENT_RETRY_LIMIT = 3
-PER_AGENT_RETRY_BACKOFF_SECONDS = (5, 15, 45)
-
-# Hard limit on how many agents we'll process in a single pass (to bound runtime)
-MAX_AGENTS_PER_PASS = 100
+logger = logging.getLogger("helixor.epoch_runner")
 
 
 # =============================================================================
-# Outcome tracking
+# Inputs — one agent's epoch data
 # =============================================================================
 
-OUTCOMES = (
-    "submitted", "too_frequent", "delta_too_large",
-    "unauthorized", "paused", "deactivated",
-    "transient_failed", "no_score", "invalid_wallet",
-)
-
-
-# =============================================================================
-# Single-agent submission with retry
-# =============================================================================
-
-async def submit_with_retry(
-    rpc, program_id, oracle_kp, conn, agent_wallet,
-) -> tuple[str, SubmitResult | None]:
+@dataclass(frozen=True, slots=True)
+class AgentEpochInput:
     """
-    Submit one agent's score, retrying on transient errors only.
-    Returns (outcome_label, SubmitResult-or-None).
+    Everything the runner needs to score ONE agent for an epoch.
+
+    `baseline_transactions` build the agent's baseline; `current_transactions`
+    are the epoch window being scored against it. The three contexts
+    (security / market / consistency) carry the registration + cohort data
+    the stateful detectors need; all default to empty/neutral.
     """
-    score_row = await score_repo.get_full_current_score(conn, agent_wallet)
-    if score_row is None:
-        return ("no_score", None)
-
-    try:
-        Pubkey.from_string(agent_wallet)
-    except ValueError:
-        bound_log = log.bind(agent=agent_wallet[:12] + "...")
-        bound_log.warning("invalid_agent_wallet_skipping")
-        return ("invalid_wallet", None)
-
-    # Reconstruct ScoreResult-shaped object for submit (we only need the
-    # fields the on-chain payload uses).
-    from scoring.engine import ScoreBreakdown, ScoreResult
-    result = ScoreResult(
-        score                 = score_row["score"],
-        alert                 = score_row["alert"],
-        anomaly_flag          = score_row["anomaly_flag"],
-        breakdown             = ScoreBreakdown(
-            success_rate_score = score_row["success_rate_score"],
-            consistency_score  = score_row["consistency_score"],
-            stability_score    = score_row["stability_score"],
-            raw_score          = score_row["raw_score"],
-            guard_rail_applied = score_row["guard_rail_applied"],
-            consistency_ratio  = 0.0, stability_ratio = 0.0,
-        ),
-        window_success_rate   = float(score_row["window_success_rate"]),
-        window_tx_count       = score_row["window_tx_count"],
-        window_sol_volatility = score_row["window_sol_volatility"],
-        baseline_hash         = score_row["baseline_hash"],
-        baseline_algo_version = score_row["baseline_algo_version"],
-        scoring_algo_version  = score_row["scoring_algo_version"],
-        weights_version       = score_row["weights_version"],
-    )
-
-    bound_log = log.bind(agent=agent_wallet[:12] + "...")
-
-    for attempt in range(PER_AGENT_RETRY_LIMIT):
-        try:
-            sub_result = await submit_score_update(
-                rpc, program_id, oracle_kp, agent_wallet, result,
-            )
-            await score_repo.mark_score_onchain(conn, agent_wallet, sub_result.tx_signature)
-            bound_log.info(
-                "score_synced_onchain",
-                tx_sig=sub_result.tx_signature[:20] + "...",
-                slot=sub_result.slot,
-            )
-            return ("submitted", sub_result)
-
-        except TooFrequent:
-            # 23h cooldown is by design — silently skip until next pass
-            bound_log.debug("skipped_cooldown_active")
-            return ("too_frequent", None)
-
-        except DeltaTooLarge as e:
-            bound_log.error("guard_rail_triggered", error=str(e))
-            # Don't retry — investigation needed. Score stays unsynced.
-            return ("delta_too_large", None)
-
-        except Unauthorized:
-            bound_log.error("oracle_unauthorized")
-            # Halt this entire pass — config rotation needed
-            raise
-
-        except Paused:
-            bound_log.error("oracle_paused")
-            raise
-
-        except SubmissionError as e:
-            if "agent_deactivated" in str(e):
-                bound_log.warning("agent_deactivated_skipping")
-                return ("deactivated", None)
-            # Other unrecognised submission error — treat as transient
-            bound_log.warning("unknown_submission_error", error=str(e))
-
-        except TransientError as e:
-            if attempt + 1 < PER_AGENT_RETRY_LIMIT:
-                wait = PER_AGENT_RETRY_BACKOFF_SECONDS[attempt]
-                bound_log.warning(
-                    "submit_transient_failure_retrying",
-                    attempt=attempt + 1, wait_seconds=wait, error=str(e)[:100],
-                )
-                await asyncio.sleep(wait)
-            else:
-                bound_log.error(
-                    "submit_failed_giving_up",
-                    error=str(e)[:200], attempts=PER_AGENT_RETRY_LIMIT,
-                )
-                return ("transient_failed", None)
-
-    return ("transient_failed", None)
+    agent_wallet:          str
+    baseline_transactions: Sequence[Transaction]
+    current_transactions:  Sequence[Transaction]
+    baseline_window:       ExtractionWindow
+    current_window:        ExtractionWindow
+    security_context:      SecurityContext = field(default_factory=SecurityContext)
+    market_context:        MarketContext = NEUTRAL_MARKET
+    consistency_context:   ConsistencyContext = field(default_factory=ConsistencyContext)
+    # The agent's previous epoch score, if any — engages the delta guard rail.
+    previous_score:        int | None = None
 
 
 # =============================================================================
-# One epoch pass
+# Outputs
 # =============================================================================
 
-async def run_one_pass(rpc, program_id, oracle_kp) -> dict[str, int]:
-    """One pass through unsynced agents. Returns outcome counts."""
-    pool = await db.get_pool()
+@dataclass(frozen=True, slots=True)
+class AgentEpochResult:
+    """The outcome of scoring one agent: the V2 score + the submission record."""
+    agent_wallet:  str
+    score_result:  ScoreResult
+    submitted:     bool
+    submission:    object | None = None     # CommitResult, or a test stub, or None
+    error:         str = ""
 
-    counts: dict[str, int] = {k: 0 for k in OUTCOMES}
 
-    async with pool.acquire() as conn:
-        # First, ensure scores are computed (Day 6) for all agents that need it
-        await score_engine.score_all_due(conn)
+@dataclass(frozen=True, slots=True)
+class EpochReport:
+    """The outcome of a whole epoch run."""
+    epoch_id:        int
+    computed_at:     datetime
+    results:         tuple[AgentEpochResult, ...]
 
-        # Then find scores not yet on-chain
-        unsynced = await score_repo.find_unsynced_scores(conn)
+    @property
+    def agent_count(self) -> int:
+        return len(self.results)
 
-    if not unsynced:
-        log.info("epoch_pass_no_work")
-        return counts
+    @property
+    def submitted_count(self) -> int:
+        return sum(1 for r in self.results if r.submitted)
 
-    log.info("epoch_pass_starting", unsynced_count=len(unsynced))
+    @property
+    def error_count(self) -> int:
+        return sum(1 for r in self.results if r.error)
 
-    # Bound work per pass
-    targets = unsynced[:MAX_AGENTS_PER_PASS]
-
-    for agent in targets:
-        async with pool.acquire() as conn:
-            try:
-                outcome, _ = await submit_with_retry(
-                    rpc, program_id, oracle_kp, conn, agent,
-                )
-                counts[outcome] = counts.get(outcome, 0) + 1
-            except (Unauthorized, Paused) as e:
-                # These halt the pass — operator intervention needed
-                log.error("epoch_pass_halted", reason=type(e).__name__)
-                break
-
-    log.info("epoch_pass_complete", **counts)
-    return counts
+    def by_wallet(self, wallet: str) -> AgentEpochResult | None:
+        for r in self.results:
+            if r.agent_wallet == wallet:
+                return r
+        return None
 
 
 # =============================================================================
-# Main loop
+# The score-submission seam
 # =============================================================================
 
-async def setup() -> tuple[AsyncClient, Pubkey, "Keypair"]:
-    """Build the long-lived RPC client + program id handle."""
+# A submission function takes a wallet + its ScoreResult and returns a
+# submission record (anything truthy = submitted). The runner never calls
+# the chain directly — it goes through whatever submit_fn it is given.
+SubmitFn = Callable[[str, ScoreResult], object]
+
+
+def make_onchain_submitter(commit_config) -> SubmitFn:
+    """
+    Build the PRODUCTION submission function — the one that goes through
+    the existing on-chain `update_score` path.
+
+    `commit_config` is accepted for compatibility with the Day-3 baseline
+    commit path, but the score submitter reads the current runtime settings
+    used by `oracle.submit`: SOLANA_RPC_URL, HEALTH_ORACLE_PROGRAM_ID, and
+    ORACLE_KEYPAIR_PATH.
+    """
+    import asyncio
+
+    from solana.rpc.async_api import AsyncClient
+
+    from oracle.submit import derive_program_id, load_oracle_keypair, submit_score_update
+    from indexer.config import settings
+
+    program_id = derive_program_id()
     oracle_kp = load_oracle_keypair()
 
-    # Ensure oracle has SOL for cert rents + tx fees
-    rpc = AsyncClient(settings.solana_rpc_url, commitment="confirmed")
-    bal = await rpc.get_balance(oracle_kp.pubkey())
-    log.info("oracle_node_starting", pubkey=str(oracle_kp.pubkey()),
-             balance_sol=bal.value / 1_000_000_000 if bal.value else 0)
+    def _submit(wallet: str, score_result: ScoreResult) -> object:
+        async def _run():
+            async with AsyncClient(settings.solana_rpc_url, commitment="confirmed") as rpc:
+                return await submit_score_update(
+                    rpc, program_id, oracle_kp, wallet, score_result,
+                )
 
-    if (bal.value or 0) < 100_000_000:  # < 0.1 SOL
-        log.warning("oracle_low_balance",
-                    balance_lamports=bal.value,
-                    hint="Top up the oracle wallet or it can't pay tx fees")
+        return asyncio.run(_run())
 
-    program_id = Pubkey.from_string(settings.health_oracle_program_id)
-
-    return rpc, program_id, oracle_kp
+    return _submit
 
 
-async def loop_forever():
-    structlog.configure(
-        processors=[
-            structlog.processors.TimeStamper(fmt="iso", utc=True),
-            structlog.processors.add_log_level,
-            structlog.processors.JSONRenderer(),
-        ],
+# =============================================================================
+# The epoch runner
+# =============================================================================
+
+def score_agent(
+    agent_input: AgentEpochInput,
+    registry:    DetectorRegistry,
+    *,
+    computed_at: datetime,
+) -> ScoreResult:
+    """
+    Run the full V2 pipeline for ONE agent:
+        baseline txs   -> compute_baseline
+        current txs    -> extract features
+        (features, baseline, contexts) -> V2 detection engine -> ScoreResult
+
+    Pure + deterministic given its inputs. Does NOT submit — see run_epoch.
+    """
+    baseline = compute_baseline(
+        agent_input.agent_wallet,
+        list(agent_input.baseline_transactions),
+        agent_input.baseline_window,
+        computed_at=computed_at,
+    )
+    features = extract(
+        list(agent_input.current_transactions),
+        agent_input.current_window,
     )
 
-    await db.init_pool()
-    rpc, program_id, oracle_kp = await setup()
-
-    log.info("epoch_runner_starting", interval_s=EPOCH_INTERVAL_SECONDS)
-
-    try:
-        while True:
-            try:
-                await run_one_pass(rpc, program_id, oracle_kp)
-            except Exception as e:
-                log.error("epoch_iteration_failed", error=str(e))
-            await asyncio.sleep(EPOCH_INTERVAL_SECONDS)
-    finally:
-        await rpc.close()
-        await db.close_pool()
-
-
-async def run_once():
-    structlog.configure(
-        processors=[
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.dev.ConsoleRenderer(),
-        ],
+    # The stateful detectors need their contexts. The registry's default
+    # detectors are context-free; to honour per-agent context we build a
+    # per-agent registry overlaying the three stateful detectors.
+    agent_registry = _registry_with_contexts(
+        registry,
+        security_context=agent_input.security_context,
+        market_context=agent_input.market_context,
+        consistency_context=agent_input.consistency_context,
     )
 
-    await db.init_pool()
-    rpc, program_id, oracle_kp = await setup()
-
-    try:
-        counts = await run_one_pass(rpc, program_id, oracle_kp)
-        log.info("epoch_runner_one_shot_done", **counts)
-    finally:
-        await rpc.close()
-        await db.close_pool()
+    return run_detection_engine(
+        features,
+        baseline,
+        agent_registry,
+        previous_score=agent_input.previous_score,
+        computed_at=computed_at,
+    )
 
 
-def main() -> None:
-    p = argparse.ArgumentParser(description="Helixor epoch runner")
-    p.add_argument("--once", action="store_true",
-                   help="Run one pass and exit (default: run forever)")
-    args = p.parse_args()
+def run_epoch(
+    epoch_id:     int,
+    agent_inputs: Iterable[AgentEpochInput],
+    *,
+    submit_fn:    SubmitFn,
+    registry:     DetectorRegistry | None = None,
+    computed_at:  datetime | None = None,
+) -> EpochReport:
+    """
+    Run one scoring epoch over a set of agents.
 
-    try:
-        if args.once:
-            asyncio.run(run_once())
-        else:
-            asyncio.run(loop_forever())
-    except KeyboardInterrupt:
-        log.info("epoch_runner_stopped_by_user")
+    For each agent: run the V2 pipeline, then submit via `submit_fn`. A
+    failure scoring or submitting ONE agent is contained — it becomes an
+    error on that agent's result and the epoch continues.
+
+    `submit_fn` is the on-chain submission seam — see make_onchain_submitter
+    for production, or pass a recording stub in tests.
+
+    Deterministic given (agent_inputs, registry, computed_at) and a
+    deterministic submit_fn.
+    """
+    reg = registry if registry is not None else default_registry()
+    ts = computed_at or datetime.now(timezone.utc)
+
+    results: list[AgentEpochResult] = []
+    for agent_input in agent_inputs:
+        wallet = agent_input.agent_wallet
+        # ── Score ───────────────────────────────────────────────────────────
+        try:
+            score_result = score_agent(agent_input, reg, computed_at=ts)
+        except Exception as exc:                       # noqa: BLE001
+            logger.error("epoch %d: scoring failed for %s: %s",
+                         epoch_id, wallet, exc)
+            results.append(AgentEpochResult(
+                agent_wallet=wallet, score_result=None,    # type: ignore[arg-type]
+                submitted=False, error=f"scoring failed: {exc}",
+            ))
+            continue
+
+        # ── Submit ──────────────────────────────────────────────────────────
+        try:
+            submission = submit_fn(wallet, score_result)
+            results.append(AgentEpochResult(
+                agent_wallet=wallet, score_result=score_result,
+                submitted=bool(submission), submission=submission,
+            ))
+        except Exception as exc:                       # noqa: BLE001
+            logger.error("epoch %d: submission failed for %s: %s",
+                         epoch_id, wallet, exc)
+            results.append(AgentEpochResult(
+                agent_wallet=wallet, score_result=score_result,
+                submitted=False, error=f"submission failed: {exc}",
+            ))
+
+    return EpochReport(epoch_id=epoch_id, computed_at=ts, results=tuple(results))
 
 
-if __name__ == "__main__":
-    main()
+# =============================================================================
+# Per-agent registry overlay
+# =============================================================================
+
+def _registry_with_contexts(
+    base_registry:       DetectorRegistry,
+    *,
+    security_context:    SecurityContext,
+    market_context:      MarketContext,
+    consistency_context: ConsistencyContext,
+) -> DetectorRegistry:
+    """
+    Build a registry whose three STATEFUL detectors (security, performance,
+    consistency) carry this agent's contexts, while the two stateless ones
+    (drift, anomaly) are reused from the base registry unchanged.
+
+    This is how per-agent cohort / market / domain context reaches the
+    detectors without breaking the fixed `Detector.score(features, baseline)`
+    Protocol — the context is bound at detector construction.
+    """
+    from detection.consistency import ConsistencyDetector
+    from detection.performance import PerformanceDetector
+    from detection.registry import DetectorRegistry as _Registry
+    from detection.security import SecurityDetector
+    from detection.types import DimensionId
+
+    return _Registry({
+        DimensionId.DRIFT:       base_registry.get(DimensionId.DRIFT),
+        DimensionId.ANOMALY:     base_registry.get(DimensionId.ANOMALY),
+        DimensionId.SECURITY:    SecurityDetector(security_context),
+        DimensionId.PERFORMANCE: PerformanceDetector(market_context),
+        DimensionId.CONSISTENCY: ConsistencyDetector(consistency_context),
+    })

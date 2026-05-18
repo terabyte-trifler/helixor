@@ -113,6 +113,8 @@ class ScoreResult:
 
     # ── Provenance ─────────────────────────────────────────────────────────
     computed_at:                 datetime  # tz-aware UTC
+    window_success_rate:         float = 0.0
+    window_tx_count:             int = 0
 
     def __post_init__(self) -> None:
         # 1. Score range + type.
@@ -172,6 +174,15 @@ class ScoreResult:
         # 7. Timezone contract.
         if self.computed_at.tzinfo is None:
             raise ValueError("computed_at must be timezone-aware UTC")
+
+        if not isinstance(self.window_success_rate, float):
+            raise TypeError("window_success_rate must be float")
+        if not (0.0 <= self.window_success_rate <= 1.0):
+            raise ValueError("window_success_rate must be in [0, 1]")
+        if not isinstance(self.window_tx_count, int) or isinstance(self.window_tx_count, bool):
+            raise TypeError("window_tx_count must be int")
+        if self.window_tx_count < 0:
+            raise ValueError("window_tx_count must be non-negative")
 
         # 7b. Day-13 fields.
         if not isinstance(self.confidence, int) or isinstance(self.confidence, bool):
@@ -292,8 +303,17 @@ def compute_composite_score(
             current_entropy=features.seq_action_entropy,
             baseline_entropy=baseline.action_entropy,
         )
+        window_success_rate = features.success_rate_7d
+        if features.success_rate_7d > 0.0:
+            window_tx_count = int(round(features.success_count_7d / features.success_rate_7d))
+        elif features.success_count_7d > 0.0:
+            window_tx_count = int(round(features.success_count_7d))
+        else:
+            window_tx_count = int(round(max(features.failure_streak_current, features.failure_streak_max)))
     else:
         gaming = {"gaming_detected": False, "drop_fraction": 0.0, "abstained": True}
+        window_success_rate = 0.0
+        window_tx_count = 0
     gaming_detected      = bool(gaming["gaming_detected"])
     gaming_drop_fraction = float(gaming["drop_fraction"])
 
@@ -341,6 +361,8 @@ def compute_composite_score(
         baseline_stats_hash=baseline.stats_hash,
         detector_algo_versions=detector_versions,
         computed_at=computed_at or datetime.now(timezone.utc),
+        window_success_rate=float(max(0.0, min(1.0, window_success_rate))),
+        window_tx_count=max(0, window_tx_count),
     )
 
 

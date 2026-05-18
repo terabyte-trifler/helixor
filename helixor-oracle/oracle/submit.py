@@ -35,7 +35,7 @@ from solders.pubkey import Pubkey
 from solana.transaction import Transaction
 
 from indexer.config import settings
-from scoring.engine import ScoreResult
+from scoring import ScoreResult
 
 log = structlog.get_logger(__name__)
 
@@ -171,20 +171,18 @@ async def submit_score_update(
     cfg_pda    = derive_oracle_config()
 
     # ── Build payload ─────────────────────────────────────────────────────────
-    # The on-chain payload mirrors ScoreResult fields needed for the cert.
-    # baseline_hash_prefix = first 16 bytes of the hex-decoded full hash.
-    full_hash_bytes = bytes.fromhex(result.baseline_hash)
-    baseline_prefix = full_hash_bytes[:16]   # 16 bytes
+    # The on-chain payload mirrors the fields the TrustCertificate stores.
+    payload_fields = score_result_to_update_payload(result)
 
     payload = struct.pack(
         "<HHI?16sBB",
-        result.score,
-        int(round(result.window_success_rate * 10_000)),
-        result.window_tx_count,
-        result.anomaly_flag,
-        baseline_prefix,
-        result.scoring_algo_version,
-        result.weights_version,
+        payload_fields["score"],
+        payload_fields["success_rate_bps"],
+        payload_fields["tx_count_7d"],
+        payload_fields["anomaly_flag"],
+        payload_fields["baseline_hash_prefix"],
+        payload_fields["scoring_algo_version"],
+        payload_fields["weights_version"],
     )
 
     instruction = Instruction(
@@ -258,6 +256,47 @@ async def submit_score_update(
         slot=slot,
         cert_pda=str(cert_pda),
     )
+
+
+def score_result_to_update_payload(result: ScoreResult) -> dict:
+    """
+    Convert a V2 composite ScoreResult into the on-chain ScorePayload fields.
+
+    The V2 composite no longer carries the old MVP `window_*` fields. It does
+    carry the current FeatureVector-derived metrics when `features` was
+    supplied to the composite scorer, which the epoch runner does. If an older
+    result lacks those optional fields, this helper falls back to conservative
+    zeroes for the telemetry-only certificate fields while preserving the
+    trust-critical fields: score, baseline hash, algorithm version, weights
+    version, and anomaly/security flags.
+    """
+    baseline_hash = getattr(result, "baseline_stats_hash", None) or getattr(
+        result, "baseline_hash", "",
+    )
+    full_hash_bytes = bytes.fromhex(baseline_hash)
+    success_rate = float(getattr(result, "window_success_rate", 0.0))
+    success_rate_bps = int(round(max(0.0, min(1.0, success_rate)) * 10_000))
+    tx_count_7d = int(max(0, min(0xFFFFFFFF, int(getattr(result, "window_tx_count", 0)))))
+
+    anomaly_flag = bool(getattr(result, "anomaly_flag", False))
+    if not anomaly_flag and hasattr(result, "dimension_results"):
+        try:
+            from detection.types import DimensionId, FlagBit
+
+            anomaly = result.dimension_results[DimensionId.ANOMALY]
+            anomaly_flag = bool(anomaly.flags) or result.has_flag(FlagBit.IMMEDIATE_RED)
+        except Exception:
+            anomaly_flag = False
+
+    return {
+        "score": int(result.score),
+        "success_rate_bps": success_rate_bps,
+        "tx_count_7d": tx_count_7d,
+        "anomaly_flag": anomaly_flag,
+        "baseline_hash_prefix": full_hash_bytes[:16],
+        "scoring_algo_version": int(result.scoring_algo_version),
+        "weights_version": int(getattr(result, "scoring_weights_version", 0)),
+    }
 
 
 # =============================================================================

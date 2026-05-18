@@ -51,4 +51,21 @@ __all__ = [
     "COMMIT_BASELINE_DISCRIMINATOR",
     "MIGRATE_REGISTRATION_DISCRIMINATOR",
     "AGENT_REGISTRATION_DISCRIMINATOR",
+    # Day-14 epoch pipeline
+    "run_epoch",
+    "score_agent",
+    "AgentEpochInput",
+    "AgentEpochResult",
+    "EpochReport",
+    "make_onchain_submitter",
 ]
+
+# Day-14 — the epoch runner: V2 detection engine + on-chain submission.
+from oracle.epoch_runner import (  # noqa: E402
+    AgentEpochInput,
+    AgentEpochResult,
+    EpochReport,
+    make_onchain_submitter,
+    run_epoch,
+    score_agent,
+)
