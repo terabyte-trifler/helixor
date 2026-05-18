@@ -194,7 +194,7 @@ async def insert_transactions_batch(
                 agent_wallet, tx_signature, slot, block_time, success,
                 program_ids, sol_change, fee, raw_meta, $2
             FROM input
-            ON CONFLICT (tx_signature) DO NOTHING
+            ON CONFLICT (signature, block_time) DO NOTHING
             RETURNING 1
         )
         SELECT COUNT(*)::int FROM inserted
