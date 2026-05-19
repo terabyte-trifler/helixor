@@ -10,11 +10,13 @@ skip-lint = false
 health_oracle = "Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P"
 consumer_example = "94Gg1gnTZex9mFAJZHB3kLbTiJYYEcRvGTgkArftHJmu"
 certificate_issuer = "3ViKj3cYMo76HwnLYAnbM5BDuMPxmKuKhotXhfPq94gW"
+slash_authority = "2pGoLLvs3XegXDXm7HAZTrFoJZV9dPnNTU1PDEdcUhsN"
 
 [programs.devnet]
 health_oracle = "Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P"
 consumer_example = "94Gg1gnTZex9mFAJZHB3kLbTiJYYEcRvGTgkArftHJmu"
 certificate_issuer = "3ViKj3cYMo76HwnLYAnbM5BDuMPxmKuKhotXhfPq94gW"
+slash_authority = "2pGoLLvs3XegXDXm7HAZTrFoJZV9dPnNTU1PDEdcUhsN"
 
 [registry]
 url = "https://api.apr.dev"

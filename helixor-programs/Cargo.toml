@@ -1,5 +1,9 @@
 [workspace]
-members  = ["programs/health-oracle", "programs/certificate-issuer"]
+members  = [
+    "programs/health-oracle",
+    "programs/certificate-issuer",
+    "programs/slash-authority",
+]
 exclude  = ["programs/consumer-example"]
 resolver = "2"
 
