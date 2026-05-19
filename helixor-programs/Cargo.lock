@@ -560,6 +560,7 @@ name = "health-oracle"
 version = "0.7.0"
 dependencies = [
  "anchor-lang",
+ "certificate-issuer",
 ]
 
 [[package]]

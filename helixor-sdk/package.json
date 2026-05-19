@@ -22,6 +22,9 @@
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.0"
+  },
   "keywords": ["solana", "helixor", "trust-score", "ai-agents", "defi"],
   "engines":  { "node": ">=18" },
   "devDependencies": {

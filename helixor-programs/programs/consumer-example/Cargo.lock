@@ -400,6 +400,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "certificate-issuer"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -561,6 +568,7 @@ name = "health-oracle"
 version = "0.7.0"
 dependencies = [
  "anchor-lang",
+ "certificate-issuer",
 ]
 
 [[package]]

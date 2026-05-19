@@ -14,6 +14,7 @@ import { PublicKey, Keypair, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web
 import { assert } from "chai";
 
 const program = anchor.workspace.CertificateIssuer as anchor.Program<any>;
+const SHARED_ISSUER = Keypair.fromSeed(Buffer.alloc(32, 19));
 
 function issuerConfigPda(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
@@ -60,7 +61,7 @@ describe("Day 18 certificate-issuer", () => {
   anchor.setProvider(provider);
   const conn = provider.connection;
 
-  const issuer = Keypair.generate();
+  const issuer = SHARED_ISSUER;
   const agent = Keypair.generate();
   const baselineHash = Array.from(Buffer.alloc(32, 7));
 

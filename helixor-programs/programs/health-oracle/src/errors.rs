@@ -69,4 +69,12 @@ pub enum HelixorError {
     ZeroAlgoVersion,
     #[msg("registration is already at the current layout version")]
     AlreadyMigrated,
+
+    // Day 19 epoch certificates 6028-6030
+    #[msg("agent baseline has not been committed")]
+    BaselineNotCommitted,
+    #[msg("submitted epoch does not match the current on-chain epoch")]
+    EpochMismatch,
+    #[msg("epoch duration has not elapsed yet")]
+    EpochNotElapsed,
 }

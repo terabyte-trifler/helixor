@@ -42,3 +42,22 @@ pub struct RegistrationMigrated {
     pub to_version: u8,
     pub migrated_at: i64,
 }
+
+#[event]
+pub struct EpochAdvanced {
+    pub from_epoch: u64,
+    pub to_epoch: u64,
+    pub advanced_at: i64,
+}
+
+#[event]
+pub struct ScoreSubmitted {
+    pub agent_wallet: Pubkey,
+    pub epoch: u64,
+    pub score: u16,
+    pub alert_tier: u8,
+    pub flags: u32,
+    pub immediate_red: bool,
+    pub oracle: Pubkey,
+    pub submitted_at: i64,
+}

@@ -93,6 +93,27 @@ impl OracleConfig {
     pub const INIT_SPACE: usize = 74;
 }
 
+#[account]
+pub struct EpochState {
+    pub current_epoch: u64,
+    pub last_advanced_at: i64,
+    pub epoch_duration_seconds: i64,
+    pub advance_authority: Pubkey,
+    pub bump: u8,
+    pub _reserved: [u8; 32],
+}
+
+impl EpochState {
+    pub const FIRST_EPOCH: u64 = 1;
+    pub const DEFAULT_DURATION_SECONDS: i64 = 86_400;
+    pub const SPACE: usize = 8 + 8 + 8 + 8 + 32 + 1 + 32;
+    pub const SEED: &'static [u8] = b"epoch_state";
+
+    pub fn may_advance(&self, now: i64) -> bool {
+        now - self.last_advanced_at >= self.epoch_duration_seconds
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AlertLevel — repr(u8) stable byte encoding
 // ─────────────────────────────────────────────────────────────────────────────

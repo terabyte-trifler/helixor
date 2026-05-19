@@ -5,6 +5,8 @@
 // changes only. New fields go at the bottom; never remove or rename.
 // =============================================================================
 
+import type { PublicKey } from "@solana/web3.js";
+
 /** Tri-state alert derived from the score. */
 export type AlertLevel = "GREEN" | "YELLOW" | "RED";
 
@@ -90,4 +92,41 @@ export interface RequireMinScoreOptions {
 
   /** If true, accept provisional (no score yet). Default false. */
   allowProvisional?: boolean;
+}
+
+export enum AlertTier {
+  Green = "GREEN",
+  Yellow = "YELLOW",
+  Red = "RED",
+}
+
+export function alertTierFromCode(code: number): AlertTier {
+  switch (code) {
+    case 0:
+      return AlertTier.Green;
+    case 1:
+      return AlertTier.Yellow;
+    case 2:
+      return AlertTier.Red;
+    default:
+      throw new Error(`invalid alert tier code: ${code}`);
+  }
+}
+
+export interface HealthScore {
+  agent: PublicKey;
+  score: number;
+  alert: AlertTier;
+  flags: number;
+  issuedAt: number;
+}
+
+export interface EpochScore extends HealthScore {
+  epoch: number;
+  immediateRed: boolean;
+}
+
+export interface HelixorProgramIds {
+  healthOracle: PublicKey;
+  certificateIssuer: PublicKey;
 }

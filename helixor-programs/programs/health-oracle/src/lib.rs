@@ -18,10 +18,20 @@ pub mod events;
 pub mod instructions;
 pub mod state;
 
-pub use instructions::CommitBaselineArgs;
+use instructions::advance_epoch::__client_accounts_advance_epoch;
+#[cfg(feature = "cpi")]
+use instructions::advance_epoch::__cpi_client_accounts_advance_epoch;
+use instructions::initialize_epoch::__client_accounts_initialize_epoch;
+#[cfg(feature = "cpi")]
+use instructions::initialize_epoch::__cpi_client_accounts_initialize_epoch;
+use instructions::submit_score::__client_accounts_submit_score;
+#[cfg(feature = "cpi")]
+use instructions::submit_score::__cpi_client_accounts_submit_score;
+pub use instructions::{AdvanceEpoch, CommitBaselineArgs, InitializeEpoch, SubmitScore};
 pub use state::{
-    AgentRegistration, AlertLevel, InitOracleConfigParams, OracleConfig, RegisterParams,
-    ScorePayload, ScoreSource, TrustCertificate, TrustScore, UpdateOracleConfigParams,
+    AgentRegistration, AlertLevel, EpochState, InitOracleConfigParams, OracleConfig,
+    RegisterParams, ScorePayload, ScoreSource, TrustCertificate, TrustScore,
+    UpdateOracleConfigParams,
 };
 
 declare_id!("Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P");
@@ -72,6 +82,28 @@ pub mod health_oracle {
     /// Owner-only; pays the additional rent for the larger account.
     pub fn migrate_registration(ctx: Context<MigrateRegistration>) -> Result<()> {
         instructions::migrate_registration::handler(ctx)
+    }
+
+    pub fn initialize_epoch(
+        ctx: Context<InitializeEpoch>,
+        epoch_duration_seconds: i64,
+    ) -> Result<()> {
+        instructions::initialize_epoch::handler(ctx, epoch_duration_seconds)
+    }
+
+    pub fn advance_epoch(ctx: Context<AdvanceEpoch>) -> Result<()> {
+        instructions::advance_epoch::handler(ctx)
+    }
+
+    pub fn submit_score(
+        ctx: Context<SubmitScore>,
+        epoch: u64,
+        score: u16,
+        alert_tier: u8,
+        flags: u32,
+        immediate_red: bool,
+    ) -> Result<()> {
+        instructions::submit_score::handler(ctx, epoch, score, alert_tier, flags, immediate_red)
     }
 }
 
