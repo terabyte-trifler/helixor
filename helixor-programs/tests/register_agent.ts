@@ -5,11 +5,10 @@
 // =============================================================================
 
 import * as anchor from "@coral-xyz/anchor";
-import { Program, web3 } from "@coral-xyz/anchor";
 import { PublicKey, Keypair, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { assert } from "chai";
 
-const program = anchor.workspace.HealthOracle as Program<any>;
+const program = anchor.workspace.HealthOracle as anchor.Program<any>;
 
 function agentPda(w: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("agent"), w.toBuffer()], program.programId);
@@ -17,7 +16,7 @@ function agentPda(w: PublicKey): [PublicKey, number] {
 function escrowPda(w: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("escrow"), w.toBuffer()], program.programId);
 }
-async function airdrop(conn: web3.Connection, pk: PublicKey, sol = 1) {
+async function airdrop(conn: anchor.web3.Connection, pk: PublicKey, sol = 1) {
   const sig = await conn.requestAirdrop(pk, sol * LAMPORTS_PER_SOL);
   const bh  = await conn.getLatestBlockhash();
   await conn.confirmTransaction({ signature: sig, ...bh }, "confirmed");

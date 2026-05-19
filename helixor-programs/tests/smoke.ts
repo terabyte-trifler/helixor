@@ -40,13 +40,13 @@ describe("Smoke tests", () => {
 
   it("AgentRegistered + HealthQueried events in IDL", () => {
     const events = program.idl.events?.map((e: any) => e.name) ?? [];
-    assert.include(events, "AgentRegistered");
-    assert.include(events, "HealthQueried");
+    assert.include(events, "agentRegistered");
+    assert.include(events, "healthQueried");
   });
 
   it("Day 3 errors registered", () => {
     const names = program.idl.errors?.map((e: any) => e.name) ?? [];
-    assert.include(names, "InvalidCertificateAddress");
+    assert.include(names, "invalidCertificateAddress");
   });
 
   it("PDA seeds derive deterministically", () => {
