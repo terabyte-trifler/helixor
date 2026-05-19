@@ -21,6 +21,9 @@ pydantic==2.9.2
 pydantic-settings==2.5.2
 python-dotenv==1.0.1
 
+# Oracle node identity / Ed25519 signing
+cryptography==42.0.8
+
 # Structured logging
 structlog==24.4.0
 
