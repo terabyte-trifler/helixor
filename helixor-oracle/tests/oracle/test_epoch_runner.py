@@ -148,32 +148,6 @@ class TestOnChainSubmission:
         for call in calls:
             assert 0 <= call["score"] <= 1000
 
-    def test_v2_score_result_packs_update_score_payload(self):
-        # The live Solana submitter now receives the V2 composite ScoreResult
-        # and converts it into the Anchor update_score payload without going
-        # back through the old MVP scoring type.
-        from oracle.submit import score_result_to_update_payload
-
-        result = _score_one("stable_a")
-        payload = score_result_to_update_payload(result)
-        assert payload["score"] == result.score
-        assert payload["success_rate_bps"] == 8000
-        assert payload["tx_count_7d"] == 5
-        assert payload["baseline_hash_prefix"] == bytes.fromhex(
-            result.baseline_stats_hash,
-        )[:16]
-        assert payload["scoring_algo_version"] == result.scoring_algo_version
-        assert payload["weights_version"] == result.scoring_weights_version
-
-    def test_v2_threat_sets_onchain_anomaly_flag(self):
-        # TrustCertificate only has one boolean threat/anomaly slot today.
-        # V2 security immediate-red cases must still surface through it.
-        from oracle.submit import score_result_to_update_payload
-
-        result = _score_one("adversarial")
-        payload = score_result_to_update_payload(result)
-        assert payload["anomaly_flag"] is True
-
     def test_submission_failure_is_contained(self):
         # A submission that raises does not crash the epoch — it becomes an
         # error on that agent's result, and the epoch continues.

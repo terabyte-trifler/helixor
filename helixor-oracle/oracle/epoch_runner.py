@@ -40,6 +40,13 @@ from detection.performance_context import MarketContext, NEUTRAL_MARKET
 from detection.security_context import SecurityContext
 from features import ExtractionWindow, Transaction, extract
 from scoring import ScoreResult
+from slashing import (
+    ConsensusPolicy,
+    SingleNodeConsensus,
+    SlashDecision,
+    evaluate_slash,
+    verdict_from_score,
+)
 
 logger = logging.getLogger("helixor.epoch_runner")
 
@@ -82,6 +89,14 @@ class AgentEpochResult:
     submitted:     bool
     submission:    object | None = None     # CommitResult, or a test stub, or None
     error:         str = ""
+    # ── Day 22: the slash-evaluation outcome ────────────────────────────────
+    # The tiered slash decision for this agent. None only if scoring failed
+    # (no ScoreResult to evaluate).
+    slash_decision: SlashDecision | None = None
+    # True if this agent was slashed on-chain this epoch.
+    slashed:        bool = False
+    # The slash submission record (a SlashResult, a test stub, or None).
+    slash_submission: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +118,11 @@ class EpochReport:
     def error_count(self) -> int:
         return sum(1 for r in self.results if r.error)
 
+    @property
+    def slashed_count(self) -> int:
+        """How many agents were slashed on-chain this epoch."""
+        return sum(1 for r in self.results if r.slashed)
+
     def by_wallet(self, wallet: str) -> AgentEpochResult | None:
         for r in self.results:
             if r.agent_wallet == wallet:
@@ -118,6 +138,15 @@ class EpochReport:
 # submission record (anything truthy = submitted). The runner never calls
 # the chain directly — it goes through whatever submit_fn it is given.
 SubmitFn = Callable[[str, ScoreResult], object]
+
+
+# A slash function takes a wallet + the SlashDecision and executes the slash
+# on-chain (via the slash-authority execute_slash instruction), returning a
+# slash record (anything truthy = slashed). Like SubmitFn it is INJECTED:
+# production wires the real on-chain path, tests pass a recording stub. The
+# runner only calls slash_fn when a SlashDecision says should_slash — so a
+# non-slashing epoch never touches it.
+SlashFn = Callable[[str, SlashDecision], object]
 
 
 def make_onchain_submitter(commit_config) -> SubmitFn:
@@ -205,29 +234,52 @@ def run_epoch(
     agent_inputs: Iterable[AgentEpochInput],
     *,
     submit_fn:    SubmitFn,
+    slash_fn:     SlashFn | None = None,
+    consensus:    ConsensusPolicy | None = None,
+    node_id:      str = "oracle-node-0",
     registry:     DetectorRegistry | None = None,
     computed_at:  datetime | None = None,
 ) -> EpochReport:
     """
     Run one scoring epoch over a set of agents.
 
-    For each agent: run the V2 pipeline, then submit via `submit_fn`. A
-    failure scoring or submitting ONE agent is contained — it becomes an
-    error on that agent's result and the epoch continues.
+    Per agent the pipeline is now THREE steps:
+        1. SCORE   — run the V2 detection engine -> ScoreResult.
+        2. SUBMIT  — submit the score via `submit_fn`.
+        3. SLASH   — evaluate the tiered slash decision; if it says
+                     should_slash, execute the slash via `slash_fn`.
 
-    `submit_fn` is the on-chain submission seam — see make_onchain_submitter
-    for production, or pass a recording stub in tests.
+    The slash step (Day 22) connects detection to the slash-authority
+    program. It is CONSERVATIVE: a merely-degrading agent (a low score with
+    no confirmed security compromise) is NOT slashed — the low score is the
+    consequence. Only a security-dimension IMMEDIATE_RED that the oracle
+    cluster CONFIRMS triggers a slash. See slashing/evaluator.py.
 
-    Deterministic given (agent_inputs, registry, computed_at) and a
-    deterministic submit_fn.
+    `slash_fn` is the on-chain execute_slash seam — like `submit_fn`, it is
+    injected (production wires the real instruction; tests pass a recording
+    stub). If `slash_fn` is None the runner still EVALUATES the slash
+    decision (it appears on each result) but does not execute — useful for
+    a dry run.
+
+    `consensus` is the ConsensusPolicy that decides whether a security
+    flag is cluster-confirmed; it defaults to SingleNodeConsensus (today's
+    single-node deployment). `node_id` labels this node's verdict.
+
+    A failure in ANY step for one agent is contained — it becomes an error
+    on that agent's result and the epoch continues.
+
+    Deterministic given (agent_inputs, registry, consensus, computed_at)
+    and deterministic submit_fn / slash_fn.
     """
     reg = registry if registry is not None else default_registry()
     ts = computed_at or datetime.now(timezone.utc)
+    consensus_policy = consensus if consensus is not None else SingleNodeConsensus()
 
     results: list[AgentEpochResult] = []
     for agent_input in agent_inputs:
         wallet = agent_input.agent_wallet
-        # ── Score ───────────────────────────────────────────────────────────
+
+        # ── 1. Score ────────────────────────────────────────────────────────
         try:
             score_result = score_agent(agent_input, reg, computed_at=ts)
         except Exception as exc:                       # noqa: BLE001
@@ -239,13 +291,9 @@ def run_epoch(
             ))
             continue
 
-        # ── Submit ──────────────────────────────────────────────────────────
+        # ── 2. Submit ───────────────────────────────────────────────────────
         try:
             submission = submit_fn(wallet, score_result)
-            results.append(AgentEpochResult(
-                agent_wallet=wallet, score_result=score_result,
-                submitted=bool(submission), submission=submission,
-            ))
         except Exception as exc:                       # noqa: BLE001
             logger.error("epoch %d: submission failed for %s: %s",
                          epoch_id, wallet, exc)
@@ -253,6 +301,56 @@ def run_epoch(
                 agent_wallet=wallet, score_result=score_result,
                 submitted=False, error=f"submission failed: {exc}",
             ))
+            continue
+
+        # ── 3. Slash evaluation ─────────────────────────────────────────────
+        # Derive this node's verdict, run it through the consensus policy,
+        # then make the tiered slash decision. The decision is always
+        # computed (and recorded); whether it is ACTED ON depends on
+        # should_slash and on slash_fn being provided.
+        try:
+            verdict = verdict_from_score(node_id, score_result)
+            consensus_result = consensus_policy.evaluate([verdict])
+            decision = evaluate_slash(
+                score_result, consensus_result, agent_wallet=wallet,
+            )
+        except Exception as exc:                       # noqa: BLE001
+            logger.error("epoch %d: slash evaluation failed for %s: %s",
+                         epoch_id, wallet, exc)
+            results.append(AgentEpochResult(
+                agent_wallet=wallet, score_result=score_result,
+                submitted=bool(submission), submission=submission,
+                error=f"slash evaluation failed: {exc}",
+            ))
+            continue
+
+        # ── 3b. Execute the slash, if the decision says so ──────────────────
+        slashed = False
+        slash_submission: object | None = None
+        slash_error = ""
+        if decision.should_slash and slash_fn is not None:
+            try:
+                slash_submission = slash_fn(wallet, decision)
+                slashed = bool(slash_submission)
+                logger.info("epoch %d: slashed %s — %s",
+                            epoch_id, wallet, decision.reason)
+            except Exception as exc:                   # noqa: BLE001
+                logger.error("epoch %d: slash execution failed for %s: %s",
+                             epoch_id, wallet, exc)
+                slash_error = f"slash execution failed: {exc}"
+        elif decision.should_slash:
+            # A slash was warranted but no slash_fn was given — dry run.
+            logger.info("epoch %d: slash WARRANTED for %s (no slash_fn — "
+                        "not executed): %s", epoch_id, wallet, decision.reason)
+
+        results.append(AgentEpochResult(
+            agent_wallet=wallet, score_result=score_result,
+            submitted=bool(submission), submission=submission,
+            error=slash_error,
+            slash_decision=decision,
+            slashed=slashed,
+            slash_submission=slash_submission,
+        ))
 
     return EpochReport(epoch_id=epoch_id, computed_at=ts, results=tuple(results))
 
