@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from oracle.cluster.aggregation import (
     AggregatedScore,
-    ConsensusNotMet,
     NodeScore,
     QuorumNotMet,
     aggregate_scores,
@@ -31,6 +30,26 @@ from oracle.cluster.cluster_runner import (
     ClusterEpochRunner,
     ClusterSubmitFn,
     simulate_cluster_epoch,
+)
+from oracle.cluster.commit_reveal import (
+    NONCE_BYTES,
+    canonical_scores,
+    compute_commit_hash,
+    new_nonce,
+    verify_reveal,
+)
+from oracle.cluster.commit_reveal_round import (
+    CommitRecord,
+    CommitRejected,
+    CommitRevealRound,
+    RevealRecord,
+    RevealRejected,
+    RoundPhase,
+)
+from oracle.cluster.commit_reveal_runner import (
+    CommitRevealAgentResult,
+    CommitRevealEpochReport,
+    simulate_commit_reveal_epoch,
 )
 from oracle.cluster.identity import (
     NodeIdentity,
@@ -64,8 +83,14 @@ __all__ = [
     "GetScoresRequest", "GetScoresResponse",
     "ClusterService", "ClusterTransport",
     "InProcessRegistry", "InProcessTransport", "PeerUnreachable",
-    "AggregatedScore", "NodeScore", "QuorumNotMet", "ConsensusNotMet",
+    "AggregatedScore", "NodeScore", "QuorumNotMet",
     "aggregate_scores", "quorum_for",
     "ClusterEpochRunner", "ClusterEpochReport", "ClusterAgentResult",
     "ClusterSubmitFn", "simulate_cluster_epoch",
+    "NONCE_BYTES", "canonical_scores", "compute_commit_hash",
+    "new_nonce", "verify_reveal",
+    "CommitRevealRound", "RoundPhase", "CommitRecord", "RevealRecord",
+    "CommitRejected", "RevealRejected",
+    "CommitRevealEpochReport", "CommitRevealAgentResult",
+    "simulate_commit_reveal_epoch",
 ]

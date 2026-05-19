@@ -29,16 +29,15 @@ ON CONFLICT (version) DO NOTHING;
 
 
 -- ── 0. The TimescaleDB extension ─────────────────────────────────────────────
--- Production uses the TimescaleDB image. Local testcontainers use plain
--- postgres:16-alpine, where the extension is not installed. Treat Timescale as
--- an acceleration layer: enable it when available, keep the schema valid when
--- it is not.
+-- Production runs on TimescaleDB. Local CI often runs plain PostgreSQL, so the
+-- migration degrades gracefully: hypertables / continuous aggregates are used
+-- when available, and plain tables / materialized views otherwise.
 DO $$
 BEGIN
     CREATE EXTENSION IF NOT EXISTS timescaledb;
 EXCEPTION
     WHEN feature_not_supported OR undefined_file THEN
-        RAISE NOTICE 'TimescaleDB extension unavailable; continuing with plain PostgreSQL indexes/views';
+        RAISE NOTICE 'TimescaleDB extension unavailable; using plain PostgreSQL fallback';
 END $$;
 
 
@@ -69,10 +68,11 @@ CREATE TABLE IF NOT EXISTS agent_transactions (
     PRIMARY KEY (signature, block_time)
 );
 
--- The MVP table already exists as (tx_signature, raw_meta, source, ...).
--- Add the v2 feature-extractor columns in-place and keep both signature names
--- for compatibility while old webhook code is still writing tx_signature.
+-- Legacy webhook ingestion created this table before Day 15 with
+-- `tx_signature` as the unique key. Upgrade it in place for the V2 extractor
+-- shape instead of assuming CREATE TABLE populated the new columns.
 ALTER TABLE agent_transactions
+    ADD COLUMN IF NOT EXISTS tx_signature  TEXT,
     ADD COLUMN IF NOT EXISTS signature     TEXT,
     ADD COLUMN IF NOT EXISTS priority_fee  BIGINT NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS compute_units BIGINT NOT NULL DEFAULT 0,
@@ -82,7 +82,8 @@ DO $$
 BEGIN
     IF EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'agent_transactions' AND column_name = 'tx_signature'
+        WHERE table_name = 'agent_transactions'
+          AND column_name = 'tx_signature'
     ) THEN
         EXECUTE 'UPDATE agent_transactions
                  SET signature = COALESCE(signature, tx_signature)
@@ -164,21 +165,22 @@ END $$;
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
-        EXECUTE '
+        EXECUTE $sql$
             CREATE MATERIALIZED VIEW IF NOT EXISTS agent_tx_daily
             WITH (timescaledb.continuous) AS
             SELECT
                 agent_wallet,
-                time_bucket(INTERVAL ''1 day'', block_time) AS day,
-                count(*) AS tx_count,
-                count(*) FILTER (WHERE success) AS success_count,
-                avg(CASE WHEN success THEN 1.0 ELSE 0.0 END) AS success_rate,
-                sum(sol_change) AS net_sol_change,
-                sum(fee + priority_fee) AS total_fees,
-                count(DISTINCT counterparty) AS distinct_counterparties
+                time_bucket(INTERVAL '1 day', block_time)        AS day,
+                count(*)                                          AS tx_count,
+                count(*) FILTER (WHERE success)                   AS success_count,
+                avg(CASE WHEN success THEN 1.0 ELSE 0.0 END)      AS success_rate,
+                sum(sol_change)                                   AS net_sol_change,
+                sum(fee + priority_fee)                           AS total_fees,
+                count(DISTINCT counterparty)                      AS distinct_counterparties
             FROM agent_transactions
             GROUP BY agent_wallet, day
-            WITH NO DATA';
+            WITH NO DATA
+        $sql$;
 
         PERFORM add_continuous_aggregate_policy(
             'agent_tx_daily',
@@ -188,20 +190,21 @@ BEGIN
             if_not_exists     => TRUE
         );
     ELSE
-        EXECUTE '
+        EXECUTE $sql$
             CREATE MATERIALIZED VIEW IF NOT EXISTS agent_tx_daily AS
             SELECT
                 agent_wallet,
-                date_trunc(''day'', block_time) AS day,
-                count(*) AS tx_count,
-                count(*) FILTER (WHERE success) AS success_count,
-                avg(CASE WHEN success THEN 1.0 ELSE 0.0 END) AS success_rate,
-                sum(sol_change) AS net_sol_change,
-                sum(fee + priority_fee) AS total_fees,
-                count(DISTINCT counterparty) AS distinct_counterparties
+                date_trunc('day', block_time)                     AS day,
+                count(*)                                          AS tx_count,
+                count(*) FILTER (WHERE success)                   AS success_count,
+                avg(CASE WHEN success THEN 1.0 ELSE 0.0 END)      AS success_rate,
+                sum(sol_change)                                   AS net_sol_change,
+                sum(fee + priority_fee)                           AS total_fees,
+                count(DISTINCT counterparty)                      AS distinct_counterparties
             FROM agent_transactions
-            GROUP BY agent_wallet, date_trunc(''day'', block_time)
-            WITH NO DATA';
+            GROUP BY agent_wallet, date_trunc('day', block_time)
+            WITH NO DATA
+        $sql$;
     END IF;
 END $$;
 

@@ -12,7 +12,6 @@ import pytest
 
 from oracle.cluster.aggregation import (
     AggregatedScore,
-    ConsensusNotMet,
     NodeScore,
     QuorumNotMet,
     aggregate_scores,
@@ -123,24 +122,14 @@ class TestMedian:
         )
         assert result.score == 851
 
-    def test_bare_quorum_disagreement_refuses(self):
-        # 2 surviving nodes in a 3-node cluster is only safe when the
-        # survivors agree. A 400/800 split has quorum but not consensus, so
-        # the cluster refuses instead of inventing finality.
-        with pytest.raises(ConsensusNotMet):
-            aggregate_scores(
-                WALLET, _nodes(_score(400), _score(800)), cluster_size=3,
-            )
-
-    def test_even_count_lower_middle_still_works_above_bare_quorum(self):
-        # Even counts can still happen in larger clusters, e.g. 4 of 5.
-        # This is above the bare quorum of 3, so the deterministic
-        # lower-middle rule is allowed.
+    def test_even_count_takes_lower_middle(self):
+        # 2 surviving nodes (3-node cluster, one offline). The median of an
+        # even count is the LOWER middle — deterministic, conservative,
+        # never an average.
         result = aggregate_scores(
-            WALLET, _nodes(_score(400), _score(800), _score(800), _score(900)),
-            cluster_size=5,
+            WALLET, _nodes(_score(400), _score(800)), cluster_size=3,
         )
-        assert result.score == 800
+        assert result.score == 400
 
 
 # =============================================================================

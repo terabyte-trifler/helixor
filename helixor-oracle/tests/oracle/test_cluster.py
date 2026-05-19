@@ -303,23 +303,24 @@ class TestServingSurface:
         assert response.nonce == 42
         assert response.current_epoch == 7
 
-    def test_commit_handler_is_an_honest_stub(self):
-        # Day 23 exposes the handler but not the protocol — it must REJECT
-        # honestly, not silently accept a commit it cannot process.
+    def test_commit_handler_rejects_when_no_round_is_open(self):
+        # Day 25 implements commit-reveal. With no round open for the epoch,
+        # the commit handler rejects with a clear reason (rather than
+        # accepting a commit it has nowhere to record).
         node = OracleNode.single(NodeKeypair.from_seed("node-0", b"seed"))
         response = node.commit(CommitRequest(
             node_id="peer", epoch=1, commit_hash=b"\x00" * 32,
         ))
         assert response.accepted is False
-        assert "Days 24-28" in response.reason
+        assert "no open round" in response.reason
 
-    def test_reveal_handler_is_an_honest_stub(self):
+    def test_reveal_handler_rejects_when_no_round_is_open(self):
         node = OracleNode.single(NodeKeypair.from_seed("node-0", b"seed"))
         response = node.reveal(RevealRequest(
-            node_id="peer", epoch=1, scores=(), salt=b"salt",
+            node_id="peer", epoch=1, scores=(), salt=b"\x00" * 32,
         ))
         assert response.verified is False
-        assert "Days 24-28" in response.reason
+        assert "no open round" in response.reason
 
     def test_ping_nonce_mismatch_is_caught(self):
         # A peer that echoes the wrong nonce (stale/replayed) is rejected.

@@ -41,12 +41,12 @@ fn seed_is_stable() {
 
 fn epoch_at(last_advanced_at: i64) -> EpochState {
     EpochState {
-        current_epoch: 1,
+        current_epoch:          1,
         last_advanced_at,
         epoch_duration_seconds: EpochState::DEFAULT_DURATION_SECONDS,
-        advance_authority: Default::default(),
-        bump: 0,
-        _reserved: [0u8; 32],
+        advance_authority:      Default::default(),
+        bump:                   0,
+        _reserved:              [0u8; 32],
     }
 }
 

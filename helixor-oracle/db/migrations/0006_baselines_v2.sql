@@ -43,9 +43,10 @@ ALTER TABLE agent_baselines
 
 -- Any pre-existing MVP rows: tag them as algo v1 so the backfill finds them.
 --
--- This must be dynamic SQL because the test harness applies the whole
--- migration file through one asyncpg execute() call. PostgreSQL parses static
--- references before the preceding ALTER TABLE's new column is visible.
+-- asyncpg prepares a whole migration batch before executing it. A plain
+-- UPDATE can therefore fail to resolve a column that was added earlier in the
+-- same batch on a legacy database. Dynamic SQL resolves after the ALTER has
+-- executed, which keeps the migration safe for both fresh and upgraded DBs.
 DO $$
 BEGIN
     EXECUTE 'UPDATE agent_baselines
@@ -142,9 +143,19 @@ ALTER TABLE agent_baseline_history
 
 DO $$
 BEGIN
-    EXECUTE 'UPDATE agent_baseline_history
-             SET baseline_algo_version = COALESCE(baseline_algo_version, algo_version, 1)
-             WHERE baseline_algo_version IS NULL';
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'agent_baseline_history'
+          AND column_name = 'algo_version'
+    ) THEN
+        EXECUTE 'UPDATE agent_baseline_history
+                 SET baseline_algo_version = COALESCE(baseline_algo_version, algo_version, 1)
+                 WHERE baseline_algo_version IS NULL';
+    ELSE
+        EXECUTE 'UPDATE agent_baseline_history
+                 SET baseline_algo_version = COALESCE(baseline_algo_version, 1)
+                 WHERE baseline_algo_version IS NULL';
+    END IF;
 END $$;
 
 CREATE INDEX IF NOT EXISTS idx_baseline_history_agent_time

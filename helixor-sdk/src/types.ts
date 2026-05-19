@@ -61,17 +61,25 @@ export interface HealthScore {
 }
 
 /**
- * Legacy REST/API score shape used by the policy error classes. The on-chain
- * Day-19 SDK surface is `HealthScore`; this type remains so older consumers of
- * the policy helpers still compile while the stable `getScore` shape stays
- * unchanged.
+ * TrustScore — legacy REST/API shape still used by SDK policy errors.
+ *
+ * Day 19 froze `HealthScore` for on-chain reads, but the pre-existing error
+ * helpers carry the older operator-facing score object. Keep this type
+ * exported so those helpers remain source-compatible while the SDK migrates
+ * consumers toward `HealthScore`.
  */
 export interface TrustScore {
+  /** Agent wallet as a base58 string. */
   agent: string;
+  /** Composite trust score, 0..1000. */
   score: number;
+  /** Alert tier. */
   alert: AlertTier;
+  /** Unix seconds the score was last updated. */
   updatedAt: number;
+  /** Source that produced the score, e.g. "on-chain" or "api". */
   source: string;
+  /** Optional operator policy flags. */
   anomalyFlag?: boolean;
   active?: boolean;
   provisional?: boolean;

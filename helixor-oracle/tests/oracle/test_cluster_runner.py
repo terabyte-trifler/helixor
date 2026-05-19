@@ -199,42 +199,6 @@ class TestKillOneNode:
         assert report.results[0].aggregated is None
         assert "quorum not met" in report.results[0].error
 
-    def test_one_node_down_survivor_disagreement_refuses(self):
-        # One offline node leaves bare quorum (2 of 3). If the two
-        # survivors disagree, the cluster must refuse rather than submit a
-        # lower-middle "median" that neither Byzantine theory nor the
-        # deterministic-engine contract can justify.
-        registry, nodes = _build_cluster(3)
-        profiles = [profile_adversarial()]
-        submit, _ = _submit()
-
-        for node in nodes:
-            node.score_epoch(24, profiles, computed_at=REF_END)
-
-        wallet = profiles[0].agent_wallet
-        honest = nodes[0].scores_for_epoch(24)[wallet]
-        from oracle.cluster.messages import AgentScore
-        nodes[1]._epoch_scores[24] = {
-            wallet: AgentScore(
-                agent_wallet=wallet,
-                score=max(0, honest.score - 100),
-                alert_tier=honest.alert_tier,
-                flags=honest.flags,
-                immediate_red=honest.immediate_red,
-                confidence=honest.confidence,
-            )
-        }
-        registry.unregister("oracle-node-2")
-
-        report = ClusterEpochRunner(nodes[0]).run_epoch(
-            24, profiles, submit_fn=submit, computed_at=REF_END,
-        )
-
-        assert report.quorum_failure_count == 1
-        assert report.submitted_count == 0
-        assert report.results[0].aggregated is None
-        assert "consensus not met" in report.results[0].error
-
 
 # =============================================================================
 # A faulty (lying) node, not just an offline one

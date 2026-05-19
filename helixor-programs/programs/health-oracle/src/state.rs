@@ -93,6 +93,7 @@ pub struct OracleConfig {
 
 impl OracleConfig {
     pub const MAX_ORACLE_KEYS: usize = 5;
+    pub const MIN_BFT_CLUSTER: usize = 3;
     pub const SEED: &'static [u8] = b"oracle_config";
     pub const SPACE: usize = 8 + 32 + 32 + 4 + (32 * Self::MAX_ORACLE_KEYS) + 2 + 1;
     pub const INIT_SPACE: usize = Self::SPACE - 8;

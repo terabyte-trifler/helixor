@@ -46,7 +46,6 @@ from typing import TYPE_CHECKING
 
 from oracle.cluster.aggregation import (
     AggregatedScore,
-    ConsensusNotMet,
     NodeScore,
     QuorumNotMet,
     aggregate_scores,
@@ -253,12 +252,6 @@ class ClusterEpochRunner:
                 wallet, node_scores, cluster_size=cluster_size,
             )
         except QuorumNotMet as exc:
-            logger.error("epoch aggregation: %s", exc)
-            return ClusterAgentResult(
-                agent_wallet=wallet, aggregated=None, submitted=False,
-                error=str(exc),
-            )
-        except ConsensusNotMet as exc:
             logger.error("epoch aggregation: %s", exc)
             return ClusterAgentResult(
                 agent_wallet=wallet, aggregated=None, submitted=False,

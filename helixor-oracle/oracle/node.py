@@ -41,12 +41,18 @@ the scoring path, so every node in the cluster scores identically.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from detection import DetectorRegistry
 from oracle.cluster.identity import NodeIdentity, NodeKeypair
+from oracle.cluster.commit_reveal import compute_commit_hash, new_nonce
+from oracle.cluster.commit_reveal_round import (
+    CommitRejected,
+    CommitRevealRound,
+    RevealRejected,
+)
 from oracle.cluster.messages import (
     AgentScore,
     CommitRequest,
@@ -163,6 +169,18 @@ class OracleNode:
         # `score_epoch`; served to peers via the `get_scores` handler so
         # the cluster can compute the median. epoch -> {wallet -> AgentScore}.
         self._epoch_scores: dict[int, dict[str, AgentScore]] = {}
+        # Day 25: the commit-reveal round per epoch, and this node's own
+        # secret nonce per epoch. The round tracks every node's commit and
+        # reveal; the nonce is what this node folds into its own commit and
+        # discloses only at reveal time.
+        self._rounds: dict[int, "CommitRevealRound"] = {}
+        self._epoch_nonces: dict[int, bytes] = {}
+        # Day 25: the node's logical clock for commit-reveal. The epoch
+        # orchestrator advances it as the protocol moves through phases;
+        # the commit / reveal handlers stamp peer submissions with it. A
+        # logical clock (not the wall clock) keeps the protocol fully
+        # deterministic and testable.
+        self._round_clock: float = 0.0
         logger.info(
             "oracle node %s constructed — %d-node cluster%s",
             self.node_id, membership.size,
@@ -315,29 +333,149 @@ class OracleNode:
             current_epoch=self._current_epoch,
         )
 
-    def commit(self, request: CommitRequest) -> CommitResponse:
+    # ── Day 25: commit-reveal round lifecycle ───────────────────────────────
+
+    def open_round(
+        self,
+        epoch:           int,
+        node_ids:        Sequence[str],
+        *,
+        commit_deadline: float,
+        reveal_deadline: float,
+        opened_at:       float = 0.0,
+    ) -> "CommitRevealRound":
         """
-        Phase-1 commit-reveal handler. The commit-reveal CONSENSUS protocol
-        is Days 24-28; Day 23 stands up the node structure and the serving
-        surface but does not implement the protocol. This is an HONEST stub
-        — it rejects with a clear reason rather than silently accepting a
-        commit it cannot yet process.
+        Open this node's commit-reveal round for an epoch. The round tracks
+        every cluster node's commit and reveal. Must be called before this
+        node — or any peer — can commit.
         """
-        return CommitResponse(
-            accepted=False,
-            reason="commit-reveal consensus is implemented in Phase 4 "
-                   "Days 24-28; this node (Day 23) exposes the handler "
-                   "but not yet the protocol",
+        if epoch in self._rounds:
+            raise RuntimeError(f"node {self.node_id}: round {epoch} already open")
+        round_ = CommitRevealRound(
+            epoch, node_ids,
+            commit_deadline=commit_deadline,
+            reveal_deadline=reveal_deadline,
+            opened_at=opened_at,
+        )
+        self._rounds[epoch] = round_
+        return round_
+
+    def round_for(self, epoch: int) -> "CommitRevealRound | None":
+        return self._rounds.get(epoch)
+
+    def advance_round_clock(self, now: float) -> None:
+        """
+        Advance the node's logical commit-reveal clock. The epoch
+        orchestrator calls this as the protocol moves between phases; the
+        commit / reveal handlers stamp inbound peer submissions with it.
+        """
+        if now < self._round_clock:
+            raise ValueError("the round clock cannot move backwards")
+        self._round_clock = now
+
+    def local_commit(self, epoch: int, *, now: float) -> CommitRequest:
+        """
+        This node commits its OWN scores for `epoch`.
+
+        It must have scored the epoch (`score_epoch`) first. A fresh secret
+        nonce is generated and stored; the commit hash binds this node to
+        its scores. Returns the `CommitRequest` to broadcast to peers.
+        """
+        scores = self._epoch_scores.get(epoch)
+        if scores is None:
+            raise RuntimeError(
+                f"node {self.node_id}: cannot commit epoch {epoch} — "
+                f"score_epoch was not run"
+            )
+        round_ = self._rounds.get(epoch)
+        if round_ is None:
+            raise RuntimeError(
+                f"node {self.node_id}: no open round for epoch {epoch}"
+            )
+        ordered = tuple(scores[w] for w in sorted(scores))
+        nonce = new_nonce()
+        self._epoch_nonces[epoch] = nonce
+        commit_hash = compute_commit_hash(ordered, nonce)
+        # Record our own commit in our own round view.
+        round_.submit_commit(self.node_id, commit_hash, now=now)
+        return CommitRequest(
+            node_id=self.node_id, epoch=epoch, commit_hash=commit_hash,
         )
 
-    def reveal(self, request: RevealRequest) -> RevealResponse:
-        """Phase-2 reveal handler — an honest Days-24-28 stub (see `commit`)."""
-        return RevealResponse(
-            verified=False,
-            reason="commit-reveal consensus is implemented in Phase 4 "
-                   "Days 24-28; this node (Day 23) exposes the handler "
-                   "but not yet the protocol",
+    def local_reveal(self, epoch: int, *, now: float) -> RevealRequest:
+        """
+        This node reveals its OWN (scores, nonce) for `epoch`, to broadcast
+        to peers. Must have committed first.
+        """
+        scores = self._epoch_scores.get(epoch)
+        nonce = self._epoch_nonces.get(epoch)
+        if scores is None or nonce is None:
+            raise RuntimeError(
+                f"node {self.node_id}: cannot reveal epoch {epoch} — "
+                f"not committed"
+            )
+        round_ = self._rounds.get(epoch)
+        if round_ is None:
+            raise RuntimeError(
+                f"node {self.node_id}: no open round for epoch {epoch}"
+            )
+        ordered = tuple(scores[w] for w in sorted(scores))
+        round_.submit_reveal(self.node_id, ordered, nonce, now=now)
+        return RevealRequest(
+            node_id=self.node_id, epoch=epoch, scores=ordered, salt=nonce,
         )
+
+    # ── Serving peers — commit / reveal handlers (real, Day 25) ─────────────
+
+    def commit(self, request: CommitRequest) -> CommitResponse:
+        """
+        Phase-1 commit handler — records a PEER's commit in this node's
+        round view. The commit is a hash only; this node learns nothing
+        about the peer's actual scores until the reveal phase.
+
+        Rejects (with a reason) if there is no open round for the epoch,
+        the commit phase has closed, or the peer already committed.
+        """
+        round_ = self._rounds.get(request.epoch)
+        if round_ is None:
+            return CommitResponse(
+                accepted=False,
+                reason=f"node {self.node_id} has no open round for "
+                       f"epoch {request.epoch}",
+            )
+        try:
+            round_.submit_commit(
+                request.node_id, request.commit_hash, now=self._round_clock,
+            )
+        except CommitRejected as exc:
+            return CommitResponse(accepted=False, reason=str(exc))
+        return CommitResponse(accepted=True)
+
+    def reveal(self, request: RevealRequest) -> RevealResponse:
+        """
+        Phase-2 reveal handler — records a PEER's reveal in this node's
+        round view and VERIFIES it against the peer's earlier commit.
+
+        A reveal whose (scores, nonce) does not hash to the peer's commit
+        is recorded `verified=False` — this is exactly how a node that
+        copied a peer's score is caught: its commit, made in Phase 1,
+        cannot match scores it copied in Phase 2.
+        """
+        round_ = self._rounds.get(request.epoch)
+        if round_ is None:
+            return RevealResponse(
+                verified=False,
+                reason=f"node {self.node_id} has no open round for "
+                       f"epoch {request.epoch}",
+            )
+        try:
+            record = round_.submit_reveal(
+                request.node_id, request.scores, request.salt,
+                now=self._round_clock,
+            )
+        except RevealRejected as exc:
+            return RevealResponse(verified=False, reason=str(exc))
+        return RevealResponse(verified=record.verified, reason=record.reason)
 
     def get_scores(self, request: GetScoresRequest) -> GetScoresResponse:
         """

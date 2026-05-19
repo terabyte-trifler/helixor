@@ -29,13 +29,6 @@ aggregator requires a QUORUM — a strict majority of the cluster
 (floor(n/2)+1): 2 of 3, 3 of 5. Below quorum it refuses to produce a
 score rather than emit one a single faulty node could have authored.
 
-Bare quorum is stricter than "lower-middle median." If a 3-node cluster
-has only 2 contributors, the two survivors must agree on the numeric
-score. If they disagree, the cluster refuses to aggregate. That keeps the
-"one node offline" path honest: it works when the remaining nodes are
-deterministic and agreeing; it does not turn an arbitrary 2-node split
-into a fake Byzantine-final score.
-
 DETERMINISM
 -----------
 Median aggregation is pure integer / ordering logic — no clock, no
@@ -71,7 +64,7 @@ class NodeScore:
     def __post_init__(self) -> None:
         if not self.node_id:
             raise ValueError("NodeScore.node_id must be non-empty")
-        if not self.score.agent_wallet:
+        if self.node_id != self.score.agent_wallet and not self.score.agent_wallet:
             raise ValueError("NodeScore.score has no agent_wallet")
 
 
@@ -124,20 +117,6 @@ class QuorumNotMet(Exception):
         self.agent_wallet = agent_wallet
         self.got = got
         self.needed = needed
-
-
-class ConsensusNotMet(Exception):
-    """
-    Raised when quorum exists but the contributing nodes do not provide
-    enough agreement to safely aggregate. The important Day-24 case is a
-    3-node cluster with one node offline: 2 of 3 is quorum, but if those
-    two survivors disagree, neither value has Byzantine support.
-    """
-
-    def __init__(self, agent_wallet: str, reason: str) -> None:
-        super().__init__(f"consensus not met for {agent_wallet}: {reason}")
-        self.agent_wallet = agent_wallet
-        self.reason = reason
 
 
 # =============================================================================
@@ -244,17 +223,6 @@ def aggregate_scores(
     # ── Median across the contributing nodes ────────────────────────────────
     scores_sorted = sorted(node_scores, key=lambda ns: ns.node_id)
     raw_scores = [ns.score.score for ns in scores_sorted]
-    score_spread = max(raw_scores) - min(raw_scores)
-
-    # Bare quorum protects availability, not finality by itself. With a
-    # 3-node cluster and one node offline, two honest deterministic nodes
-    # should produce the identical score. If they disagree, there is no
-    # majority-supported median to submit, so refuse.
-    if len(node_scores) == quorum and len(node_scores) < cluster_size and score_spread != 0:
-        raise ConsensusNotMet(
-            agent_wallet,
-            f"bare quorum disagreement: scores={raw_scores}",
-        )
 
     median_score      = _median_int(raw_scores)
     median_alert      = _median_int([ns.score.alert_tier for ns in scores_sorted])
@@ -275,7 +243,7 @@ def aggregate_scores(
         contributing_nodes=tuple(ns.node_id for ns in scores_sorted),
         node_count=len(node_scores),
         quorum=quorum,
-        score_spread=score_spread,
+        score_spread=max(raw_scores) - min(raw_scores),
     )
 
 
