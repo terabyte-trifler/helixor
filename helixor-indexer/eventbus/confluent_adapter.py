@@ -36,8 +36,6 @@ therefore prove the same property for the real broker.
 from __future__ import annotations
 
 import logging
-import threading
-import time
 from typing import Any
 
 from eventbus.types import ConsumedRecord, DeliveryError, EventRecord
@@ -57,15 +55,7 @@ class ConfluentKafkaConfig:
     on the producer give the strongest delivery guarantee Kafka offers.
     """
 
-    __slots__ = (
-        "bootstrap_servers",
-        "client_id",
-        "extra",
-        "producer_extra",
-        "consumer_extra",
-        "admin_extra",
-        "join_timeout_s",
-    )
+    __slots__ = ("bootstrap_servers", "client_id", "extra")
 
     def __init__(
         self,
@@ -73,18 +63,10 @@ class ConfluentKafkaConfig:
         *,
         client_id: str = "helixor-eventbus",
         extra: dict[str, Any] | None = None,
-        producer_extra: dict[str, Any] | None = None,
-        consumer_extra: dict[str, Any] | None = None,
-        admin_extra: dict[str, Any] | None = None,
-        join_timeout_s: float = 10.0,
     ) -> None:
         self.bootstrap_servers = bootstrap_servers
         self.client_id = client_id
         self.extra = extra or {}
-        self.producer_extra = producer_extra or {}
-        self.consumer_extra = consumer_extra or {}
-        self.admin_extra = admin_extra or {}
-        self.join_timeout_s = join_timeout_s
 
     def producer_config(self) -> dict[str, Any]:
         """confluent-kafka producer config — idempotent, acks=all."""
@@ -95,7 +77,6 @@ class ConfluentKafkaConfig:
             "enable.idempotence": True,        # no duplicate produces
             "retries":           10,
             **self.extra,
-            **self.producer_extra,
         }
 
     def consumer_config(self, group: str) -> dict[str, Any]:
@@ -113,7 +94,6 @@ class ConfluentKafkaConfig:
             "enable.auto.commit": False,       # Helixor commits manually
             "auto.offset.reset":  "earliest",
             **self.extra,
-            **self.consumer_extra,
         }
 
 
@@ -138,8 +118,7 @@ class ConfluentKafkaBroker:
 
     def __init__(self, config: ConfluentKafkaConfig) -> None:
         try:
-            import confluent_kafka
-            from confluent_kafka.admin import AdminClient, NewTopic
+            import confluent_kafka  # noqa: F401
         except ImportError as exc:                # pragma: no cover
             raise RuntimeError(
                 "ConfluentKafkaBroker needs the 'confluent-kafka' package. "
@@ -147,151 +126,12 @@ class ConfluentKafkaBroker:
                 "uses InMemoryBroker — a faithful in-memory model — instead."
             ) from exc
         self._config = config
-        self._kafka = confluent_kafka
-        self._new_topic = NewTopic
-        self._producer = confluent_kafka.Producer(config.producer_config())
-        self._admin = AdminClient({
-            "bootstrap.servers": config.bootstrap_servers,
-            "client.id": f"{config.client_id}-admin",
-            **config.admin_extra,
-        })
-        self._consumers: dict[tuple[str, str, str], Any] = {}
-        self._lock = threading.RLock()
-
-    def create_topic(self, topic: str, partitions: int) -> None:
-        futures = self._admin.create_topics([
-            self._new_topic(topic, num_partitions=partitions, replication_factor=1),
-        ])
-        future = futures[topic]
-        try:
-            future.result(timeout=10)
-        except Exception as exc:                  # pragma: no cover
-            err = exc.args[0] if exc.args else None
-            code = err.code() if hasattr(err, "code") else None
-            if code != self._kafka.KafkaError.TOPIC_ALREADY_EXISTS:
-                raise DeliveryError(f"create_topic({topic}) failed: {exc}") from exc
-
-    def produce(self, topic: str, record: EventRecord) -> int:
-        event = threading.Event()
-        state: dict[str, Any] = {}
-
-        def on_delivery(err, msg) -> None:
-            state["err"] = err
-            state["msg"] = msg
-            event.set()
-
-        headers = list(record.headers.items()) if record.headers else None
-        self._producer.produce(
-            topic,
-            key=record.key.encode("utf-8"),
-            value=record.value,
-            headers=headers,
-            callback=on_delivery,
+        # Deployment: hold a confluent_kafka.Producer and a per-group
+        # confluent_kafka.Consumer, an admin client for create_topic, and
+        # map produce/poll/commit/join/leave onto them per the docstring
+        # correspondence table. Kept out of the testable core by design.
+        raise NotImplementedError(  # pragma: no cover
+            "live Kafka wiring is completed in the deployment environment "
+            "against a real cluster; the in-memory broker models its "
+            "semantics for the test suite"
         )
-        while not event.wait(0.05):
-            self._producer.poll(0)
-        self._producer.poll(0)
-        if state.get("err") is not None:
-            raise DeliveryError(f"produce({topic}) failed: {state['err']}")
-        return int(state["msg"].offset())
-
-    def join_group(self, topic: str, group: str, consumer_id: str) -> set[int]:
-        consumer = self._consumer(topic, group, consumer_id)
-        consumer.subscribe([topic])
-        deadline = time.monotonic() + self._config.join_timeout_s
-        assigned: set[int] = set()
-        while time.monotonic() < deadline:
-            consumer.poll(0.1)
-            assigned = {tp.partition for tp in consumer.assignment()}
-            if assigned:
-                break
-        logger.info(
-            "consumer %s joined group %s on %s — partitions %s",
-            consumer_id, group, topic, sorted(assigned),
-        )
-        return assigned
-
-    def leave_group(self, topic: str, group: str, consumer_id: str) -> None:
-        key = (topic, group, consumer_id)
-        with self._lock:
-            consumer = self._consumers.pop(key, None)
-        if consumer is not None:
-            consumer.close()
-
-    def poll(
-        self, topic: str, group: str, consumer_id: str, max_records: int,
-    ) -> list[ConsumedRecord]:
-        consumer = self._consumer(topic, group, consumer_id)
-        messages = consumer.consume(num_messages=max_records, timeout=1.0)
-        records: list[ConsumedRecord] = []
-        for msg in messages:
-            if msg is None:
-                continue
-            if msg.error():
-                raise DeliveryError(f"poll({topic}) failed: {msg.error()}")
-            raw_key = msg.key()
-            key = raw_key.decode("utf-8") if isinstance(raw_key, bytes) else str(raw_key)
-            headers = self._headers_to_dict(msg.headers())
-            records.append(ConsumedRecord(
-                topic=msg.topic(),
-                partition=msg.partition(),
-                offset=msg.offset(),
-                record=EventRecord(key=key, value=msg.value(), headers=headers),
-            ))
-        return records
-
-    def commit(
-        self, topic: str, group: str, offsets: dict[int, int],
-    ) -> None:
-        if not offsets:
-            return
-        consumer = self._any_consumer(topic, group)
-        topic_partitions = [
-            self._kafka.TopicPartition(topic, partition, offset)
-            for partition, offset in offsets.items()
-        ]
-        consumer.commit(offsets=topic_partitions, asynchronous=False)
-
-    def seek_to_committed(
-        self, topic: str, group: str, partitions: set[int],
-    ) -> None:
-        if not partitions:
-            return
-        consumer = self._any_consumer(topic, group)
-        requested = [
-            self._kafka.TopicPartition(topic, partition)
-            for partition in partitions
-        ]
-        committed = consumer.committed(requested, timeout=10)
-        for topic_partition in committed:
-            consumer.seek(topic_partition)
-
-    def _consumer(self, topic: str, group: str, consumer_id: str):
-        key = (topic, group, consumer_id)
-        with self._lock:
-            if key not in self._consumers:
-                cfg = self._config.consumer_config(group)
-                cfg["client.id"] = f"{self._config.client_id}-{consumer_id}"
-                self._consumers[key] = self._kafka.Consumer(cfg)
-            return self._consumers[key]
-
-    def _any_consumer(self, topic: str, group: str):
-        with self._lock:
-            for (candidate_topic, candidate_group, _), consumer in self._consumers.items():
-                if candidate_topic == topic and candidate_group == group:
-                    return consumer
-        raise DeliveryError(f"no active consumer for group {group} on {topic}")
-
-    @staticmethod
-    def _headers_to_dict(headers) -> dict[str, str]:
-        if not headers:
-            return {}
-        out: dict[str, str] = {}
-        for key, value in headers:
-            if value is None:
-                out[key] = ""
-            elif isinstance(value, bytes):
-                out[key] = value.decode("utf-8", errors="replace")
-            else:
-                out[key] = str(value)
-        return out

@@ -1,10 +1,10 @@
 """
 detection/drift.py — Dimension 1: statistical drift from baseline.
 
-STATUS: Day 6 — full PSI + KS + CUSUM + ADWIN + DDM detector.
+STATUS: Day 5 — PSI + KS landed. CUSUM/ADWIN/DDM follow on Day 6.
 
-ALGORITHMS WIRED
-----------------
+ALGORITHMS WIRED TODAY (Day 5)
+------------------------------
 PSI (Population Stability Index):
     Compares the agent's CURRENT tx-type distribution (5 categories: swap,
     lend, stake, transfer, other) against the baseline's tx-type distribution.
@@ -23,36 +23,26 @@ KS test (one-sample, against N(0, 1)):
     individual z-score has |z| > 3 (a robust per-feature outlier signal
     complementing the global KS test).
 
-CUSUM:
-    Runs Page's two-sided cumulative-sum detector over the baseline's daily
-    success-rate series. Uses k = 0.5σ and h = 5σ, with a low-variance floor.
-
-ADWIN:
-    Runs adaptive windowing over the same daily success-rate series and cuts
-    stale history when a Hoeffding-bound split detects a mean shift.
-
-DDM:
-    Runs Drift Detection Method over per-day failure rates (1 - success rate),
-    warning at 2σ over the historical minimum and drift at 3σ.
-
-SCORE LAYOUT
-------------
-Drift dimension MAX_SCORE = 200. Each algorithm carries 40 points:
+SCORE LAYOUT (today: partial implementation)
+--------------------------------------------
+Drift dimension MAX_SCORE = 200. PSI + KS together carry up to 80 of those:
    - PSI sub-score    0..40
    - KS sub-score     0..40
-   - CUSUM            0..40
-   - ADWIN            0..40
-   - DDM              0..40
+   - CUSUM            (Day 6)   reserves 40
+   - ADWIN            (Day 6)   reserves 40
+   - DDM              (Day 6)   reserves 40
                                  ─────
                                   200
+
+When the dimension is partial (PROVISIONAL bit set today), the composite
+scorer still produces a meaningful drift contribution from PSI+KS; Day 6
+fills in the remaining 120.
 
 FLAGS SET BY THIS DETECTOR
 --------------------------
     FLAG_PSI            PSI > 0.25 (major shift)
-    FLAG_KS             per-feature rejection rate exceeds threshold
-    FLAG_CUSUM          CUSUM crosses the decision threshold
-    FLAG_ADWIN          ADWIN drops enough of the historical window
-    FLAG_DDM            DDM severity reaches drift territory
+    FLAG_KS             KS test rejected H0 at corrected α
+    FlagBit.PROVISIONAL   always set today (algorithms partial)
     FlagBit.DEGRADED_BASELINE  if baseline.is_provisional
 """
 

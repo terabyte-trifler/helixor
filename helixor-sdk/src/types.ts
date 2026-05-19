@@ -1,105 +1,32 @@
 // =============================================================================
-// @helixor/client — public types
+// helixor-sdk/src/types.ts — the stable SDK surface.
 //
-// These are the types that consumers see. Stable public contract — additive
-// changes only. New fields go at the bottom; never remove or rename.
+// THE COMPATIBILITY CONTRACT
+// --------------------------
+// The MVP's SDK exposed `getScore(agent) -> HealthScore`. Day 19 changes
+// where that data comes FROM — the score now lives in an epoch-keyed
+// HealthCertificate on the certificate-issuer program instead of a single
+// overwritten account — but the SDK SHAPE does not change. Existing MVP
+// consumers of `getScore` keep working without a code change.
+//
+// `HealthScore` below is exactly the MVP shape. New V2 capability (epoch
+// history) is ADDITIVE — `getScoreHistory`, `getScoreAtEpoch` — never a
+// breaking change to `getScore`.
 // =============================================================================
 
-import type { PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 
-/** Tri-state alert derived from the score. */
-export type AlertLevel = "GREEN" | "YELLOW" | "RED";
-
-/** Why this score was returned — lets consumers apply differentiated policy. */
-export type ScoreSource = "live" | "stale" | "provisional" | "deactivated";
-
-/** Per-component breakdown for transparency / debugging. */
-export interface ScoreBreakdown {
-  successRateScore: number;     // 0-500
-  consistencyScore: number;     // 0-300
-  stabilityScore:   number;     // 0-200
-  rawScore:         number;     // 0-1000 (pre-clamp)
-  guardRailApplied: boolean;
-}
-
-/** Full trust score returned by getScore(). */
-export interface TrustScore {
-  agentWallet: string;
-  score:       number;          // 0-1000
-  alert:       AlertLevel;
-  source:      ScoreSource;
-  successRate: number;          // 0.0-100.0 (percentage)
-  anomalyFlag: boolean;
-  updatedAt:   number;          // unix epoch seconds; 0 if never scored
-  isFresh:     boolean;         // false if cert > 48h old
-
-  // Optional metadata — present when source is "live" or "stale"
-  breakdown?:           ScoreBreakdown;
-  scoringAlgoVersion?:  number;
-  weightsVersion?:      number;
-  baselineHashPrefix?:  string;
-
-  // Operational meta
-  servedAt: number;
-  cached:   boolean;
-}
-
-/** Short summary used by listAgents. */
-export interface AgentSummary {
-  agentWallet: string;
-  score:       number | null;
-  alert:       AlertLevel | null;
-  isFresh:     boolean | null;
-  updatedAt:   number | null;
-}
-
-/** Pagination response for listAgents. */
-export interface AgentList {
-  items:  AgentSummary[];
-  total:  number;
-  limit:  number;
-  cursor: string | null;
-}
-
-/** Options for HelixorClient construction. */
-export interface HelixorClientOptions {
-  /** Base URL of the Helixor API. */
-  apiBase?: string;
-
-  /** Per-request timeout in milliseconds. Default 5000. */
-  timeoutMs?: number;
-
-  /** Max number of automatic retries on transient failures. Default 2. */
-  maxRetries?: number;
-
-  /** Optional API key sent as Authorization: Bearer <key>. */
-  apiKey?: string;
-
-  /** Optional client-side TTL cache. 0 disables. Default 30000ms. */
-  cacheTtlMs?: number;
-
-  /** Optional fetch override (useful for tests, polyfills). Default global fetch. */
-  fetch?: typeof fetch;
-}
-
-/** Options accepted by requireMinScore. */
-export interface RequireMinScoreOptions {
-  /** If true, accept stale (>48h) scores. Default false. */
-  allowStale?: boolean;
-
-  /** If true, accept anomaly-flagged scores. Default false. */
-  allowAnomaly?: boolean;
-
-  /** If true, accept provisional (no score yet). Default false. */
-  allowProvisional?: boolean;
-}
-
+/**
+ * The alert tier. Stable wire codes — 0/1/2 — matching the on-chain
+ * AlertTier enum and the off-chain scoring.AlertTier.
+ */
 export enum AlertTier {
   Green = "GREEN",
   Yellow = "YELLOW",
   Red = "RED",
 }
 
+/** Decode the on-chain u8 alert code into the SDK's AlertTier. */
 export function alertTierFromCode(code: number): AlertTier {
   switch (code) {
     case 0:
@@ -113,19 +40,56 @@ export function alertTierFromCode(code: number): AlertTier {
   }
 }
 
+/**
+ * HealthScore — the MVP-compatible result shape of `getScore`.
+ *
+ * This interface is FROZEN: it is the public compatibility contract. The
+ * fields and their types match what the MVP SDK returned, so any consumer
+ * written against the MVP keeps compiling and behaving identically.
+ */
 export interface HealthScore {
+  /** The agent the score is for. */
   agent: PublicKey;
+  /** The composite trust score, 0..1000. */
   score: number;
+  /** The alert tier. */
   alert: AlertTier;
+  /** The aggregated detection flag bits. */
   flags: number;
+  /** Unix seconds the score was issued on chain. */
   issuedAt: number;
 }
 
+/**
+ * Legacy REST/API score shape used by the policy error classes. The on-chain
+ * Day-19 SDK surface is `HealthScore`; this type remains so older consumers of
+ * the policy helpers still compile while the stable `getScore` shape stays
+ * unchanged.
+ */
+export interface TrustScore {
+  agent: string;
+  score: number;
+  alert: AlertTier;
+  updatedAt: number;
+  source: string;
+  anomalyFlag?: boolean;
+  active?: boolean;
+  provisional?: boolean;
+}
+
+/**
+ * EpochScore — a HealthScore for a SPECIFIC epoch. This is the V2 ADDITION:
+ * it carries the epoch number. `getScore` still returns the frozen
+ * `HealthScore`; callers who want the epoch use the new methods.
+ */
 export interface EpochScore extends HealthScore {
+  /** The epoch this score covers. */
   epoch: number;
+  /** Whether the IMMEDIATE_RED security fast-path was tripped. */
   immediateRed: boolean;
 }
 
+/** Program IDs the SDK talks to. */
 export interface HelixorProgramIds {
   healthOracle: PublicKey;
   certificateIssuer: PublicKey;

@@ -106,7 +106,7 @@ fn record_with_deadline(deadline: i64) -> SlashRecord {
         appeal_deadline:  deadline,
         appeal_hash:      [0u8; 32],
         appealed_at:      0,
-        _reserved:        [0u8; 17],
+        _reserved:        [0u8; 7],
     }
 }
 

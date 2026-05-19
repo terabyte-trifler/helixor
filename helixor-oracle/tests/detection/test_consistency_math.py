@@ -140,56 +140,21 @@ class TestCounterpartyConsistency:
 
     def test_high_repeat_low_volatility_consistent(self):
         # Knows its counterparties, stable outcomes → consistent.
-        c = counterparty_outcome_consistency(
-            repeat_ratio=0.9,
-            current_success_rate=0.95,
-            baseline_success_rate=0.95,
-            baseline_success_std=0.1,
-            success_volatility=0.0,
-        )
+        c = counterparty_outcome_consistency(repeat_ratio=0.9, success_volatility=0.0)
         assert c > 0.95
 
-    def test_high_repeat_success_drop_inconsistent(self):
-        # Knows its counterparties, success-rate collapses vs baseline.
-        c = counterparty_outcome_consistency(
-            repeat_ratio=0.9,
-            current_success_rate=0.55,
-            baseline_success_rate=0.95,
-            baseline_success_std=0.1,
-            success_volatility=0.0,
-        )
+    def test_high_repeat_high_volatility_inconsistent(self):
+        # Knows its counterparties, erratic outcomes → inconsistent.
+        c = counterparty_outcome_consistency(repeat_ratio=0.9, success_volatility=0.5)
         assert c < 0.2
 
-    def test_high_repeat_high_volatility_still_inconsistent(self):
-        # Volatility remains a secondary stabilizer.
-        c = counterparty_outcome_consistency(
-            repeat_ratio=0.9,
-            current_success_rate=0.95,
-            baseline_success_rate=0.95,
-            baseline_success_std=0.1,
-            success_volatility=0.5,
-        )
-        assert c < 0.2
-
-    def test_low_repeat_success_drop_excused(self):
-        # New counterparties — outcome variance is less attributable.
-        c = counterparty_outcome_consistency(
-            repeat_ratio=0.05,
-            current_success_rate=0.55,
-            baseline_success_rate=0.95,
-            baseline_success_std=0.1,
-            success_volatility=0.0,
-        )
+    def test_low_repeat_high_volatility_excused(self):
+        # New counterparties — outcome variance is expected, not penalised.
+        c = counterparty_outcome_consistency(repeat_ratio=0.05, success_volatility=0.5)
         assert c > 0.9
 
     def test_bounded(self):
-        c = counterparty_outcome_consistency(
-            repeat_ratio=99.0,
-            current_success_rate=-99.0,
-            baseline_success_rate=99.0,
-            baseline_success_std=0.0,
-            success_volatility=99.0,
-        )
+        c = counterparty_outcome_consistency(repeat_ratio=99.0, success_volatility=99.0)
         assert 0.0 <= c <= 1.0
 
 

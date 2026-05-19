@@ -16,10 +16,10 @@
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import BN from "bn.js";
 import { PublicKey, Keypair, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { assert } from "chai";
 
+const { BN } = anchor;
 const enc = anchor.utils.bytes.utf8.encode;
 
 describe("slash-authority dispute mechanisms (Day 21)", () => {
@@ -62,16 +62,6 @@ describe("slash-authority dispute mechanisms (Day 21)", () => {
 
   // ── setup: config + a funded vault ─────────────────────────────────────────
   before(async () => {
-    const treasuryAirdrop = await provider.connection.requestAirdrop(
-      treasury,
-      LAMPORTS_PER_SOL
-    );
-    const bh = await provider.connection.getLatestBlockhash();
-    await provider.connection.confirmTransaction(
-      { signature: treasuryAirdrop, ...bh },
-      "confirmed"
-    );
-
     await program.methods
       .initializeConfig(slashAuthority.publicKey, treasury)
       .accounts({
@@ -172,25 +162,12 @@ describe("slash-authority dispute mechanisms (Day 21)", () => {
 
   // ── an upheld appeal -> the slash settles and funds move ───────────────────
   it("an upheld appeal lets the slash settle to the treasury", async () => {
-    // Use a fresh agent for this path so the 24h appeal cooldown from the
-    // overturned-appeal path above does not block the second appeal.
-    const upheldAgentKp = Keypair.generate();
-    const upheldAgent = upheldAgentKp.publicKey;
-
+    // A second slash to exercise the settle path.
     await program.methods
-      .openVault(upheldAgent, new BN(STAKE))
+      .executeSlash(new BN(1), 0 /* Minor */, [...evidence])
       .accounts({
-        escrowVault: vaultPda(upheldAgent),
-        staker: slashAuthority.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    await program.methods
-      .executeSlash(new BN(0), 0 /* Minor */, [...evidence])
-      .accounts({
-        escrowVault: vaultPda(upheldAgent),
-        slashRecord: slashRecordPda(upheldAgent, 0),
+        escrowVault: vaultPda(agent),
+        slashRecord: slashRecordPda(agent, 1),
         slashConfig: configPda(),
         slashAuthority: slashAuthority.publicKey,
         systemProgram: SystemProgram.programId,
@@ -200,19 +177,19 @@ describe("slash-authority dispute mechanisms (Day 21)", () => {
     await program.methods
       .appealSlash([...justification])
       .accounts({
-        escrowVault: vaultPda(upheldAgent),
-        slashRecord: slashRecordPda(upheldAgent, 0),
-        agentOwner: upheldAgent,
+        escrowVault: vaultPda(agent),
+        slashRecord: slashRecordPda(agent, 1),
+        agentOwner: agent,
       })
-      .signers([upheldAgentKp])
+      .signers([agentKp])
       .rpc();
 
     // Uphold the slash — appeal fails, window re-closed, becomes settleable.
     await program.methods
       .resolveAppeal(true)
       .accounts({
-        escrowVault: vaultPda(upheldAgent),
-        slashRecord: slashRecordPda(upheldAgent, 0),
+        escrowVault: vaultPda(agent),
+        slashRecord: slashRecordPda(agent, 1),
         slashConfig: configPda(),
         slashAuthority: slashAuthority.publicKey,
       })
@@ -223,8 +200,8 @@ describe("slash-authority dispute mechanisms (Day 21)", () => {
     await program.methods
       .settleSlash()
       .accounts({
-        escrowVault: vaultPda(upheldAgent),
-        slashRecord: slashRecordPda(upheldAgent, 0),
+        escrowVault: vaultPda(agent),
+        slashRecord: slashRecordPda(agent, 1),
         slashConfig: configPda(),
         destination: treasury,
         slashAuthority: slashAuthority.publicKey,
@@ -235,7 +212,7 @@ describe("slash-authority dispute mechanisms (Day 21)", () => {
     const treasuryAfter = await provider.connection.getBalance(treasury);
     assert.ok(treasuryAfter > treasuryBefore, "treasury received the settled slash");
 
-    const record: any = await program.account.slashRecord.fetch(slashRecordPda(upheldAgent, 0));
+    const record: any = await program.account.slashRecord.fetch(slashRecordPda(agent, 1));
     assert.equal(record.status, 3); // Settled
   });
 

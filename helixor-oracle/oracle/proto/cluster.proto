@@ -43,6 +43,10 @@ service OracleCluster {
   // Phase-2 of commit-reveal: a node reveals its actual epoch scores. A
   // peer verifies the reveal hashes to the earlier commit.
   rpc Reveal(RevealRequest) returns (RevealResponse);
+
+  // Day 24: a node fetches a peer's epoch scores, to compute the cluster
+  // median. Direct score exchange (commit-reveal hardening is a later day).
+  rpc GetScores(GetScoresRequest) returns (GetScoresResponse);
 }
 
 // -----------------------------------------------------------------------------
@@ -115,4 +119,26 @@ message AgentScore {
   uint32 flags = 4;          // aggregated detection flags
   bool   immediate_red = 5;
   uint32 confidence = 6;     // 0..1000
+}
+
+// -----------------------------------------------------------------------------
+// GetScores — Day-24 score exchange for median aggregation
+// -----------------------------------------------------------------------------
+message GetScoresRequest {
+  // The requesting node's id.
+  string node_id = 1;
+  // The epoch whose scores are requested.
+  uint64 epoch = 2;
+}
+
+message GetScoresResponse {
+  // The responding node's id.
+  string node_id = 1;
+  // The epoch.
+  uint64 epoch = 2;
+  // False if the responder has not scored this epoch yet — the caller
+  // then treats it exactly like an offline node.
+  bool available = 3;
+  // The responder's per-agent scores for the epoch.
+  repeated AgentScore scores = 4;
 }

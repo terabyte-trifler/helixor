@@ -48,7 +48,7 @@
 //   resolved_at        8   (i64 — unix seconds it was resolved; 0 if not)
 //   bump               1   (u8)
 //   layout_version     1   (u8)
-//   _reserved         42   (zeroed cushion)
+//   _reserved         32   (zeroed cushion)
 //   TOTAL (without discriminator): 206 bytes
 // =============================================================================
 
@@ -143,18 +143,18 @@ pub struct OracleChallenge {
     /// Account-layout version.
     pub layout_version: u8,
     /// Zero-padded reserve.
-    pub _reserved:      [u8; 42],
+    pub _reserved:      [u8; 32],
 }
 
 impl OracleChallenge {
     pub const CURRENT_LAYOUT_VERSION: u8 = 1;
 
     /// Data size WITHOUT the 8-byte Anchor discriminator.
-    ///   32 + 32 + 8 + 1 + 1 + 32 + 32 + 8 + 8 + 8 + 1 + 1 = 164
-    /// + 42 reserved                                        =  42
+    ///   32 + 32 + 8 + 1 + 1 + 32 + 32 + 8 + 8 + 8 + 1 + 1 = 174
+    /// + 32 reserved                                        =  32
     /// = 206
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
-        32 + 32 + 8 + 1 + 1 + 32 + 32 + 8 + 8 + 8 + 1 + 1 + 42;
+        32 + 32 + 8 + 1 + 1 + 32 + 32 + 8 + 8 + 8 + 1 + 1 + 32;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;
@@ -166,9 +166,7 @@ impl OracleChallenge {
 /// An oracle-node challenge counter — one per accused oracle, so each new
 /// OracleChallenge PDA has a fresh, append-only index.
 ///
-/// ```text
-/// seeds = ["challenge_counter", accused_oracle]
-/// ```
+///     seeds = ["challenge_counter", accused_oracle]
 #[account]
 #[derive(Default, Debug)]
 pub struct ChallengeCounter {

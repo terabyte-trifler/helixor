@@ -178,9 +178,6 @@ class ConsistencyDetector:
         # ── 3. Counterparty-outcome consistency (a conjunction) ─────────────
         cp_health = counterparty_outcome_consistency(
             repeat_ratio=feature_values[_IDX["cp_repeat_ratio"]],
-            current_success_rate=feature_values[_IDX["success_rate_30d"]],
-            baseline_success_rate=baseline.success_rate_30d,
-            baseline_success_std=baseline.feature_stds[_IDX["success_rate_30d"]],
             success_volatility=feature_values[_IDX["success_volatility"]],
         )
         if cp_health < COMPONENT_FLAG_FLOOR:

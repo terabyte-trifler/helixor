@@ -30,7 +30,6 @@ ALTER TABLE agent_baselines
     ADD COLUMN IF NOT EXISTS baseline_algo_version      INTEGER,
     ADD COLUMN IF NOT EXISTS feature_schema_version     INTEGER,
     ADD COLUMN IF NOT EXISTS feature_schema_fingerprint TEXT,
-    ADD COLUMN IF NOT EXISTS scoring_schema_fingerprint TEXT,
     ADD COLUMN IF NOT EXISTS feature_means              DOUBLE PRECISION[],
     ADD COLUMN IF NOT EXISTS feature_stds               DOUBLE PRECISION[],
     ADD COLUMN IF NOT EXISTS txtype_distribution        DOUBLE PRECISION[],
@@ -43,9 +42,16 @@ ALTER TABLE agent_baselines
     ADD COLUMN IF NOT EXISTS computed_at                TIMESTAMPTZ;
 
 -- Any pre-existing MVP rows: tag them as algo v1 so the backfill finds them.
-UPDATE agent_baselines
-    SET baseline_algo_version = 1
-    WHERE baseline_algo_version IS NULL;
+--
+-- This must be dynamic SQL because the test harness applies the whole
+-- migration file through one asyncpg execute() call. PostgreSQL parses static
+-- references before the preceding ALTER TABLE's new column is visible.
+DO $$
+BEGIN
+    EXECUTE 'UPDATE agent_baselines
+             SET baseline_algo_version = 1
+             WHERE baseline_algo_version IS NULL';
+END $$;
 
 -- ── Array-length contract ───────────────────────────────────────────────────
 -- A 100-element vector stored as an unbounded float[] will, eventually, get a
@@ -84,15 +90,6 @@ BEGIN
     END IF;
 
     IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'agent_baselines_scoring_fp_len'
-    ) THEN
-        ALTER TABLE agent_baselines
-            ADD CONSTRAINT agent_baselines_scoring_fp_len
-            CHECK (scoring_schema_fingerprint IS NULL OR char_length(scoring_schema_fingerprint) = 64)
-            NOT VALID;
-    END IF;
-
-    IF NOT EXISTS (
         SELECT 1 FROM pg_constraint WHERE conname = 'agent_baselines_hash_len'
     ) THEN
         ALTER TABLE agent_baselines
@@ -112,7 +109,6 @@ CREATE TABLE IF NOT EXISTS agent_baseline_history (
     baseline_algo_version       INTEGER NOT NULL,
     feature_schema_version      INTEGER,
     feature_schema_fingerprint  TEXT,
-    scoring_schema_fingerprint  TEXT,
     window_start                TIMESTAMPTZ NOT NULL,
     window_end                  TIMESTAMPTZ NOT NULL,
     feature_means               DOUBLE PRECISION[],
@@ -135,7 +131,6 @@ ALTER TABLE agent_baseline_history
     ADD COLUMN IF NOT EXISTS baseline_algo_version      INTEGER,
     ADD COLUMN IF NOT EXISTS feature_schema_version     INTEGER,
     ADD COLUMN IF NOT EXISTS feature_schema_fingerprint TEXT,
-    ADD COLUMN IF NOT EXISTS scoring_schema_fingerprint TEXT,
     ADD COLUMN IF NOT EXISTS feature_means              DOUBLE PRECISION[],
     ADD COLUMN IF NOT EXISTS feature_stds               DOUBLE PRECISION[],
     ADD COLUMN IF NOT EXISTS txtype_distribution        DOUBLE PRECISION[],
@@ -145,17 +140,21 @@ ALTER TABLE agent_baseline_history
     ADD COLUMN IF NOT EXISTS is_provisional             BOOLEAN,
     ADD COLUMN IF NOT EXISTS stats_hash                 TEXT;
 
--- If this table was created by the MVP migration, it used `algo_version`.
--- Mirror that into the v2 column before the index below references it.
-UPDATE agent_baseline_history
-    SET baseline_algo_version = COALESCE(baseline_algo_version, algo_version, 1)
-    WHERE baseline_algo_version IS NULL;
+DO $$
+BEGIN
+    EXECUTE 'UPDATE agent_baseline_history
+             SET baseline_algo_version = COALESCE(baseline_algo_version, algo_version, 1)
+             WHERE baseline_algo_version IS NULL';
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_baseline_history_agent_time
     ON agent_baseline_history (agent_wallet, computed_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_baseline_history_algo
-    ON agent_baseline_history (baseline_algo_version);
+DO $$
+BEGIN
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_baseline_history_algo
+             ON agent_baseline_history (baseline_algo_version)';
+END $$;
 
 
 -- ── Append-only enforcement ─────────────────────────────────────────────────
@@ -177,8 +176,11 @@ CREATE TRIGGER trg_baseline_history_no_update
 
 
 -- ── Index for the backfill worklist query ───────────────────────────────────
-CREATE INDEX IF NOT EXISTS idx_baselines_algo_schema
-    ON agent_baselines (baseline_algo_version, feature_schema_fingerprint);
+DO $$
+BEGIN
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_baselines_algo_schema
+             ON agent_baselines (baseline_algo_version, feature_schema_fingerprint)';
+END $$;
 
 
 COMMENT ON TABLE  agent_baseline_history IS

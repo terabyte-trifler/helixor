@@ -1,51 +1,91 @@
 // =============================================================================
-// initialize_oracle_config — Day 7
+// programs/health-oracle/src/instructions/initialize_oracle_config.rs
 //
-// Creates the singleton OracleConfig PDA. Called once during deployment
-// migration. Subsequent calls fail (init constraint).
+// initialize_oracle_config — create the OracleConfig singleton for the
+// oracle cluster.
 //
-// The deployer of this instruction becomes the initial admin. They can later
-// rotate to a multisig or governance contract via update_oracle_config.
+// Day 23 (Phase 4) adds this instruction. The Doc-3 MVP treated OracleConfig
+// as already-deployed state; Phase 4 needs an explicit, on-chain way to
+// stand up the cluster config — the node pubkeys and the confidence floor.
+//
+// CLUSTER VALIDATION
+//   - 1..=MAX_ORACLE_KEYS node pubkeys (a 1-node cluster is the explicit
+//     single-node deployment; 2 is rejected — no majority is possible),
+//   - no duplicate node keys,
+//   - `oracle_node` (the primary) must be one of `oracle_keys`,
+//   - `min_confidence` in 0..=1000.
 // =============================================================================
 
 use anchor_lang::prelude::*;
 
-use crate::{errors::HelixorError, state::InitOracleConfigParams, BOOTSTRAP_AUTHORITY};
+use crate::errors::HelixorError;
+use crate::state::OracleConfig;
 
-pub fn handler(
-    ctx: Context<crate::InitializeOracleConfig>,
-    params: InitOracleConfigParams,
-) -> Result<()> {
-    require_keys_eq!(
-        ctx.accounts.deployer.key(),
-        BOOTSTRAP_AUTHORITY,
-        HelixorError::UnauthorizedBootstrap
-    );
-    require_keys_neq!(
-        params.oracle_key,
-        params.admin_key,
-        HelixorError::OracleKeyEqualsAdmin
-    );
+#[derive(Accounts)]
+pub struct InitializeOracleConfig<'info> {
+    /// The OracleConfig singleton, created here.
+    #[account(
+        init,
+        payer = admin,
+        space = OracleConfig::SPACE,
+        seeds = [OracleConfig::SEED],
+        bump,
+    )]
+    pub oracle_config: Account<'info, OracleConfig>,
 
-    let cfg = &mut ctx.accounts.oracle_config;
-    cfg.oracle_key = params.oracle_key;
-    cfg.admin_key = params.admin_key;
-    cfg.bump = ctx.bumps.oracle_config;
-    cfg.paused = false;
-    cfg.epoch = 0;
+    /// The admin — pays rent, becomes the config update authority.
+    #[account(mut)]
+    pub admin: Signer<'info>,
 
-    emit!(OracleConfigInitialized {
-        oracle_key: params.oracle_key,
-        admin_key: params.admin_key,
-        timestamp: Clock::get()?.unix_timestamp,
-    });
-
-    Ok(())
+    pub system_program: Program<'info, System>,
 }
 
-#[event]
-pub struct OracleConfigInitialized {
-    pub oracle_key: Pubkey,
-    pub admin_key: Pubkey,
-    pub timestamp: i64,
+pub fn handler(
+    ctx:            Context<InitializeOracleConfig>,
+    oracle_keys:    Vec<Pubkey>,
+    min_confidence: u16,
+) -> Result<()> {
+    // ── Validate the cluster ────────────────────────────────────────────────
+    require!(
+        !oracle_keys.is_empty()
+            && oracle_keys.len() <= OracleConfig::MAX_ORACLE_KEYS,
+        HelixorError::InvalidClusterSize,
+    );
+    // A 2-node cluster has no majority — reject it. 1 (single-node) and
+    // 3..=5 (BFT) are valid.
+    require!(
+        oracle_keys.len() != 2,
+        HelixorError::InvalidClusterSize,
+    );
+    // No duplicate node keys.
+    for i in 0..oracle_keys.len() {
+        for j in (i + 1)..oracle_keys.len() {
+            require!(
+                oracle_keys[i] != oracle_keys[j],
+                HelixorError::DuplicateOracleKey,
+            );
+        }
+    }
+    require!(
+        min_confidence <= 1000,
+        HelixorError::InvalidMinConfidence,
+    );
+
+    // The primary node is, by convention, the first key.
+    let primary = oracle_keys[0];
+
+    let config = &mut ctx.accounts.oracle_config;
+    config.authority      = ctx.accounts.admin.key();
+    config.oracle_node    = primary;
+    config.oracle_keys    = oracle_keys;
+    config.min_confidence = min_confidence;
+    config.bump           = ctx.bumps.oracle_config;
+
+    msg!(
+        "oracle config initialised: {}-node cluster, primary={}, \
+         min_confidence={}, threshold={}",
+        config.oracle_keys.len(), config.oracle_node,
+        config.min_confidence, config.consensus_threshold(),
+    );
+    Ok(())
 }

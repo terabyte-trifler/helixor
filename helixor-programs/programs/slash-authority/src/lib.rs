@@ -15,11 +15,12 @@
 //   - initialize_config / open_vault / execute_slash instructions.
 //
 // THE DOC-2 CHANGE: the MVP locked a 0.01 SOL escrow but never touched it.
-// V2 makes the stake economically real. Day 21 adds due process:
-// execute_slash encumbers funds first, and settle_slash moves/burns them
-// only after the appeal window.
+// V2 makes the stake economically real — execute_slash moves lamports out
+// of the vault: a penalty to the treasury, or, for a confirmed compromise,
+// a burn to the incinerator.
 //
-// Separate program => separate program ID.
+// Separate program => separate program ID. Replace the placeholder below
+// with the deployed key when this is published to devnet.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -29,33 +30,9 @@ pub mod events;
 pub mod instructions;
 pub mod state;
 
-use instructions::appeal_slash::__client_accounts_appeal_slash;
-#[cfg(feature = "cpi")]
-use instructions::appeal_slash::__cpi_client_accounts_appeal_slash;
-use instructions::challenge_oracle::__client_accounts_challenge_oracle;
-#[cfg(feature = "cpi")]
-use instructions::challenge_oracle::__cpi_client_accounts_challenge_oracle;
-use instructions::execute_slash::__client_accounts_execute_slash;
-#[cfg(feature = "cpi")]
-use instructions::execute_slash::__cpi_client_accounts_execute_slash;
-use instructions::initialize_config::__client_accounts_initialize_config;
-#[cfg(feature = "cpi")]
-use instructions::initialize_config::__cpi_client_accounts_initialize_config;
-use instructions::open_vault::__client_accounts_open_vault;
-#[cfg(feature = "cpi")]
-use instructions::open_vault::__cpi_client_accounts_open_vault;
-use instructions::resolve_appeal::__client_accounts_resolve_appeal;
-#[cfg(feature = "cpi")]
-use instructions::resolve_appeal::__cpi_client_accounts_resolve_appeal;
-use instructions::settle_slash::__client_accounts_settle_slash;
-#[cfg(feature = "cpi")]
-use instructions::settle_slash::__cpi_client_accounts_settle_slash;
-pub use instructions::{
-    AppealSlash, ChallengeOracle, ExecuteSlash, InitializeConfig, OpenVault,
-    ResolveAppeal, SettleSlash,
-};
+use instructions::*;
 
-declare_id!("2pGoLLvs3XegXDXm7HAZTrFoJZV9dPnNTU1PDEdcUhsN");
+declare_id!("S1ash1xor1111111111111111111111111111111111");
 
 #[program]
 pub mod slash_authority {

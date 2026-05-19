@@ -42,8 +42,8 @@
 //   executor             32   (Pubkey — the slash authority that executed)
 //   bump                  1   (u8)
 //   layout_version        1   (u8)
-//   _reserved            17   (zeroed cushion)
-//   TOTAL (without discriminator): 206 bytes
+//   _reserved            32   (zeroed cushion)
+//   TOTAL (without discriminator): 182 bytes
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -222,16 +222,16 @@ pub struct SlashRecord {
     /// Unix seconds the appeal was filed. Zero until an appeal is filed.
     pub appealed_at:      i64,
     /// Zero-padded reserve — shrunk to make room for the lifecycle fields.
-    pub _reserved:        [u8; 17],
+    pub _reserved:        [u8; 7],
 }
 
 impl SlashRecord {
     pub const CURRENT_LAYOUT_VERSION: u8 = 1;
 
     /// Data size WITHOUT the 8-byte Anchor discriminator.
-    ///   32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1 = 140  (Day-20 core)
+    ///   32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1 = 150  (Day-20 core)
     /// + 1 status + 8 appeal_deadline + 32 appeal_hash + 8 appealed_at = 49
-    /// + 17 reserved                                                  = 17
+    /// + 7 reserved                                                   =  7
     /// = 206
     ///
     /// NOTE: Day 20 declared 182 bytes (150 core + 32 reserve). Day 21
@@ -241,7 +241,7 @@ impl SlashRecord {
     /// are no Day-20 SlashRecords in existence to migrate.
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
         32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1
-        + 1 + 8 + 32 + 8 + 17;
+        + 1 + 8 + 32 + 8 + 7;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;
@@ -254,3 +254,4 @@ impl SlashRecord {
         now < self.appeal_deadline
     }
 }
+

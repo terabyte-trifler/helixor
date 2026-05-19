@@ -32,6 +32,8 @@ from typing import Protocol, runtime_checkable
 from oracle.cluster.messages import (
     CommitRequest,
     CommitResponse,
+    GetScoresRequest,
+    GetScoresResponse,
     PingRequest,
     PingResponse,
     RevealRequest,
@@ -53,6 +55,8 @@ class ClusterService(Protocol):
 
     def reveal(self, request: RevealRequest) -> RevealResponse: ...
 
+    def get_scores(self, request: GetScoresRequest) -> GetScoresResponse: ...
+
 
 # =============================================================================
 # The client-side interface — how a node calls a peer
@@ -70,6 +74,10 @@ class ClusterTransport(Protocol):
     def commit(self, peer_id: str, request: CommitRequest) -> CommitResponse: ...
 
     def reveal(self, peer_id: str, request: RevealRequest) -> RevealResponse: ...
+
+    def get_scores(
+        self, peer_id: str, request: GetScoresRequest,
+    ) -> GetScoresResponse: ...
 
 
 class PeerUnreachable(Exception):
@@ -142,3 +150,8 @@ class InProcessTransport:
 
     def reveal(self, peer_id: str, request: RevealRequest) -> RevealResponse:
         return self._service(peer_id).reveal(request)
+
+    def get_scores(
+        self, peer_id: str, request: GetScoresRequest,
+    ) -> GetScoresResponse:
+        return self._service(peer_id).get_scores(request)

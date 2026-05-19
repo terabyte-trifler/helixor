@@ -16,6 +16,8 @@
 //   - initialize_config / record_baseline / issue_certificate /
 //     get_certificate instructions.
 //
+// Separate program => separate program ID. Replace the placeholder ID
+// below with the deployed key when this is published to devnet.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -27,7 +29,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("3ViKj3cYMo76HwnLYAnbM5BDuMPxmKuKhotXhfPq94gW");
+declare_id!("Cert1xor11111111111111111111111111111111111");
 
 #[program]
 pub mod certificate_issuer {

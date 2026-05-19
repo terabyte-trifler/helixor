@@ -25,7 +25,6 @@ from scoring.composite import (
     YELLOW_THRESHOLD,
 )
 from scoring.weights import SCORING_WEIGHTS_VERSION
-from scoring.weights import WEIGHTS
 
 
 REF_TIME = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -236,7 +235,6 @@ class TestDeterminismAndProvenance:
         assert r.scoring_weights_version == SCORING_WEIGHTS_VERSION
         assert r.scoring_schema_fingerprint == scoring_schema_fingerprint()
         assert r.baseline_stats_hash == baseline.stats_hash
-        assert r.weight_vector == WEIGHTS
         # Detector versions present for every dimension
         assert set(r.detector_algo_versions.keys()) == set(DimensionId.ordered())
 

@@ -25,7 +25,6 @@ from detection.consistency import (
 from detection.consistency_context import ConsistencyContext
 from features import FEATURE_SCHEMA_VERSION, FeatureVector
 from features.vector import TOTAL_FEATURES, group_of
-from scoring.weights import scoring_schema_fingerprint
 
 
 REF_END = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -50,7 +49,6 @@ def _baseline(*, program_means: list[float] | None = None) -> BaselineStats:
         baseline_algo_version=BASELINE_ALGO_VERSION,
         feature_schema_version=FEATURE_SCHEMA_VERSION,
         feature_schema_fingerprint=FeatureVector.feature_schema_fingerprint(),
-        scoring_schema_fingerprint=scoring_schema_fingerprint(),
         window_start=REF_END - timedelta(days=30),
         window_end=REF_END,
         feature_means=tuple(means),
@@ -73,7 +71,6 @@ def _features(
     program_values: list[float] | None = None,
     rhythm_shift: float = 0.0,
     repeat_ratio: float = 0.3,
-    success_rate_30d: float = 0.95,
     success_volatility: float = 0.05,
 ) -> FeatureVector:
     vals = [0.5] * TOTAL_FEATURES
@@ -87,7 +84,6 @@ def _features(
             if group_of(n) == "rhythm":
                 vals[i] = 0.5 + rhythm_shift
     vals[_IDX["cp_repeat_ratio"]] = repeat_ratio
-    vals[_IDX["success_rate_30d"]] = success_rate_30d
     vals[_IDX["success_volatility"]] = success_volatility
     return FeatureVector(**dict(zip(_FIELD_NAMES, vals)))
 
@@ -224,30 +220,20 @@ class TestCounterpartyConsistency:
 
     def test_repeat_cps_stable_outcomes_high(self):
         r = ConsistencyDetector().score(
-            _features(repeat_ratio=0.9, success_rate_30d=0.95, success_volatility=0.0),
-            _baseline(),
+            _features(repeat_ratio=0.9, success_volatility=0.0), _baseline(),
         )
         assert r.sub_scores["counterparty_consistency"] > 0.95
 
-    def test_repeat_cps_success_drop_low(self):
+    def test_repeat_cps_erratic_outcomes_low(self):
         r = ConsistencyDetector().score(
-            _features(repeat_ratio=0.9, success_rate_30d=0.55, success_volatility=0.0),
-            _baseline(),
+            _features(repeat_ratio=0.9, success_volatility=0.5), _baseline(),
         )
         assert r.sub_scores["counterparty_consistency"] < 0.3
 
-    def test_repeat_cps_erratic_outcomes_low_even_without_success_drop(self):
+    def test_new_cps_erratic_outcomes_excused(self):
+        # New counterparties → outcome variance expected → not penalised.
         r = ConsistencyDetector().score(
-            _features(repeat_ratio=0.9, success_rate_30d=0.95, success_volatility=0.5),
-            _baseline(),
-        )
-        assert r.sub_scores["counterparty_consistency"] < 0.3
-
-    def test_new_cps_success_drop_mostly_excused(self):
-        # New counterparties → outcome variance is less attributable.
-        r = ConsistencyDetector().score(
-            _features(repeat_ratio=0.05, success_rate_30d=0.55, success_volatility=0.0),
-            _baseline(),
+            _features(repeat_ratio=0.05, success_volatility=0.5), _baseline(),
         )
         assert r.sub_scores["counterparty_consistency"] > 0.9
 

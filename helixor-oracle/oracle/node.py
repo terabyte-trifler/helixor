@@ -48,8 +48,11 @@ from datetime import datetime, timezone
 from detection import DetectorRegistry
 from oracle.cluster.identity import NodeIdentity, NodeKeypair
 from oracle.cluster.messages import (
+    AgentScore,
     CommitRequest,
     CommitResponse,
+    GetScoresRequest,
+    GetScoresResponse,
     PingRequest,
     PingResponse,
     RevealRequest,
@@ -62,6 +65,7 @@ from oracle.epoch_runner import (
     SlashFn,
     SubmitFn,
     run_epoch,
+    score_agent,
 )
 from slashing import ConsensusPolicy, SingleNodeConsensus
 
@@ -155,6 +159,10 @@ class OracleNode:
         self._registry = registry
         # The node's view of the current epoch — advanced by the operator.
         self._current_epoch = 1
+        # Day 24: this node's own scores, per epoch. Populated by
+        # `score_epoch`; served to peers via the `get_scores` handler so
+        # the cluster can compute the median. epoch -> {wallet -> AgentScore}.
+        self._epoch_scores: dict[int, dict[str, AgentScore]] = {}
         logger.info(
             "oracle node %s constructed — %d-node cluster%s",
             self.node_id, membership.size,
@@ -195,6 +203,11 @@ class OracleNode:
     @property
     def current_epoch(self) -> int:
         return self._current_epoch
+
+    @property
+    def transport(self) -> ClusterTransport | None:
+        """The node's cluster transport — None for a lone single node."""
+        return self._transport
 
     def set_epoch(self, epoch: int) -> None:
         """Advance the node's view of the current epoch."""
@@ -243,6 +256,54 @@ class OracleNode:
 
     # ── Serving peers — the ClusterService handlers ─────────────────────────
 
+    def score_epoch(
+        self,
+        epoch_id:     int,
+        agent_inputs: Iterable[AgentEpochInput],
+        *,
+        computed_at:  datetime | None = None,
+    ) -> dict[str, AgentScore]:
+        """
+        Score every agent for an epoch and STORE the results on the node,
+        keyed by epoch, so peers can fetch them via `get_scores`.
+
+        This is the Day-24 cluster path: a node SCORES (here), the cluster
+        EXCHANGES scores (`get_scores`), then aggregates the median
+        (oracle/cluster/aggregation.py). It is distinct from `run_epoch`,
+        which scores AND submits AND slashes in one pass for a standalone
+        node — `score_epoch` produces a node's contribution to the cluster.
+
+        Returns the agent_wallet -> AgentScore map it computed and stored.
+        Pure + deterministic given its inputs.
+        """
+        from scoring import AlertTier as _AlertTier
+        from detection import default_registry
+
+        ts = computed_at or datetime.now(timezone.utc)
+        registry = self._registry if self._registry is not None else default_registry()
+        alert_code = {_AlertTier.GREEN: 0, _AlertTier.YELLOW: 1, _AlertTier.RED: 2}
+
+        scores: dict[str, AgentScore] = {}
+        for agent_input in agent_inputs:
+            score_result = score_agent(agent_input, registry, computed_at=ts)
+            scores[agent_input.agent_wallet] = AgentScore(
+                agent_wallet=agent_input.agent_wallet,
+                score=score_result.score,
+                alert_tier=alert_code[score_result.alert],
+                flags=score_result.aggregated_flags,
+                immediate_red=score_result.immediate_red,
+                confidence=score_result.confidence,
+            )
+        self._epoch_scores[epoch_id] = scores
+        logger.info("node %s scored %d agents for epoch %d",
+                    self.node_id, len(scores), epoch_id)
+        return scores
+
+    def scores_for_epoch(self, epoch_id: int) -> dict[str, AgentScore] | None:
+        """This node's stored scores for an epoch, or None if not yet scored."""
+        scores = self._epoch_scores.get(epoch_id)
+        return dict(scores) if scores is not None else None
+
     def ping(self, request: PingRequest) -> PingResponse:
         """
         Answer a peer's liveness probe. Echoes the nonce (proving a fresh,
@@ -276,6 +337,30 @@ class OracleNode:
             reason="commit-reveal consensus is implemented in Phase 4 "
                    "Days 24-28; this node (Day 23) exposes the handler "
                    "but not yet the protocol",
+        )
+
+    def get_scores(self, request: GetScoresRequest) -> GetScoresResponse:
+        """
+        Day-24 score-exchange handler. Returns this node's stored epoch
+        scores so a peer can compute the cluster median.
+
+        If this node has not scored the requested epoch yet, `available`
+        is False — the peer treats that exactly like an offline node (this
+        node simply does not contribute to that epoch's median). Honest
+        about not-yet-scored rather than returning an empty score set that
+        looks like "scored, no agents".
+        """
+        scores = self._epoch_scores.get(request.epoch)
+        if scores is None:
+            return GetScoresResponse(
+                node_id=self.node_id, epoch=request.epoch,
+                available=False,
+            )
+        # Deterministic order — sorted by wallet — so the response is stable.
+        ordered = tuple(scores[w] for w in sorted(scores))
+        return GetScoresResponse(
+            node_id=self.node_id, epoch=request.epoch,
+            available=True, scores=ordered,
         )
 
     # ── Reaching peers — uses the transport ─────────────────────────────────

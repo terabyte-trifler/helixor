@@ -75,22 +75,35 @@ impl TrustCertificate {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OracleConfig PDA — singleton (Day 7 NEW)
+// OracleConfig PDA — singleton
 // Seeds: ["oracle_config"]
-// Created once via initialize_oracle_config; mutated by update_oracle_config.
+//
+// Phase 4 extends the MVP's single oracle key into a 1 / 3 / 5 node cluster.
+// A 1-node config is the explicit backward-compatible deployment; 3-5 nodes
+// are the BFT deployments used by the off-chain median aggregator.
 // ─────────────────────────────────────────────────────────────────────────────
 #[account]
 pub struct OracleConfig {
-    pub oracle_key: Pubkey, // 32 — currently authorised oracle node
-    pub admin_key: Pubkey,  // 32 — only this key can rotate oracle_key
-    pub bump: u8,           // 1
-    pub paused: bool,       // 1 — emergency stop, blocks all writes
-    pub epoch: u64,         // 8 — total scoring epochs run
-                            // Total: 74 bytes
+    pub authority: Pubkey,
+    pub oracle_node: Pubkey,
+    pub oracle_keys: Vec<Pubkey>,
+    pub min_confidence: u16,
+    pub bump: u8,
 }
 
 impl OracleConfig {
-    pub const INIT_SPACE: usize = 74;
+    pub const MAX_ORACLE_KEYS: usize = 5;
+    pub const SEED: &'static [u8] = b"oracle_config";
+    pub const SPACE: usize = 8 + 32 + 32 + 4 + (32 * Self::MAX_ORACLE_KEYS) + 2 + 1;
+    pub const INIT_SPACE: usize = Self::SPACE - 8;
+
+    pub fn consensus_threshold(&self) -> u8 {
+        (self.oracle_keys.len() as u8 / 2) + 1
+    }
+
+    pub fn is_cluster_member(&self, key: &Pubkey) -> bool {
+        self.oracle_keys.contains(key)
+    }
 }
 
 #[account]

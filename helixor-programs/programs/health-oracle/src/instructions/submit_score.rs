@@ -70,7 +70,7 @@ pub struct SubmitScore<'info> {
     /// The oracle node — signs the score submission AND the CPI.
     #[account(
         mut,
-        constraint = oracle.key() == oracle_config.oracle_key
+        constraint = oracle.key() == oracle_config.oracle_node
             @ HelixorError::NotOracleAuthority,
     )]
     pub oracle: Signer<'info>,
@@ -97,11 +97,11 @@ pub struct SubmitScore<'info> {
 }
 
 pub fn handler(
-    ctx: Context<SubmitScore>,
-    epoch: u64,
-    score: u16,
-    alert_tier: u8,
-    flags: u32,
+    ctx:           Context<SubmitScore>,
+    epoch:         u64,
+    score:         u16,
+    alert_tier:    u8,
+    flags:         u32,
     immediate_red: bool,
 ) -> Result<()> {
     // ── 2. precondition checks ──────────────────────────────────────────────
@@ -123,9 +123,9 @@ pub fn handler(
     // (configured once at deployment).
     let cpi_accounts = IssueCertificateAccounts {
         baseline_stats: ctx.accounts.baseline_stats.to_account_info(),
-        certificate: ctx.accounts.certificate.to_account_info(),
-        issuer_config: ctx.accounts.issuer_config.to_account_info(),
-        issuer: ctx.accounts.oracle.to_account_info(),
+        certificate:    ctx.accounts.certificate.to_account_info(),
+        issuer_config:  ctx.accounts.issuer_config.to_account_info(),
+        issuer:         ctx.accounts.oracle.to_account_info(),
         system_program: ctx.accounts.system_program.to_account_info(),
     };
     let cpi_ctx = CpiContext::new(
@@ -140,21 +140,19 @@ pub fn handler(
     // ── emit the oracle-side event ──────────────────────────────────────────
     let clock = Clock::get()?;
     emit!(ScoreSubmitted {
-        agent_wallet: ctx.accounts.agent_registration.agent_wallet,
+        agent_wallet:  ctx.accounts.agent_registration.agent_wallet,
         epoch,
         score,
         alert_tier,
         flags,
         immediate_red,
-        oracle: ctx.accounts.oracle.key(),
-        submitted_at: clock.unix_timestamp,
+        oracle:        ctx.accounts.oracle.key(),
+        submitted_at:  clock.unix_timestamp,
     });
 
     msg!(
         "score submitted via CPI: agent={} epoch={} score={}",
-        ctx.accounts.agent_registration.agent_wallet,
-        epoch,
-        score,
+        ctx.accounts.agent_registration.agent_wallet, epoch, score,
     );
     Ok(())
 }

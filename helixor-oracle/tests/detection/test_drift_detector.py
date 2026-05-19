@@ -275,7 +275,6 @@ from baseline.types import BaselineStats, BASELINE_ALGO_VERSION
 from features import FEATURE_SCHEMA_VERSION, FeatureVector
 from features.vector import TOTAL_FEATURES
 from detection.drift import FLAG_CUSUM, FLAG_ADWIN, FLAG_DDM
-from scoring.weights import scoring_schema_fingerprint
 
 
 def _synthetic_baseline(*, daily_series: list[float],
@@ -295,7 +294,6 @@ def _synthetic_baseline(*, daily_series: list[float],
         baseline_algo_version=BASELINE_ALGO_VERSION,
         feature_schema_version=FEATURE_SCHEMA_VERSION,
         feature_schema_fingerprint=FeatureVector.feature_schema_fingerprint(),
-        scoring_schema_fingerprint=scoring_schema_fingerprint(),
         window_start=end - timedelta(days=len(daily_series)),
         window_end=end,
         feature_means=tuple(0.5 for _ in range(TOTAL_FEATURES)),

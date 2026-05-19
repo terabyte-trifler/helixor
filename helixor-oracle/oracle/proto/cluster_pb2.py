@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rcluster.proto\x12\x19helixor.oracle.cluster.v1\"-\n\x0bPingRequest\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\r\n\x05nonce\x18\x02 \x01(\x04\"E\n\x0cPingResponse\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\r\n\x05nonce\x18\x02 \x01(\x04\x12\x15\n\rcurrent_epoch\x18\x03 \x01(\x04\"D\n\rCommitRequest\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\r\n\x05\x65poch\x18\x02 \x01(\x04\x12\x13\n\x0b\x63ommit_hash\x18\x03 \x01(\x0c\"2\n\x0e\x43ommitResponse\x12\x10\n\x08\x61\x63\x63\x65pted\x18\x01 \x01(\x08\x12\x0e\n\x06reason\x18\x02 \x01(\t\"t\n\rRevealRequest\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\r\n\x05\x65poch\x18\x02 \x01(\x04\x12\x35\n\x06scores\x18\x03 \x03(\x0b\x32%.helixor.oracle.cluster.v1.AgentScore\x12\x0c\n\x04salt\x18\x04 \x01(\x0c\"2\n\x0eRevealResponse\x12\x10\n\x08verified\x18\x01 \x01(\x08\x12\x0e\n\x06reason\x18\x02 \x01(\t\"\x7f\n\nAgentScore\x12\x14\n\x0c\x61gent_wallet\x18\x01 \x01(\t\x12\r\n\x05score\x18\x02 \x01(\r\x12\x12\n\nalert_tier\x18\x03 \x01(\r\x12\r\n\x05\x66lags\x18\x04 \x01(\r\x12\x15\n\rimmediate_red\x18\x05 \x01(\x08\x12\x12\n\nconfidence\x18\x06 \x01(\r2\xa6\x02\n\rOracleCluster\x12W\n\x04Ping\x12&.helixor.oracle.cluster.v1.PingRequest\x1a\'.helixor.oracle.cluster.v1.PingResponse\x12]\n\x06\x43ommit\x12(.helixor.oracle.cluster.v1.CommitRequest\x1a).helixor.oracle.cluster.v1.CommitResponse\x12]\n\x06Reveal\x12(.helixor.oracle.cluster.v1.RevealRequest\x1a).helixor.oracle.cluster.v1.RevealResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rcluster.proto\x12\x19helixor.oracle.cluster.v1\"-\n\x0bPingRequest\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\r\n\x05nonce\x18\x02 \x01(\x04\"E\n\x0cPingResponse\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\r\n\x05nonce\x18\x02 \x01(\x04\x12\x15\n\rcurrent_epoch\x18\x03 \x01(\x04\"D\n\rCommitRequest\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\r\n\x05\x65poch\x18\x02 \x01(\x04\x12\x13\n\x0b\x63ommit_hash\x18\x03 \x01(\x0c\"2\n\x0e\x43ommitResponse\x12\x10\n\x08\x61\x63\x63\x65pted\x18\x01 \x01(\x08\x12\x0e\n\x06reason\x18\x02 \x01(\t\"t\n\rRevealRequest\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\r\n\x05\x65poch\x18\x02 \x01(\x04\x12\x35\n\x06scores\x18\x03 \x03(\x0b\x32%.helixor.oracle.cluster.v1.AgentScore\x12\x0c\n\x04salt\x18\x04 \x01(\x0c\"2\n\x0eRevealResponse\x12\x10\n\x08verified\x18\x01 \x01(\x08\x12\x0e\n\x06reason\x18\x02 \x01(\t\"\x7f\n\nAgentScore\x12\x14\n\x0c\x61gent_wallet\x18\x01 \x01(\t\x12\r\n\x05score\x18\x02 \x01(\r\x12\x12\n\nalert_tier\x18\x03 \x01(\r\x12\r\n\x05\x66lags\x18\x04 \x01(\r\x12\x15\n\rimmediate_red\x18\x05 \x01(\x08\x12\x12\n\nconfidence\x18\x06 \x01(\r\"2\n\x10GetScoresRequest\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\r\n\x05\x65poch\x18\x02 \x01(\x04\"}\n\x11GetScoresResponse\x12\x0f\n\x07node_id\x18\x01 \x01(\t\x12\r\n\x05\x65poch\x18\x02 \x01(\x04\x12\x11\n\tavailable\x18\x03 \x01(\x08\x12\x35\n\x06scores\x18\x04 \x03(\x0b\x32%.helixor.oracle.cluster.v1.AgentScore2\x8e\x03\n\rOracleCluster\x12W\n\x04Ping\x12&.helixor.oracle.cluster.v1.PingRequest\x1a\'.helixor.oracle.cluster.v1.PingResponse\x12]\n\x06\x43ommit\x12(.helixor.oracle.cluster.v1.CommitRequest\x1a).helixor.oracle.cluster.v1.CommitResponse\x12]\n\x06Reveal\x12(.helixor.oracle.cluster.v1.RevealRequest\x1a).helixor.oracle.cluster.v1.RevealResponse\x12\x66\n\tGetScores\x12+.helixor.oracle.cluster.v1.GetScoresRequest\x1a,.helixor.oracle.cluster.v1.GetScoresResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -45,6 +45,10 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_REVEALRESPONSE']._serialized_end=452
   _globals['_AGENTSCORE']._serialized_start=454
   _globals['_AGENTSCORE']._serialized_end=581
-  _globals['_ORACLECLUSTER']._serialized_start=584
-  _globals['_ORACLECLUSTER']._serialized_end=878
+  _globals['_GETSCORESREQUEST']._serialized_start=583
+  _globals['_GETSCORESREQUEST']._serialized_end=633
+  _globals['_GETSCORESRESPONSE']._serialized_start=635
+  _globals['_GETSCORESRESPONSE']._serialized_end=760
+  _globals['_ORACLECLUSTER']._serialized_start=763
+  _globals['_ORACLECLUSTER']._serialized_end=1161
 # @@protoc_insertion_point(module_scope)

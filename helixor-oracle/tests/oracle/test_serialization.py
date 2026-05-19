@@ -110,10 +110,8 @@ def _make_account_bytes(
     agent_wallet=b"\xa1" * 32,
     owner_wallet=b"\xb2" * 32,
     registered_at=1714566000,
-    escrow_lamports=10_000_000,
     active=True,
     bump=254,
-    vault_bump=253,
     baseline_committed=True,
     baseline_hash=b"\xcd" * 32,
     baseline_algo_version=2,
@@ -127,10 +125,8 @@ def _make_account_bytes(
     out += agent_wallet
     out += owner_wallet
     out += struct.pack("<q", registered_at)
-    out += struct.pack("<Q", escrow_lamports)
     out += bytes([1 if active else 0])
     out += bytes([bump])
-    out += bytes([vault_bump])
     out += bytes([1 if baseline_committed else 0])
     out += baseline_hash
     out += bytes([baseline_algo_version])
@@ -149,10 +145,8 @@ class TestDecodeAgentRegistrationV2:
             agent_wallet=b"\xa1" * 32,
             owner_wallet=b"\xb2" * 32,
             registered_at=1714566000,
-            escrow_lamports=10_000_000,
             active=True,
             bump=254,
-            vault_bump=253,
             baseline_committed=True,
             baseline_hash=b"\xcd" * 32,
             baseline_algo_version=2,
@@ -165,10 +159,8 @@ class TestDecodeAgentRegistrationV2:
         assert bytes(d.agent_wallet) == b"\xa1" * 32
         assert bytes(d.owner_wallet) == b"\xb2" * 32
         assert d.registered_at == 1714566000
-        assert d.escrow_lamports == 10_000_000
         assert d.active is True
         assert d.bump == 254
-        assert d.vault_bump == 253
         assert d.baseline_committed is True
         assert d.baseline_hash == b"\xcd" * 32
         assert d.baseline_algo_version == 2

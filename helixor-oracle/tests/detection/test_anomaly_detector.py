@@ -37,7 +37,6 @@ from detection.anomaly import (
 )
 from features import FEATURE_SCHEMA_VERSION, FeatureVector
 from features.vector import TOTAL_FEATURES, group_of
-from scoring.weights import scoring_schema_fingerprint
 
 
 REF_END = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -55,7 +54,6 @@ def _baseline(*, is_provisional: bool = False) -> BaselineStats:
         baseline_algo_version=BASELINE_ALGO_VERSION,
         feature_schema_version=FEATURE_SCHEMA_VERSION,
         feature_schema_fingerprint=FeatureVector.feature_schema_fingerprint(),
-        scoring_schema_fingerprint=scoring_schema_fingerprint(),
         window_start=REF_END - timedelta(days=30),
         window_end=REF_END,
         feature_means=tuple(0.5 for _ in range(TOTAL_FEATURES)),

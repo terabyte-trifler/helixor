@@ -159,6 +159,7 @@ async def insert_transactions_batch(
         {
             "agent_wallet": tx.fee_payer,
             "tx_signature": tx.signature,
+            "signature": tx.signature,
             "slot": tx.slot,
             "block_time": tx.block_time.isoformat(),
             "success": tx.success,
@@ -177,6 +178,7 @@ async def insert_transactions_batch(
             FROM jsonb_to_recordset($1::jsonb) AS t(
                 agent_wallet text,
                 tx_signature text,
+                signature text,
                 slot bigint,
                 block_time timestamptz,
                 success boolean,
@@ -188,13 +190,13 @@ async def insert_transactions_batch(
         ),
         inserted AS (
             INSERT INTO agent_transactions
-                (agent_wallet, tx_signature, slot, block_time, success,
+                (agent_wallet, tx_signature, signature, slot, block_time, success,
                  program_ids, sol_change, fee, raw_meta, source)
             SELECT
-                agent_wallet, tx_signature, slot, block_time, success,
+                agent_wallet, tx_signature, signature, slot, block_time, success,
                 program_ids, sol_change, fee, raw_meta, $2
             FROM input
-            ON CONFLICT (signature, block_time) DO NOTHING
+            ON CONFLICT (tx_signature) DO NOTHING
             RETURNING 1
         )
         SELECT COUNT(*)::int FROM inserted

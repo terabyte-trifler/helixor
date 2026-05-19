@@ -1,14 +1,12 @@
 // =============================================================================
-// Helixor health-oracle program — V2 Day 3 merged
+// programs/health-oracle/src/lib.rs
 //
-// Existing MVP instructions stay live, and Day 3 adds baseline commitment:
-//   register_agent
-//   get_health
-//   update_score
-//   initialize_oracle_config
-//   update_oracle_config
-//   commit_baseline
-//   migrate_registration
+// health-oracle — entry point. Only Day-3 instructions are wired here; the
+// Day 1-12 instructions (register_agent, update_score, get_health, ...) are
+// already in the deployed MVP and are NOT redeclared in this delta package.
+//
+// To merge into the existing repo: add the two new instructions to the
+// program's #[program] block, plus the new state file + errors + events.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -18,63 +16,21 @@ pub mod events;
 pub mod instructions;
 pub mod state;
 
-use instructions::advance_epoch::__client_accounts_advance_epoch;
-#[cfg(feature = "cpi")]
-use instructions::advance_epoch::__cpi_client_accounts_advance_epoch;
-use instructions::initialize_epoch::__client_accounts_initialize_epoch;
-#[cfg(feature = "cpi")]
-use instructions::initialize_epoch::__cpi_client_accounts_initialize_epoch;
-use instructions::submit_score::__client_accounts_submit_score;
-#[cfg(feature = "cpi")]
-use instructions::submit_score::__cpi_client_accounts_submit_score;
-pub use instructions::{AdvanceEpoch, CommitBaselineArgs, InitializeEpoch, SubmitScore};
-pub use state::{
-    AgentRegistration, AlertLevel, EpochState, InitOracleConfigParams, OracleConfig,
-    RegisterParams, ScorePayload, ScoreSource, TrustCertificate, TrustScore,
-    UpdateOracleConfigParams,
-};
+use instructions::*;
 
-declare_id!("Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P");
-
-pub const BOOTSTRAP_AUTHORITY: Pubkey = pubkey!("ANoJSqqxqih1kSkjYaRno9YeBMVaYB8gmcPnBdV5NqQJ");
+// Replace with the actual deployed program ID when merging into the real repo.
+declare_id!("Hex1xor111111111111111111111111111111111111");
 
 #[program]
 pub mod health_oracle {
     use super::*;
 
-    pub fn register_agent(ctx: Context<RegisterAgent>, params: RegisterParams) -> Result<()> {
-        instructions::register_agent::handler(ctx, params)
-    }
-
-    pub fn get_health(ctx: Context<GetHealth>) -> Result<TrustScore> {
-        instructions::get_health::handler(ctx)
-    }
-
-    /// Oracle-only: write a fresh TrustCertificate.
-    /// Validations: oracle key, pause, agent active, 23h cooldown, 200pt cap.
-    pub fn update_score(ctx: Context<UpdateScore>, payload: ScorePayload) -> Result<()> {
-        instructions::update_score::handler(ctx, payload)
-    }
-
-    /// Bootstrap singleton OracleConfig PDA. Run once after deploy.
-    pub fn initialize_oracle_config(
-        ctx: Context<InitializeOracleConfig>,
-        params: InitOracleConfigParams,
-    ) -> Result<()> {
-        instructions::initialize_oracle_config::handler(ctx, params)
-    }
-
-    /// Admin-only: rotate keys or pause/unpause.
-    pub fn update_oracle_config(
-        ctx: Context<UpdateOracleConfig>,
-        params: UpdateOracleConfigParams,
-    ) -> Result<()> {
-        instructions::update_oracle_config::handler(ctx, params)
-    }
-
     /// Day-3 NEW: commit a baseline-hash to an agent's registration.
     /// See commit_baseline::handler for the full authority + replay logic.
-    pub fn commit_baseline(ctx: Context<CommitBaseline>, args: CommitBaselineArgs) -> Result<()> {
+    pub fn commit_baseline(
+        ctx:  Context<CommitBaseline>,
+        args: CommitBaselineArgs,
+    ) -> Result<()> {
         instructions::commit_baseline::handler(ctx, args)
     }
 
@@ -84,180 +40,51 @@ pub mod health_oracle {
         instructions::migrate_registration::handler(ctx)
     }
 
-    pub fn initialize_epoch(
-        ctx: Context<InitializeEpoch>,
-        epoch_duration_seconds: i64,
-    ) -> Result<()> {
-        instructions::initialize_epoch::handler(ctx, epoch_duration_seconds)
+    // ── Day 19: epoch management + CPI score submission ─────────────────────
+
+    /// Day-19 NEW: one-time creation of the EpochState singleton (epoch 1).
+    /// Day-19 NEW: one-time creation of the EpochState singleton (epoch 1).
+    pub fn initialize_epoch(ctx: Context<InitializeEpoch>) -> Result<()> {
+        instructions::initialize_epoch::handler(ctx)
     }
 
+    /// Day-23 NEW: create the OracleConfig singleton for the oracle
+    /// cluster — the 3-5 node pubkeys and the confidence floor. A 1-node
+    /// cluster is the explicit backward-compatible single-node deployment.
+    pub fn initialize_oracle_config(
+        ctx:            Context<InitializeOracleConfig>,
+        oracle_keys:    Vec<Pubkey>,
+        min_confidence: u16,
+    ) -> Result<()> {
+        instructions::initialize_oracle_config::handler(ctx, oracle_keys, min_confidence)
+    }
+
+    /// Day-19 NEW: tick the epoch counter at the end of a 24h cycle.
+    /// Guarded — the epoch duration must have elapsed.
     pub fn advance_epoch(ctx: Context<AdvanceEpoch>) -> Result<()> {
         instructions::advance_epoch::handler(ctx)
     }
 
+    /// Day-19 NEW: the oracle submits an agent's epoch score. Writes the
+    /// on-chain HealthCertificate by CPI into the certificate-issuer
+    /// program. Atomic — if the certificate write reverts, so does this.
     pub fn submit_score(
-        ctx: Context<SubmitScore>,
-        epoch: u64,
-        score: u16,
-        alert_tier: u8,
-        flags: u32,
+        ctx:           Context<SubmitScore>,
+        epoch:         u64,
+        score:         u16,
+        alert_tier:    u8,
+        flags:         u32,
         immediate_red: bool,
     ) -> Result<()> {
-        instructions::submit_score::handler(ctx, epoch, score, alert_tier, flags, immediate_red)
+        instructions::submit_score::handler(
+            ctx, epoch, score, alert_tier, flags, immediate_red,
+        )
     }
-}
 
-#[derive(Accounts)]
-pub struct RegisterAgent<'info> {
-    #[account(mut)]
-    pub owner: Signer<'info>,
-
-    pub agent_wallet: Signer<'info>,
-
-    #[account(
-        init,
-        payer  = owner,
-        space  = 8 + AgentRegistration::INIT_SPACE,
-        seeds  = [b"agent", agent_wallet.key().as_ref()],
-        bump,
-    )]
-    pub agent_registration: Account<'info, AgentRegistration>,
-
-    #[account(
-        init,
-        payer  = owner,
-        space  = 0,
-        seeds  = [b"escrow", agent_wallet.key().as_ref()],
-        bump,
-    )]
-    /// CHECK: created here as a system-owned PDA with zero data.
-    pub escrow_vault: UncheckedAccount<'info>,
-
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct GetHealth<'info> {
-    /// CHECK: any caller
-    pub querier: UncheckedAccount<'info>,
-
-    #[account(
-        seeds = [b"agent", agent_registration.agent_wallet.as_ref()],
-        bump  = agent_registration.bump,
-    )]
-    pub agent_registration: Account<'info, AgentRegistration>,
-
-    /// CHECK: validated in handler
-    pub trust_certificate: UncheckedAccount<'info>,
-}
-
-#[derive(Accounts)]
-pub struct UpdateScore<'info> {
-    /// The oracle node submitting the score. Must match oracle_config.oracle_key.
-    /// Pays rent for cert PDA on first update of each agent.
-    #[account(mut)]
-    pub oracle: Signer<'info>,
-
-    /// AgentRegistration PDA — must exist (agent registered).
-    #[account(
-        seeds = [b"agent", agent_registration.agent_wallet.as_ref()],
-        bump  = agent_registration.bump,
-    )]
-    pub agent_registration: Account<'info, AgentRegistration>,
-
-    /// TrustCertificate PDA — created on first call, mutated on subsequent.
-    #[account(
-        init_if_needed,
-        payer  = oracle,
-        space  = 8 + TrustCertificate::INIT_SPACE,
-        seeds  = [b"score", agent_registration.agent_wallet.as_ref()],
-        bump,
-    )]
-    pub trust_certificate: Account<'info, TrustCertificate>,
-
-    /// OracleConfig singleton. Mutated to bump epoch counter.
-    #[account(
-        mut,
-        seeds = [b"oracle_config"],
-        bump  = oracle_config.bump,
-    )]
-    pub oracle_config: Account<'info, OracleConfig>,
-
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct InitializeOracleConfig<'info> {
-    #[account(mut)]
-    pub deployer: Signer<'info>,
-
-    #[account(
-        init,
-        payer  = deployer,
-        space  = 8 + OracleConfig::INIT_SPACE,
-        seeds  = [b"oracle_config"],
-        bump,
-    )]
-    pub oracle_config: Account<'info, OracleConfig>,
-
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct UpdateOracleConfig<'info> {
-    pub admin: Signer<'info>,
-
-    #[account(
-        mut,
-        seeds = [b"oracle_config"],
-        bump  = oracle_config.bump,
-    )]
-    pub oracle_config: Account<'info, OracleConfig>,
-}
-
-#[derive(Accounts)]
-#[instruction(args: CommitBaselineArgs)]
-pub struct CommitBaseline<'info> {
-    /// The agent registration we are committing on. Must be active and at
-    /// the current layout version (older layouts need migrate_registration).
-    #[account(
-        mut,
-        seeds = [b"agent", agent_registration.agent_wallet.as_ref()],
-        bump  = agent_registration.bump,
-        constraint = agent_registration.active @ errors::HelixorError::AgentInactive,
-        constraint = agent_registration.layout_version == AgentRegistration::CURRENT_LAYOUT_VERSION
-            @ errors::HelixorError::LayoutMigrationRequired,
-    )]
-    pub agent_registration: Account<'info, AgentRegistration>,
-
-    /// OracleConfig is the source of truth for oracle authority.
-    #[account(
-        seeds = [b"oracle_config"],
-        bump  = oracle_config.bump,
-    )]
-    pub oracle_config: Account<'info, OracleConfig>,
-
-    /// The signer claiming the right to commit. Validated in the handler.
-    pub signer: Signer<'info>,
-}
-
-#[derive(Accounts)]
-pub struct MigrateRegistration<'info> {
-    #[account(
-        mut,
-        seeds = [b"agent", agent_registration.agent_wallet.as_ref()],
-        bump  = agent_registration.bump,
-        realloc            = AgentRegistration::SPACE,
-        realloc::payer     = owner,
-        realloc::zero      = true,
-    )]
-    pub agent_registration: Account<'info, AgentRegistration>,
-
-    #[account(
-        mut,
-        constraint = owner.key() == agent_registration.owner_wallet @ errors::HelixorError::NotAgentOwner,
-    )]
-    pub owner: Signer<'info>,
-
-    pub system_program: Program<'info, System>,
+    /// Day-19 NEW: read an agent's current-epoch HealthCertificate. The V2
+    /// replacement for the MVP's single-score get_health — same intent,
+    /// new on-chain source (the epoch-keyed certificate).
+    pub fn get_health(ctx: Context<GetHealth>, agent_wallet: Pubkey) -> Result<()> {
+        instructions::get_health::handler(ctx, agent_wallet)
+    }
 }

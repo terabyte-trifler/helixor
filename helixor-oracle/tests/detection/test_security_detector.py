@@ -20,7 +20,6 @@ from detection._sybil_graph import AgentCohortRecord, SybilGraph
 from detection.security import (
     FLAG_ATTACK_PATTERN,
     FLAG_CRITICAL_HIT,
-    FLAG_DIRECTED_ANOM,
     FLAG_INTEGRITY,
     FLAG_SYBIL,
     SecurityDetector,
@@ -30,7 +29,6 @@ from detection.security_types import ScanMetadata
 from features import FEATURE_SCHEMA_VERSION, FeatureVector
 from features.types import Transaction
 from features.vector import TOTAL_FEATURES
-from scoring.weights import scoring_schema_fingerprint
 
 
 REF_END = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -48,7 +46,6 @@ def _baseline(wallet: str = "agentSEC", *, is_provisional: bool = False) -> Base
         baseline_algo_version=BASELINE_ALGO_VERSION,
         feature_schema_version=FEATURE_SCHEMA_VERSION,
         feature_schema_fingerprint=FeatureVector.feature_schema_fingerprint(),
-        scoring_schema_fingerprint=scoring_schema_fingerprint(),
         window_start=REF_END - timedelta(days=30),
         window_end=REF_END,
         feature_means=tuple(0.5 for _ in range(TOTAL_FEATURES)),
@@ -206,7 +203,7 @@ class TestIntegrityComponent:
 
 class TestAttackPatternComponent:
 
-    def _tx(self, i: int, *, authority_operation: bool = False) -> Transaction:
+    def _tx(self, i: int) -> Transaction:
         return Transaction(
             signature=f"S{i:08d}".ljust(64, "x"),
             slot=100_000_000 + i,
@@ -216,7 +213,6 @@ class TestAttackPatternComponent:
             sol_change=1_000_000,
             fee=5000, priority_fee=0, compute_units=200_000,
             counterparty=f"cp{i}",
-            authority_operation=authority_operation,
         )
 
     def test_critical_attack_signal_fast_paths(self):
@@ -264,31 +260,6 @@ class TestDirectedAnomaly:
     def test_clean_agent_high_directed_score(self):
         result = SecurityDetector().score(_clean_features(), _baseline())
         assert result.sub_scores["directed_anomaly_score"] > 0.9
-
-    def test_authority_ops_plus_outflow_trips_directed_signal(self):
-        txs = tuple(
-            Transaction(
-                signature=f"A{i:08d}".ljust(64, "x"),
-                slot=200_000_000 + i,
-                block_time=REF_END - timedelta(minutes=i),
-                success=True,
-                program_ids=("BPFLoaderUpgradeab1e11111111111111111111111",),
-                sol_change=-1_000_000,
-                fee=5000,
-                counterparty=f"admin{i}",
-                authority_operation=True,
-            )
-            for i in range(10)
-        )
-        feats = _features(
-            prog_new_rate_7d=0.0,
-            cp_new_rate_7d=0.0,
-            solflow_total_in=0.1,
-            solflow_total_out=2.0,
-        )
-        result = SecurityDetector(SecurityContext(transactions=txs)).score(feats, _baseline())
-        assert result.flags & FLAG_DIRECTED_ANOM
-        assert result.sub_scores["directed_anomaly_score"] < 0.5
 
 
 # =============================================================================

@@ -52,6 +52,11 @@ class OracleClusterStub(object):
                 request_serializer=cluster__pb2.RevealRequest.SerializeToString,
                 response_deserializer=cluster__pb2.RevealResponse.FromString,
                 _registered_method=True)
+        self.GetScores = channel.unary_unary(
+                '/helixor.oracle.cluster.v1.OracleCluster/GetScores',
+                request_serializer=cluster__pb2.GetScoresRequest.SerializeToString,
+                response_deserializer=cluster__pb2.GetScoresResponse.FromString,
+                _registered_method=True)
 
 
 class OracleClusterServicer(object):
@@ -83,6 +88,14 @@ class OracleClusterServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetScores(self, request, context):
+        """Day 24: a node fetches a peer's epoch scores, to compute the cluster
+        median. Direct score exchange (commit-reveal hardening is a later day).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_OracleClusterServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -100,6 +113,11 @@ def add_OracleClusterServicer_to_server(servicer, server):
                     servicer.Reveal,
                     request_deserializer=cluster__pb2.RevealRequest.FromString,
                     response_serializer=cluster__pb2.RevealResponse.SerializeToString,
+            ),
+            'GetScores': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetScores,
+                    request_deserializer=cluster__pb2.GetScoresRequest.FromString,
+                    response_serializer=cluster__pb2.GetScoresResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -186,6 +204,33 @@ class OracleCluster(object):
             '/helixor.oracle.cluster.v1.OracleCluster/Reveal',
             cluster__pb2.RevealRequest.SerializeToString,
             cluster__pb2.RevealResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetScores(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/helixor.oracle.cluster.v1.OracleCluster/GetScores',
+            cluster__pb2.GetScoresRequest.SerializeToString,
+            cluster__pb2.GetScoresResponse.FromString,
             options,
             channel_credentials,
             insecure,

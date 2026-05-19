@@ -32,21 +32,52 @@ use anchor_lang::prelude::*;
 
 use crate::errors::HelixorError;
 use crate::events::{BaselineCommitted, CommitterKind};
+use crate::state::{AgentRegistration, OracleConfig};
+
+#[derive(Accounts)]
+#[instruction(args: CommitBaselineArgs)]
+pub struct CommitBaseline<'info> {
+    /// The agent registration we are committing on. Must be active and at
+    /// the current layout version (older layouts need migrate_registration).
+    #[account(
+        mut,
+        seeds = [b"agent", agent_registration.agent_wallet.as_ref()],
+        bump  = agent_registration.bump,
+        constraint = agent_registration.active                                  @ HelixorError::AgentInactive,
+        constraint = agent_registration.layout_version == AgentRegistration::CURRENT_LAYOUT_VERSION
+            @ HelixorError::LayoutMigrationRequired,
+    )]
+    pub agent_registration: Account<'info, AgentRegistration>,
+
+    /// OracleConfig — read to determine the canonical oracle authority.
+    /// We never hard-code the oracle pubkey; OracleConfig is the source of truth
+    /// so the eventual 3-of-5 multisig rotation is one config write away.
+    #[account(
+        seeds = [b"oracle_config"],
+        bump  = oracle_config.bump,
+    )]
+    pub oracle_config: Account<'info, OracleConfig>,
+
+    /// The signer claiming the right to commit. Validated in the handler:
+    ///   - if args.committer_kind == Oracle, signer must equal oracle_config.oracle_node
+    ///   - if args.committer_kind == Owner,  signer must equal agent_registration.owner_wallet
+    pub signer: Signer<'info>,
+}
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct CommitBaselineArgs {
     /// 32-byte SHA-256 commitment computed by the off-chain baseline engine.
-    pub baseline_hash: [u8; 32],
+    pub baseline_hash:          [u8; 32],
     /// Algorithm version that produced the hash. Non-zero.
-    pub baseline_algo_version: u8,
+    pub baseline_algo_version:  u8,
     /// Strictly greater than the agent's current commit_nonce. Replay defence.
-    pub commit_nonce: u64,
+    pub commit_nonce:           u64,
     /// Whether this commit is from the oracle (canonical) or the owner (override).
-    pub committer_kind: CommitterKind,
+    pub committer_kind:         CommitterKind,
 }
 
-pub fn handler(ctx: Context<crate::CommitBaseline>, args: CommitBaselineArgs) -> Result<()> {
-    let reg = &mut ctx.accounts.agent_registration;
+pub fn handler(ctx: Context<CommitBaseline>, args: CommitBaselineArgs) -> Result<()> {
+    let reg    = &mut ctx.accounts.agent_registration;
     let config = &ctx.accounts.oracle_config;
     let signer = &ctx.accounts.signer;
 
@@ -56,12 +87,16 @@ pub fn handler(ctx: Context<crate::CommitBaseline>, args: CommitBaselineArgs) ->
         CommitterKind::Oracle => {
             require_keys_eq!(
                 signer.key(),
-                config.oracle_key,
+                config.oracle_node,
                 HelixorError::NotOracleAuthority
             );
         }
         CommitterKind::Owner => {
-            require_keys_eq!(signer.key(), reg.owner_wallet, HelixorError::NotAgentOwner);
+            require_keys_eq!(
+                signer.key(),
+                reg.owner_wallet,
+                HelixorError::NotAgentOwner
+            );
         }
     }
 
@@ -90,23 +125,23 @@ pub fn handler(ctx: Context<crate::CommitBaseline>, args: CommitBaselineArgs) ->
 
     // 5. Write the new commitment. The previous values flow into the event
     //    (and thus the off-chain append-only history).
-    reg.baseline_committed = true;
-    reg.baseline_hash = args.baseline_hash;
-    reg.baseline_algo_version = args.baseline_algo_version;
-    reg.baseline_committer = signer.key();
-    reg.baseline_committed_at = clock.unix_timestamp;
-    reg.commit_nonce = args.commit_nonce;
+    reg.baseline_committed     = true;
+    reg.baseline_hash          = args.baseline_hash;
+    reg.baseline_algo_version  = args.baseline_algo_version;
+    reg.baseline_committer     = signer.key();
+    reg.baseline_committed_at  = clock.unix_timestamp;
+    reg.commit_nonce           = args.commit_nonce;
 
     // 6. Emit the event for the indexer.
     emit!(BaselineCommitted {
-        agent_wallet: reg.agent_wallet,
-        committer: signer.key(),
-        baseline_hash: args.baseline_hash,
-        baseline_algo_version: args.baseline_algo_version,
-        commit_nonce: args.commit_nonce,
-        committed_at: clock.unix_timestamp,
+        agent_wallet:           reg.agent_wallet,
+        committer:              signer.key(),
+        baseline_hash:          args.baseline_hash,
+        baseline_algo_version:  args.baseline_algo_version,
+        commit_nonce:           args.commit_nonce,
+        committed_at:           clock.unix_timestamp,
         first_commit,
-        committer_kind: args.committer_kind,
+        committer_kind:         args.committer_kind,
     });
 
     Ok(())

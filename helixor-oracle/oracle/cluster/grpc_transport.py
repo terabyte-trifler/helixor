@@ -48,6 +48,8 @@ from oracle.cluster.messages import (
     AgentScore,
     CommitRequest,
     CommitResponse,
+    GetScoresRequest,
+    GetScoresResponse,
     PingRequest,
     PingResponse,
     RevealRequest,
@@ -133,6 +135,30 @@ def _reveal_response_from_pb(message) -> RevealResponse:
     return RevealResponse(verified=message.verified, reason=message.reason)
 
 
+def _agent_score_from_pb(message) -> AgentScore:
+    return AgentScore(
+        agent_wallet=message.agent_wallet,
+        score=message.score,
+        alert_tier=message.alert_tier,
+        flags=message.flags,
+        immediate_red=message.immediate_red,
+        confidence=message.confidence,
+    )
+
+
+def _get_scores_request_to_pb(request: GetScoresRequest, pb2):
+    return pb2.GetScoresRequest(node_id=request.node_id, epoch=request.epoch)
+
+
+def _get_scores_response_from_pb(message) -> GetScoresResponse:
+    return GetScoresResponse(
+        node_id=message.node_id,
+        epoch=message.epoch,
+        available=message.available,
+        scores=tuple(_agent_score_from_pb(s) for s in message.scores),
+    )
+
+
 # =============================================================================
 # GrpcTransport — the client side
 # =============================================================================
@@ -193,6 +219,20 @@ class GrpcTransport:
             return _reveal_response_from_pb(pb_response)
         except self._grpc.RpcError as exc:           # pragma: no cover
             raise PeerUnreachable(f"gRPC Reveal to {peer_id} failed: {exc}") from exc
+
+    def get_scores(
+        self, peer_id: str, request: GetScoresRequest,
+    ) -> GetScoresResponse:
+        try:
+            stub = self._stub(peer_id)
+            pb_response = stub.GetScores(
+                _get_scores_request_to_pb(request, self._pb2)
+            )
+            return _get_scores_response_from_pb(pb_response)
+        except self._grpc.RpcError as exc:           # pragma: no cover
+            raise PeerUnreachable(
+                f"gRPC GetScores to {peer_id} failed: {exc}"
+            ) from exc
 
     def close(self) -> None:
         """Close all open channels."""
@@ -264,6 +304,28 @@ def make_grpc_servicer(service: ClusterService):
             response = service.reveal(native)
             return cluster_pb2.RevealResponse(
                 verified=response.verified, reason=response.reason,
+            )
+
+        def GetScores(self, request, context):       # noqa: N802
+            native = GetScoresRequest(
+                node_id=request.node_id, epoch=request.epoch,
+            )
+            response = service.get_scores(native)
+            return cluster_pb2.GetScoresResponse(
+                node_id=response.node_id,
+                epoch=response.epoch,
+                available=response.available,
+                scores=[
+                    cluster_pb2.AgentScore(
+                        agent_wallet=s.agent_wallet,
+                        score=s.score,
+                        alert_tier=s.alert_tier,
+                        flags=s.flags,
+                        immediate_red=s.immediate_red,
+                        confidence=s.confidence,
+                    )
+                    for s in response.scores
+                ],
             )
 
     return _Servicer()

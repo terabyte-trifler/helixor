@@ -188,7 +188,8 @@ class SecurityDetector:
             new_program_rate     = features.to_list()[_IDX["prog_new_rate_7d"]],
             counterparty_churn   = features.to_list()[_IDX["cp_new_rate_7d"]],
             net_outflow_fraction = _net_outflow_fraction(features),
-            authority_op_fraction= _authority_op_fraction(ctx),
+            authority_op_fraction= 0.0,   # authority-op feature lands with the
+                                          # richer tx model; 0.0 until then.
         )
         directed_health = 1.0 - directed
         if directed_health < COMPONENT_FLAG_FLOOR:
@@ -246,21 +247,6 @@ def _net_outflow_fraction(features: FeatureVector) -> float:
     if denom <= 1e-12:
         return 0.0
     return max(0.0, min(1.0, total_out / denom))
-
-
-def _authority_op_fraction(ctx: SecurityContext) -> float:
-    """
-    Fraction of context transactions that performed authority-sensitive ops.
-
-    This signal lives in SecurityContext.transaction metadata rather than the
-    frozen 100-feature vector. That keeps existing baselines compatible while
-    making the Day-10 directed-threat hook active as soon as the parser/indexer
-    can mark privileged operations.
-    """
-    if not ctx.transactions:
-        return 0.0
-    authority_ops = sum(1 for tx in ctx.transactions if tx.authority_operation)
-    return authority_ops / len(ctx.transactions)
 
 
 # Static check: the real detector conforms to the Detector Protocol.

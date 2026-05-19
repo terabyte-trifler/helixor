@@ -148,7 +148,7 @@ class PerformanceDetector:
         claimed_return = feature_values[_IDX[_NET_RETURN_FEATURE]]
         profit_h = profit_quality(
             claimed_return=claimed_return,
-            market_return=self._market.effective_market_return,
+            market_return=self._market.market_return,
             market_exposure=self._market.market_exposure,
         )
         if profit_h < PROFIT_QUALITY_FLAG_FLOOR:

@@ -17,6 +17,21 @@ the only place gRPC enters.
 
 from __future__ import annotations
 
+from oracle.cluster.aggregation import (
+    AggregatedScore,
+    ConsensusNotMet,
+    NodeScore,
+    QuorumNotMet,
+    aggregate_scores,
+    quorum_for,
+)
+from oracle.cluster.cluster_runner import (
+    ClusterAgentResult,
+    ClusterEpochReport,
+    ClusterEpochRunner,
+    ClusterSubmitFn,
+    simulate_cluster_epoch,
+)
 from oracle.cluster.identity import (
     NodeIdentity,
     NodeKeypair,
@@ -26,6 +41,8 @@ from oracle.cluster.messages import (
     AgentScore,
     CommitRequest,
     CommitResponse,
+    GetScoresRequest,
+    GetScoresResponse,
     PingRequest,
     PingResponse,
     RevealRequest,
@@ -44,6 +61,11 @@ __all__ = [
     "PingRequest", "PingResponse",
     "CommitRequest", "CommitResponse",
     "RevealRequest", "RevealResponse", "AgentScore",
+    "GetScoresRequest", "GetScoresResponse",
     "ClusterService", "ClusterTransport",
     "InProcessRegistry", "InProcessTransport", "PeerUnreachable",
+    "AggregatedScore", "NodeScore", "QuorumNotMet", "ConsensusNotMet",
+    "aggregate_scores", "quorum_for",
+    "ClusterEpochRunner", "ClusterEpochReport", "ClusterAgentResult",
+    "ClusterSubmitFn", "simulate_cluster_epoch",
 ]

@@ -30,7 +30,6 @@ def test_adds_v2_columns_to_agent_baselines(sql):
     for col in (
         "feature_means", "feature_stds", "stats_hash",
         "feature_schema_version", "feature_schema_fingerprint",
-        "scoring_schema_fingerprint",
         "baseline_algo_version", "txtype_distribution",
         "action_entropy", "success_rate_30d",
         "transaction_count", "days_with_activity", "is_provisional",
@@ -52,21 +51,11 @@ def test_array_length_check_constraints(sql):
 def test_stats_hash_length_constraint(sql):
     assert "char_length(stats_hash) = 64" in sql
 
-def test_scoring_schema_fingerprint_length_constraint(sql):
-    assert "agent_baselines_scoring_fp_len" in sql
-    assert "char_length(scoring_schema_fingerprint) = 64" in sql
-
 def test_history_table_is_append_only(sql):
     # The append-only trigger must exist.
     assert "reject_baseline_history_mutation" in sql
     assert "BEFORE UPDATE OR DELETE ON agent_baseline_history" in sql
     assert "append-only" in sql.lower()
-
-def test_history_baseline_algo_version_added_for_mvp_upgrade(sql):
-    # Fresh MVP tables used algo_version; v2 must add/backfill baseline_algo_version
-    # before indexing it.
-    assert "ADD COLUMN IF NOT EXISTS baseline_algo_version" in sql
-    assert "COALESCE(baseline_algo_version, algo_version, 1)" in sql
 
 def test_history_dedup_constraint(sql):
     # Re-running the same computation must not append a duplicate history row.

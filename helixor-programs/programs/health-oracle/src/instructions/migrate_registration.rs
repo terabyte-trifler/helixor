@@ -26,7 +26,29 @@ use crate::errors::HelixorError;
 use crate::events::RegistrationMigrated;
 use crate::state::AgentRegistration;
 
-pub fn handler(ctx: Context<crate::MigrateRegistration>) -> Result<()> {
+#[derive(Accounts)]
+pub struct MigrateRegistration<'info> {
+    #[account(
+        mut,
+        seeds = [b"agent", agent_registration.agent_wallet.as_ref()],
+        bump  = agent_registration.bump,
+        realloc            = AgentRegistration::SPACE,
+        realloc::payer     = owner,
+        realloc::zero      = true,        // zero new bytes — this initialises the new fields
+    )]
+    pub agent_registration: Account<'info, AgentRegistration>,
+
+    /// The owner pays the additional rent for the larger account.
+    #[account(
+        mut,
+        constraint = owner.key() == agent_registration.owner_wallet @ HelixorError::NotAgentOwner,
+    )]
+    pub owner: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+pub fn handler(ctx: Context<MigrateRegistration>) -> Result<()> {
     let reg = &mut ctx.accounts.agent_registration;
 
     // Already at current version → error, so callers see explicit duplicate-migrate.
@@ -56,8 +78,8 @@ pub fn handler(ctx: Context<crate::MigrateRegistration>) -> Result<()> {
     emit!(RegistrationMigrated {
         agent_wallet: reg.agent_wallet,
         from_version,
-        to_version: AgentRegistration::CURRENT_LAYOUT_VERSION,
-        migrated_at: clock.unix_timestamp,
+        to_version:   AgentRegistration::CURRENT_LAYOUT_VERSION,
+        migrated_at:  clock.unix_timestamp,
     });
 
     Ok(())

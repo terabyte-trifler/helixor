@@ -21,6 +21,8 @@ from detection.base import (
     assert_baseline_compatible,
     assert_features_finite,
 )
+from detection.engine import run_detection_engine
+from detection.registry import DetectorRegistry, default_registry
 from detection.types import (
     DIMENSION_MAX_SCORES,
     DimensionId,
@@ -92,28 +94,3 @@ from detection.performance_context import MarketContext  # noqa: E402
 # Day-12 consistency layer.
 from detection.consistency import ConsistencyDetector  # noqa: E402
 from detection.consistency_context import ConsistencyContext  # noqa: E402
-
-
-def __getattr__(name: str):
-    """
-    Keep the public engine/registry API without eagerly importing
-    detection.engine during package initialisation.
-
-    scoring.composite imports detection.types. If detection.__init__ imports
-    detection.engine at that moment, the engine imports scoring.composite back
-    while it is still initialising.
-    """
-    if name == "run_detection_engine":
-        from detection.engine import run_detection_engine
-
-        return run_detection_engine
-
-    if name in {"DetectorRegistry", "default_registry"}:
-        from detection.registry import DetectorRegistry, default_registry
-
-        return {
-            "DetectorRegistry": DetectorRegistry,
-            "default_registry": default_registry,
-        }[name]
-
-    raise AttributeError(f"module 'detection' has no attribute {name!r}")

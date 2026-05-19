@@ -1,180 +1,182 @@
 // =============================================================================
-// Day 18 — certificate-issuer integration tests.
+// tests/certificate_issuer.integration.ts
 //
-// Runs against Anchor's local validator. Covers the done-when:
-//   config init -> baseline record -> issue epoch cert -> read back
-//   write-once epoch certificates
-//   score/alert consistency validation
-//   per-epoch PDA history
+// Day-18 done-when integration test for the certificate-issuer program:
+// "an epoch-1 certificate can be issued and read back."
+//
+// Runs against `anchor test` (a local validator). It:
+//   1. initialises the IssuerConfig,
+//   2. records a baseline for an agent,
+//   3. issues an epoch-1 HealthCertificate,
+//   4. reads the certificate back — both by direct PDA fetch AND via the
+//      get_certificate instruction,
+//   5. asserts a second issue for the same (agent, epoch) FAILS — the
+//      certificate is write-once,
+//   6. asserts an inconsistent (score, alert) pair is REJECTED.
 // =============================================================================
 
 import * as anchor from "@coral-xyz/anchor";
-import BN from "bn.js";
-import { PublicKey, Keypair, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { Program } from "@coral-xyz/anchor";
+import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
 import { assert } from "chai";
 
-const program = anchor.workspace.CertificateIssuer as anchor.Program<any>;
-const SHARED_ISSUER = Keypair.fromSeed(Buffer.alloc(32, 19));
+const { BN } = anchor;
 
-function issuerConfigPda(): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("issuer_config")],
-    program.programId,
-  );
-}
-
-function baselinePda(agent: PublicKey): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("baseline"), agent.toBuffer()],
-    program.programId,
-  );
-}
-
-function certificatePda(agent: PublicKey, epoch: BN): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [
-      Buffer.from("cert"),
-      agent.toBuffer(),
-      epoch.toArrayLike(Buffer, "le", 8),
-    ],
-    program.programId,
-  );
-}
-
-async function airdrop(conn: anchor.web3.Connection, pk: PublicKey, sol = 1) {
-  const sig = await conn.requestAirdrop(pk, sol * LAMPORTS_PER_SOL);
-  const bh = await conn.getLatestBlockhash();
-  await conn.confirmTransaction({ signature: sig, ...bh }, "confirmed");
-}
-
-async function expectError(promise: Promise<any>, label: string): Promise<void> {
-  try {
-    await promise;
-    assert.fail(`Expected ${label} to fail`);
-  } catch (err: any) {
-    assert.isOk(err, `${label} failed`);
-  }
-}
-
-describe("Day 18 certificate-issuer", () => {
+describe("certificate-issuer (Day 18)", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const conn = provider.connection;
 
-  const issuer = SHARED_ISSUER;
-  const agent = Keypair.generate();
-  const baselineHash = Array.from(Buffer.alloc(32, 7));
+  const program = anchor.workspace.CertificateIssuer as Program;
+  const issuer = provider.wallet; // the issuer node, for this test
 
-  it("initializes config, records baseline, issues and reads an epoch cert", async () => {
-    await airdrop(conn, issuer.publicKey, 2);
+  // A synthetic agent.
+  const agent = Keypair.generate().publicKey;
+  const baselineHash = Buffer.alloc(32, 7); // non-zero 32-byte hash
 
-    const [config] = issuerConfigPda();
+  // ── PDA helpers ────────────────────────────────────────────────────────────
+  const enc = anchor.utils.bytes.utf8.encode;
+
+  const issuerConfigPda = () =>
+    PublicKey.findProgramAddressSync(
+      [enc("issuer_config")],
+      program.programId
+    )[0];
+
+  const baselinePda = (agentKey: PublicKey) =>
+    PublicKey.findProgramAddressSync(
+      [enc("baseline"), agentKey.toBuffer()],
+      program.programId
+    )[0];
+
+  const certPda = (agentKey: PublicKey, epoch: number) =>
+    PublicKey.findProgramAddressSync(
+      [enc("cert"), agentKey.toBuffer(), new BN(epoch).toArrayLike(Buffer, "le", 8)],
+      program.programId
+    )[0];
+
+  // ── 1. initialize_config ───────────────────────────────────────────────────
+  it("initialises the issuer config", async () => {
     await program.methods
       .initializeConfig(issuer.publicKey)
       .accounts({
-        issuerConfig: config,
-        admin: provider.wallet.publicKey,
+        issuerConfig: issuerConfigPda(),
+        admin: issuer.publicKey,
         systemProgram: SystemProgram.programId,
       })
-      .rpc({ commitment: "confirmed" });
+      .rpc();
 
-    const configAccount = await program.account.issuerConfig.fetch(config);
-    assert.equal(configAccount.issuerNode.toBase58(), issuer.publicKey.toBase58());
+    const config = await program.account.issuerConfig.fetch(issuerConfigPda());
+    assert.ok(config.issuerNode.equals(issuer.publicKey));
+  });
 
-    const [baseline] = baselinePda(agent.publicKey);
+  // ── 2. record_baseline ─────────────────────────────────────────────────────
+  it("records a baseline for the agent", async () => {
     await program.methods
-      .recordBaseline(agent.publicKey, baselineHash, 3, new BN(1))
+      .recordBaseline(agent, [...baselineHash], 3, new BN(1))
       .accounts({
-        baselineStats: baseline,
-        issuerConfig: config,
+        baselineStats: baselinePda(agent),
+        issuerConfig: issuerConfigPda(),
         issuer: issuer.publicKey,
         systemProgram: SystemProgram.programId,
       })
-      .signers([issuer])
-      .rpc({ commitment: "confirmed" });
+      .rpc();
 
-    const baselineAccount = await program.account.baselineStats.fetch(baseline);
-    assert.equal(baselineAccount.agentWallet.toBase58(), agent.publicKey.toBase58());
-    assert.deepEqual(Array.from(baselineAccount.baselineHash), baselineHash);
-    assert.equal(baselineAccount.baselineAlgoVersion, 3);
+    const stats = await program.account.baselineStats.fetch(baselinePda(agent));
+    assert.ok(stats.agentWallet.equals(agent));
+    assert.equal(stats.baselineAlgoVersion, 3);
+  });
 
-    const epoch1 = new BN(1);
-    const [cert1] = certificatePda(agent.publicKey, epoch1);
+  // ── 3. issue an epoch-1 certificate ────────────────────────────────────────
+  it("issues an epoch-1 certificate", async () => {
     await program.methods
-      .issueCertificate(epoch1, 850, 0, 0x11, false)
+      .issueCertificate(new BN(1), 916, 0 /* GREEN */, 0, false)
       .accounts({
-        baselineStats: baseline,
-        certificate: cert1,
-        issuerConfig: config,
+        certificate: certPda(agent, 1),
+        baselineStats: baselinePda(agent),
+        issuerConfig: issuerConfigPda(),
         issuer: issuer.publicKey,
         systemProgram: SystemProgram.programId,
       })
-      .signers([issuer])
-      .rpc({ commitment: "confirmed" });
+      .rpc();
 
-    const certAccount = await program.account.healthCertificate.fetch(cert1);
-    assert.equal(certAccount.agentWallet.toBase58(), agent.publicKey.toBase58());
-    assert.equal(certAccount.epoch.toNumber(), 1);
-    assert.equal(certAccount.score, 850);
-    assert.equal(certAccount.alertTier, 0);
-    assert.equal(certAccount.flags, 0x11);
-    assert.isFalse(certAccount.immediateRed);
-    assert.deepEqual(Array.from(certAccount.baselineHash), baselineHash);
+    // ── 4a. read it back by direct PDA fetch ────────────────────────────────
+    const cert = await program.account.healthCertificate.fetch(certPda(agent, 1));
+    assert.ok(cert.agentWallet.equals(agent));
+    assert.equal(cert.epoch.toNumber(), 1);
+    assert.equal(cert.score, 916);
+    assert.equal(cert.alertTier, 0);
+    assert.equal(cert.immediateRed, false);
+    assert.deepEqual([...cert.baselineHash], [...baselineHash]);
+  });
 
+  // ── 4b. read it back via the get_certificate instruction ───────────────────
+  it("reads the certificate back via get_certificate", async () => {
+    // get_certificate emits a CertificateRead event; the instruction
+    // succeeding is itself proof the certificate exists and is the right PDA.
     await program.methods
-      .getCertificate(agent.publicKey, epoch1)
-      .accounts({ certificate: cert1 })
-      .rpc({ commitment: "confirmed" });
+      .getCertificate(agent, new BN(1))
+      .accounts({ certificate: certPda(agent, 1) })
+      .rpc();
+  });
 
-    await expectError(
-      program.methods
-        .issueCertificate(epoch1, 860, 0, 0x12, false)
+  // ── 5. a certificate is write-once ─────────────────────────────────────────
+  it("rejects re-issuing the same (agent, epoch)", async () => {
+    try {
+      await program.methods
+        .issueCertificate(new BN(1), 800, 0, 0, false)
         .accounts({
-          baselineStats: baseline,
-          certificate: cert1,
-          issuerConfig: config,
+          certificate: certPda(agent, 1),
+          baselineStats: baselinePda(agent),
+          issuerConfig: issuerConfigPda(),
           issuer: issuer.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .signers([issuer])
-        .rpc({ commitment: "confirmed" }),
-      "re-issue for same epoch",
-    );
+        .rpc();
+      assert.fail("re-issue should have failed — the cert PDA already exists");
+    } catch (err) {
+      // `init` on an existing account fails — the certificate is write-once.
+      assert.ok(err, "expected an account-already-in-use error");
+    }
+  });
 
-    const epochBad = new BN(99);
-    const [badCert] = certificatePda(agent.publicKey, epochBad);
-    await expectError(
-      program.methods
-        .issueCertificate(epochBad, 100, 0, 0, false)
+  // ── 6. an inconsistent (score, alert) pair is rejected ─────────────────────
+  it("rejects an inconsistent score/alert pair", async () => {
+    try {
+      // score 916 (high) but alert RED, without immediate_red — inconsistent.
+      await program.methods
+        .issueCertificate(new BN(2), 916, 2 /* RED */, 0, false)
         .accounts({
-          baselineStats: baseline,
-          certificate: badCert,
-          issuerConfig: config,
+          certificate: certPda(agent, 2),
+          baselineStats: baselinePda(agent),
+          issuerConfig: issuerConfigPda(),
           issuer: issuer.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .signers([issuer])
-        .rpc({ commitment: "confirmed" }),
-      "inconsistent GREEN low-score certificate",
-    );
+        .rpc();
+      assert.fail("inconsistent score/alert should have been rejected");
+    } catch (err) {
+      assert.ok(err, "expected InconsistentScoreAlert");
+    }
+  });
 
-    const epoch2 = new BN(2);
-    const [cert2] = certificatePda(agent.publicKey, epoch2);
+  // ── per-epoch history: epoch-2 is a SEPARATE certificate ───────────────────
+  it("keeps per-epoch history — epoch 2 is a distinct certificate", async () => {
     await program.methods
-      .issueCertificate(epoch2, 320, 2, 0x20, false)
+      .issueCertificate(new BN(2), 720, 0 /* GREEN */, 0, false)
       .accounts({
-        baselineStats: baseline,
-        certificate: cert2,
-        issuerConfig: config,
+        certificate: certPda(agent, 2),
+        baselineStats: baselinePda(agent),
+        issuerConfig: issuerConfigPda(),
         issuer: issuer.publicKey,
         systemProgram: SystemProgram.programId,
       })
-      .signers([issuer])
-      .rpc({ commitment: "confirmed" });
+      .rpc();
 
-    assert.notEqual(cert1.toBase58(), cert2.toBase58());
-    const epoch2Account = await program.account.healthCertificate.fetch(cert2);
-    assert.equal(epoch2Account.epoch.toNumber(), 2);
-    assert.equal(epoch2Account.alertTier, 2);
+    // Both epoch-1 and epoch-2 certificates exist, independently.
+    const c1 = await program.account.healthCertificate.fetch(certPda(agent, 1));
+    const c2 = await program.account.healthCertificate.fetch(certPda(agent, 2));
+    assert.equal(c1.score, 916);
+    assert.equal(c2.score, 720);
+    assert.notOk(certPda(agent, 1).equals(certPda(agent, 2)));
   });
 });

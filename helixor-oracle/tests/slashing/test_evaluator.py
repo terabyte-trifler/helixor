@@ -71,7 +71,6 @@ def _score_result(
         delta_clamped=False,
         dimension_results=dims,
         weighted_contributions=contributions,
-        weight_vector={d: 0.2 for d in DimensionId.ordered()},
         aggregated_flags=security_flags,
         immediate_red=immediate_red,
         scoring_algo_version=SCORING_ALGO_VERSION,

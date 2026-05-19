@@ -135,3 +135,42 @@ class RevealResponse:
     """A peer's verification of a reveal against the earlier commit."""
     verified: bool
     reason:   str = ""
+
+
+# =============================================================================
+# GetScores — Day-24 score exchange for median aggregation
+# =============================================================================
+
+@dataclass(frozen=True, slots=True)
+class GetScoresRequest:
+    """
+    A request for a peer's epoch scores, so the caller can aggregate the
+    cluster median. Unlike commit-reveal (where scores are hidden until all
+    nodes have committed), Day-24 aggregation exchanges scores directly —
+    commit-reveal hardening is a later Phase-4 day.
+    """
+    node_id: str
+    epoch:   int
+
+    def __post_init__(self) -> None:
+        if not self.node_id:
+            raise ValueError("GetScoresRequest.node_id must be non-empty")
+        if self.epoch < 1:
+            raise ValueError("GetScoresRequest.epoch must be >= 1")
+
+
+@dataclass(frozen=True, slots=True)
+class GetScoresResponse:
+    """
+    A peer's epoch scores. `available` is False if the peer has not yet
+    scored this epoch — the caller treats that exactly like an offline
+    peer (the node simply does not contribute to the median).
+    """
+    node_id:   str
+    epoch:     int
+    available: bool
+    scores:    tuple[AgentScore, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scores, tuple):
+            object.__setattr__(self, "scores", tuple(self.scores))

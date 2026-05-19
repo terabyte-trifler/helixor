@@ -81,7 +81,6 @@ class ScoreResult:
       - `dimension_results`           — every detector's full output
       - `weighted_contributions`      — per-dimension contribution to `score`
                                         (so explainers can render "drift cost 80 pts")
-      - `weight_vector`               — exact DimensionId -> weight mapping used
       - `aggregated_flags`            — OR of every dimension's flags
       - `immediate_red`               — did any dimension trip the fast-path?
       - versions + fingerprints       — full provenance for audit
@@ -99,7 +98,6 @@ class ScoreResult:
     # ── Evidence ────────────────────────────────────────────────────────────
     dimension_results:           Mapping[DimensionId, DimensionResult]
     weighted_contributions:      Mapping[DimensionId, int]       # sums to `score`
-    weight_vector:               Mapping[DimensionId, float]     # exact weights used
     aggregated_flags:            int                              # OR across dimensions
     immediate_red:               bool
 
@@ -113,8 +111,6 @@ class ScoreResult:
 
     # ── Provenance ─────────────────────────────────────────────────────────
     computed_at:                 datetime  # tz-aware UTC
-    window_success_rate:         float = 0.0
-    window_tx_count:             int = 0
 
     def __post_init__(self) -> None:
         # 1. Score range + type.
@@ -145,13 +141,6 @@ class ScoreResult:
         # 4. weighted_contributions matches dimension_results keyset + sums to score.
         if set(self.weighted_contributions.keys()) != set(DimensionId.ordered()):
             raise ValueError("weighted_contributions must cover every DimensionId")
-        if set(self.weight_vector.keys()) != set(DimensionId.ordered()):
-            raise ValueError("weight_vector must cover every DimensionId")
-        if abs(sum(self.weight_vector.values()) - 1.0) > 1e-9:
-            raise ValueError("weight_vector must sum to 1.0")
-        for dim, weight in self.weight_vector.items():
-            if not isinstance(weight, float) or not (0.0 <= weight <= 1.0):
-                raise ValueError(f"weight_vector[{dim.value}] must be a float in [0,1]")
         contrib_sum = sum(self.weighted_contributions.values())
         # Allow ±5 rounding difference: the sum is rounded after weighting.
         # EXCEPTION: when the 200-point delta guard rail clamped the score,
@@ -174,15 +163,6 @@ class ScoreResult:
         # 7. Timezone contract.
         if self.computed_at.tzinfo is None:
             raise ValueError("computed_at must be timezone-aware UTC")
-
-        if not isinstance(self.window_success_rate, float):
-            raise TypeError("window_success_rate must be float")
-        if not (0.0 <= self.window_success_rate <= 1.0):
-            raise ValueError("window_success_rate must be in [0, 1]")
-        if not isinstance(self.window_tx_count, int) or isinstance(self.window_tx_count, bool):
-            raise TypeError("window_tx_count must be int")
-        if self.window_tx_count < 0:
-            raise ValueError("window_tx_count must be non-negative")
 
         # 7b. Day-13 fields.
         if not isinstance(self.confidence, int) or isinstance(self.confidence, bool):
@@ -208,11 +188,6 @@ class ScoreResult:
             object.__setattr__(
                 self, "weighted_contributions",
                 MappingProxyType(dict(self.weighted_contributions)),
-            )
-        if not isinstance(self.weight_vector, MappingProxyType):
-            object.__setattr__(
-                self, "weight_vector",
-                MappingProxyType(dict(self.weight_vector)),
             )
         if not isinstance(self.detector_algo_versions, MappingProxyType):
             object.__setattr__(
@@ -303,17 +278,8 @@ def compute_composite_score(
             current_entropy=features.seq_action_entropy,
             baseline_entropy=baseline.action_entropy,
         )
-        window_success_rate = features.success_rate_7d
-        if features.success_rate_7d > 0.0:
-            window_tx_count = int(round(features.success_count_7d / features.success_rate_7d))
-        elif features.success_count_7d > 0.0:
-            window_tx_count = int(round(features.success_count_7d))
-        else:
-            window_tx_count = int(round(max(features.failure_streak_current, features.failure_streak_max)))
     else:
         gaming = {"gaming_detected": False, "drop_fraction": 0.0, "abstained": True}
-        window_success_rate = 0.0
-        window_tx_count = 0
     gaming_detected      = bool(gaming["gaming_detected"])
     gaming_drop_fraction = float(gaming["drop_fraction"])
 
@@ -351,7 +317,6 @@ def compute_composite_score(
         delta_clamped=delta_clamped,
         dimension_results=MappingProxyType(dict(dimension_results)),
         weighted_contributions=MappingProxyType(weighted_contributions),
-        weight_vector=MappingProxyType(dict(WEIGHTS)),
         aggregated_flags=aggregated_flags,
         immediate_red=immediate_red,
         scoring_algo_version=SCORING_ALGO_VERSION,
@@ -361,8 +326,6 @@ def compute_composite_score(
         baseline_stats_hash=baseline.stats_hash,
         detector_algo_versions=detector_versions,
         computed_at=computed_at or datetime.now(timezone.utc),
-        window_success_rate=float(max(0.0, min(1.0, window_success_rate))),
-        window_tx_count=max(0, window_tx_count),
     )
 
 

@@ -29,18 +29,16 @@ ON CONFLICT (version) DO NOTHING;
 
 
 -- ── 0. The TimescaleDB extension ─────────────────────────────────────────────
--- Production runs on a TimescaleDB image, where the extension is available.
--- The unit/integration test harness still uses plain postgres:16-alpine; this
--- migration must remain runnable there so non-timeseries tests do not fail
--- before they start. When TimescaleDB is absent we create the same relational
--- table + materialized-view shape, and skip hypertable/compression policies.
+-- Production uses the TimescaleDB image. Local testcontainers use plain
+-- postgres:16-alpine, where the extension is not installed. Treat Timescale as
+-- an acceleration layer: enable it when available, keep the schema valid when
+-- it is not.
 DO $$
 BEGIN
-    IF EXISTS (
-        SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb'
-    ) THEN
-        CREATE EXTENSION IF NOT EXISTS timescaledb;
-    END IF;
+    CREATE EXTENSION IF NOT EXISTS timescaledb;
+EXCEPTION
+    WHEN feature_not_supported OR undefined_file THEN
+        RAISE NOTICE 'TimescaleDB extension unavailable; continuing with plain PostgreSQL indexes/views';
 END $$;
 
 
@@ -55,9 +53,7 @@ END $$;
 -- partition key.
 
 CREATE TABLE IF NOT EXISTS agent_transactions (
-    id               BIGSERIAL,
     agent_wallet     TEXT         NOT NULL,
-    tx_signature     TEXT,
     signature        TEXT         NOT NULL,
     slot             BIGINT       NOT NULL,
     block_time       TIMESTAMPTZ  NOT NULL,
@@ -68,68 +64,31 @@ CREATE TABLE IF NOT EXISTS agent_transactions (
     priority_fee     BIGINT       NOT NULL DEFAULT 0,
     compute_units    BIGINT       NOT NULL DEFAULT 0,
     counterparty     TEXT,
-    raw_meta         JSONB        NOT NULL DEFAULT '{}'::jsonb,
-    received_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    source           TEXT         NOT NULL DEFAULT 'webhook'
-        CHECK (source IN ('webhook','backfill','replay','e2e_seed')),
     ingested_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
 
     PRIMARY KEY (signature, block_time)
 );
 
--- Day 15 upgrades the legacy MVP table shape in-place. The MVP ingestion
--- path used `tx_signature`; the new repository uses `signature`. Keep both
--- columns for compatibility and make them aliases at write time.
+-- The MVP table already exists as (tx_signature, raw_meta, source, ...).
+-- Add the v2 feature-extractor columns in-place and keep both signature names
+-- for compatibility while old webhook code is still writing tx_signature.
 ALTER TABLE agent_transactions
-    ADD COLUMN IF NOT EXISTS signature TEXT,
-    ADD COLUMN IF NOT EXISTS tx_signature TEXT,
-    ADD COLUMN IF NOT EXISTS priority_fee BIGINT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS signature     TEXT,
+    ADD COLUMN IF NOT EXISTS priority_fee  BIGINT NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS compute_units BIGINT NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS counterparty TEXT,
-    ADD COLUMN IF NOT EXISTS raw_meta JSONB NOT NULL DEFAULT '{}'::jsonb,
-    ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'webhook',
-    ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMPTZ NOT NULL DEFAULT now();
+    ADD COLUMN IF NOT EXISTS counterparty  TEXT;
 
-UPDATE agent_transactions
-   SET signature = tx_signature
- WHERE signature IS NULL
-   AND tx_signature IS NOT NULL;
-
-UPDATE agent_transactions
-   SET tx_signature = signature
- WHERE tx_signature IS NULL
-   AND signature IS NOT NULL;
-
-CREATE OR REPLACE FUNCTION sync_agent_transaction_signature()
-RETURNS trigger AS $$
+DO $$
 BEGIN
-    IF NEW.signature IS NULL AND NEW.tx_signature IS NOT NULL THEN
-        NEW.signature := NEW.tx_signature;
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'agent_transactions' AND column_name = 'tx_signature'
+    ) THEN
+        EXECUTE 'UPDATE agent_transactions
+                 SET signature = COALESCE(signature, tx_signature)
+                 WHERE signature IS NULL';
     END IF;
-    IF NEW.tx_signature IS NULL AND NEW.signature IS NOT NULL THEN
-        NEW.tx_signature := NEW.signature;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_sync_agent_transaction_signature
-    ON agent_transactions;
-CREATE TRIGGER trg_sync_agent_transaction_signature
-BEFORE INSERT OR UPDATE ON agent_transactions
-FOR EACH ROW
-EXECUTE FUNCTION sync_agent_transaction_signature();
-
--- The old schema had a unique tx_signature index/constraint. A TimescaleDB
--- hypertable cannot keep unique constraints that omit the partitioning
--- column, so Day 15 moves idempotency to (signature, block_time).
-DROP INDEX IF EXISTS idx_tx_sig;
-ALTER TABLE agent_transactions
-    DROP CONSTRAINT IF EXISTS agent_transactions_tx_signature_key;
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_tx_signature_time
-    ON agent_transactions (signature, block_time);
+END $$;
 
 
 -- ── 2. Promote to a hypertable ───────────────────────────────────────────────
@@ -147,7 +106,7 @@ BEGIN
             'block_time',
             chunk_time_interval => INTERVAL '1 day',
             if_not_exists       => TRUE,
-            migrate_data        => TRUE        -- absorb any pre-existing rows
+            migrate_data        => TRUE
         );
     END IF;
 END $$;
@@ -183,13 +142,7 @@ BEGIN
             timescaledb.compress_segmentby = 'agent_wallet',
             timescaledb.compress_orderby   = 'block_time DESC'
         );
-    END IF;
-END $$;
 
--- Auto-compress chunks once they age past the 7-day active window.
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
         PERFORM add_compression_policy(
             'agent_transactions',
             INTERVAL '7 days',
@@ -211,47 +164,22 @@ END $$;
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
-        EXECUTE $view$
+        EXECUTE '
             CREATE MATERIALIZED VIEW IF NOT EXISTS agent_tx_daily
             WITH (timescaledb.continuous) AS
             SELECT
                 agent_wallet,
-                time_bucket(INTERVAL '1 day', block_time)        AS day,
-                count(*)                                          AS tx_count,
-                count(*) FILTER (WHERE success)                   AS success_count,
-                avg(CASE WHEN success THEN 1.0 ELSE 0.0 END)      AS success_rate,
-                sum(sol_change)                                   AS net_sol_change,
-                sum(fee + priority_fee)                           AS total_fees,
-                count(DISTINCT counterparty)                      AS distinct_counterparties
+                time_bucket(INTERVAL ''1 day'', block_time) AS day,
+                count(*) AS tx_count,
+                count(*) FILTER (WHERE success) AS success_count,
+                avg(CASE WHEN success THEN 1.0 ELSE 0.0 END) AS success_rate,
+                sum(sol_change) AS net_sol_change,
+                sum(fee + priority_fee) AS total_fees,
+                count(DISTINCT counterparty) AS distinct_counterparties
             FROM agent_transactions
             GROUP BY agent_wallet, day
-            WITH NO DATA
-        $view$;
-    ELSE
-        EXECUTE $view$
-            CREATE MATERIALIZED VIEW IF NOT EXISTS agent_tx_daily AS
-            SELECT
-                agent_wallet,
-                date_trunc('day', block_time)                     AS day,
-                count(*)                                          AS tx_count,
-                count(*) FILTER (WHERE success)                   AS success_count,
-                avg(CASE WHEN success THEN 1.0 ELSE 0.0 END)      AS success_rate,
-                sum(sol_change)                                   AS net_sol_change,
-                sum(fee + priority_fee)                           AS total_fees,
-                count(DISTINCT counterparty)                      AS distinct_counterparties
-            FROM agent_transactions
-            GROUP BY agent_wallet, day
-            WITH NO DATA
-        $view$;
-    END IF;
-END $$;
+            WITH NO DATA';
 
--- Refresh policy: keep the materialised rollup current. The most recent
--- day is left to the real-time aggregation layer (start_offset bounds the
--- materialised range; rows newer than end_offset are computed on read).
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
         PERFORM add_continuous_aggregate_policy(
             'agent_tx_daily',
             start_offset      => INTERVAL '90 days',
@@ -259,6 +187,21 @@ BEGIN
             schedule_interval => INTERVAL '1 hour',
             if_not_exists     => TRUE
         );
+    ELSE
+        EXECUTE '
+            CREATE MATERIALIZED VIEW IF NOT EXISTS agent_tx_daily AS
+            SELECT
+                agent_wallet,
+                date_trunc(''day'', block_time) AS day,
+                count(*) AS tx_count,
+                count(*) FILTER (WHERE success) AS success_count,
+                avg(CASE WHEN success THEN 1.0 ELSE 0.0 END) AS success_rate,
+                sum(sol_change) AS net_sol_change,
+                sum(fee + priority_fee) AS total_fees,
+                count(DISTINCT counterparty) AS distinct_counterparties
+            FROM agent_transactions
+            GROUP BY agent_wallet, date_trunc(''day'', block_time)
+            WITH NO DATA';
     END IF;
 END $$;
 

@@ -15,9 +15,9 @@ rule — no numpy, no scipy):
   erratic — OR an erratic one that turns clockwork — is inconsistent.
 
   CONJUNCTION SCORING — counterparty-outcome consistency is a conjunction:
-  success-rate deviation only matters when the agent is transacting with
-  REPEAT counterparties (it should know them). New-counterparty churn
-  explains away outcome variance; repeat-counterparty churn does not.
+  erratic success only matters when the agent is transacting with REPEAT
+  counterparties (it should know them). New-counterparty churn explains
+  away outcome variance; repeat-counterparty churn does not.
 
   All bounded, all stdlib.
 """
@@ -135,10 +135,7 @@ def rhythm_divergence(
 def counterparty_outcome_consistency(
     *,
     repeat_ratio:        float,   # cp_repeat_ratio — how much the agent reuses CPs, [0,1]
-    current_success_rate: float,  # current success_rate_30d, [0,1]
-    baseline_success_rate: float, # baseline success_rate_30d mean, [0,1]
-    baseline_success_std: float,  # baseline std for success_rate_30d
-    success_volatility:  float = 0.0,  # secondary stabilizer, [0,1]-ish
+    success_volatility:  float,   # success_volatility — variance of success rate, [0,1]-ish
 ) -> float:
     """
     A [0, 1] consistency score for counterparty outcomes.
@@ -147,30 +144,19 @@ def counterparty_outcome_consistency(
     counterparties can legitimately have variable outcomes — it does not
     know them yet. An agent transacting mostly with REPEAT counterparties
     should get STABLE outcomes — it has a track record with them. So
-    success-rate deviation from the agent's own baseline only counts against
-    consistency to the extent the agent is dealing with repeat counterparties.
-    `success_volatility` remains a secondary stabilizer: a repeat-CP agent
-    with wildly unstable daily outcomes is also inconsistent.
+    outcome volatility only counts against consistency to the extent the
+    agent is dealing with repeat counterparties.
 
-      consistency = 1 - repeat_ratio * max(success_z_penalty, volatility_penalty)
+      consistency = 1 - (repeat_ratio * normalised_volatility)
 
-    high repeat + baseline-like success → ~1.0
-    high repeat + large success z-score → low
-    low  repeat + large success z-score → mostly excused
+    high repeat + low volatility  → ~1.0  (knows its CPs, stable: consistent)
+    high repeat + high volatility → low   (knows its CPs, erratic: inconsistent)
+    low  repeat + high volatility → ~1.0  (new CPs, variance is expected)
     """
     rr = _clamp01(repeat_ratio)
-
-    if baseline_success_std <= 1e-9:
-        success_z = 0.0 if abs(current_success_rate - baseline_success_rate) <= 1e-9 else 6.0
-    else:
-        success_z = abs(current_success_rate - baseline_success_rate) / baseline_success_std
-    success_z = min(success_z, 6.0)
-    success_z_penalty = 1.0 - divergence_to_health(success_z, saturation=3.0)
-
     # success_volatility is roughly in [0, 0.5] in practice; normalise to [0,1].
-    volatility_penalty = _clamp01(success_volatility / 0.5)
-
-    inconsistency = rr * max(success_z_penalty, volatility_penalty)
+    vol = _clamp01(success_volatility / 0.5)
+    inconsistency = rr * vol
     return _clamp01(1.0 - inconsistency)
 
 

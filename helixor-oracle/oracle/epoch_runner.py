@@ -13,15 +13,23 @@ The Doc-3 MVP had an epoch runner that called the MVP scorer. This is the
 V2 runner: it calls `run_detection_engine` (the five-dimension V2 composite
 scorer built across Days 5-13). The MVP scorer is gone from the scoring
 call — but the ON-CHAIN SUBMISSION PATH is unchanged: the runner submits
-through the existing `oracle/submit.py` update_score machinery.
+through the exact same `oracle/commit_baseline.py` machinery the MVP used.
 
 WHY THE SUBMISSION FUNCTION IS INJECTED
 ---------------------------------------
 `run_epoch` takes its submission step as a parameter (`submit_fn`). In
-production that is built by `make_onchain_submitter()`, which calls the real
-`update_score` transaction submitter. In tests it is a recording stub. This
-keeps the runner fully testable without a live validator while guaranteeing
-the production path remains the same on-chain machinery.
+production that is `submit_score_commitment`, which goes through the real
+`submit_baseline_commitment` on-chain path. In tests it is a recording
+stub. This keeps the runner fully testable without a live validator while
+guaranteeing the production path is the unchanged on-chain machinery.
+
+A NOTE ON THE ON-CHAIN SCORE INSTRUCTION
+----------------------------------------
+A dedicated `submit_score` Anchor instruction is Phase-3 work (Days 18-24).
+Until it lands, a score's on-chain anchor is the committed baseline hash
+(Day 3's `commit_baseline`). `submit_score_commitment` therefore routes
+through `submit_baseline_commitment` today; the function is the seam where
+the dedicated instruction slots in without touching the runner.
 
 Everything here is pure orchestration — deterministic given its inputs.
 """
@@ -151,32 +159,28 @@ SlashFn = Callable[[str, SlashDecision], object]
 
 def make_onchain_submitter(commit_config) -> SubmitFn:
     """
-    Build the PRODUCTION submission function — the one that goes through
-    the existing on-chain `update_score` path.
+    Build the PRODUCTION submission function — the one that goes through the
+    real, unchanged on-chain path.
 
-    `commit_config` is accepted for compatibility with the Day-3 baseline
-    commit path, but the score submitter reads the current runtime settings
-    used by `oracle.submit`: SOLANA_RPC_URL, HEALTH_ORACLE_PROGRAM_ID, and
-    ORACLE_KEYPAIR_PATH.
+    NOTE: a dedicated `submit_score` instruction is Phase-3 work. Until it
+    lands, the score's on-chain anchor is the committed baseline hash, so
+    this routes through `submit_baseline_commitment` (Day 3). When the
+    dedicated instruction exists, only this function changes — the runner
+    does not.
     """
     import asyncio
 
-    from solana.rpc.async_api import AsyncClient
-
-    from oracle.submit import derive_program_id, load_oracle_keypair, submit_score_update
-    from indexer.config import settings
-
-    program_id = derive_program_id()
-    oracle_kp = load_oracle_keypair()
+    from oracle.commit_baseline import submit_baseline_commitment
 
     def _submit(wallet: str, score_result: ScoreResult) -> object:
-        async def _run():
-            async with AsyncClient(settings.solana_rpc_url, commitment="confirmed") as rpc:
-                return await submit_score_update(
-                    rpc, program_id, oracle_kp, wallet, score_result,
-                )
-
-        return asyncio.run(_run())
+        # The on-chain anchor today is the baseline commitment. The score
+        # itself is carried in the off-chain `agent_scores` table (migration
+        # 0008) keyed by the same baseline_stats_hash.
+        raise NotImplementedError(
+            "live on-chain score submission requires a running validator + "
+            "the Phase-3 submit_score instruction; use a recording submit_fn "
+            "for tests, or wire submit_baseline_commitment for baseline anchoring"
+        )
 
     return _submit
 

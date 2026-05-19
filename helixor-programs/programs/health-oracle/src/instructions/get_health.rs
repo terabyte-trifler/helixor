@@ -1,125 +1,79 @@
+// =============================================================================
+// programs/health-oracle/src/instructions/get_health.rs
+//
+// get_health — read an agent's current trust standing.
+//
+// THE DAY-19 CHANGE
+// -----------------
+// The MVP's get_health read a single overwritten score account. V2 keys
+// certificates by epoch on the certificate-issuer program, so "current
+// health" is the HealthCertificate for the CURRENT epoch:
+//
+//     latest cert = certificate-issuer  ["cert", agent, epoch_state.current_epoch]
+//
+// get_health resolves that account and surfaces it as a HealthRead event.
+//
+// As with certificate-issuer's get_certificate, an off-chain caller can
+// also just fetch the cert PDA directly — this instruction is for the
+// callers that want a transaction-shaped / CPI-able read, and it is the
+// on-chain equivalent of the SDK's getScore().
+//
+// Read-only — no account is `mut`, nothing is written.
+// =============================================================================
+
 use anchor_lang::prelude::*;
-use anchor_lang::AccountDeserialize;
 
-use crate::{
-    errors::HelixorError,
-    state::{AlertLevel, ScoreSource, TrustCertificate, TrustScore},
-};
+use crate::events::HealthRead;
+use crate::state::EpochState;
 
-pub fn handler(ctx: Context<crate::GetHealth>) -> Result<TrustScore> {
-    let reg = &ctx.accounts.agent_registration;
-    let clock = Clock::get()?;
-    let agent = reg.agent_wallet;
+use certificate_issuer::state::HealthCertificate;
 
-    if !reg.active {
-        let score = TrustScore {
-            agent,
-            score: 0,
-            alert: AlertLevel::Red,
-            success_rate: 0,
-            anomaly_flag: true,
-            updated_at: clock.unix_timestamp,
-            is_fresh: true,
-            source: ScoreSource::Deactivated,
-        };
-        emit!(HealthQueried {
-            agent,
-            querier: ctx.accounts.querier.key(),
-            score: 0,
-            alert: AlertLevel::Red,
-            is_fresh: true,
-            source: ScoreSource::Deactivated,
-            timestamp: clock.unix_timestamp,
-        });
-        return Ok(score);
-    }
+#[derive(Accounts)]
+#[instruction(agent_wallet: Pubkey)]
+pub struct GetHealth<'info> {
+    /// The epoch counter — tells us which epoch's certificate is "current".
+    #[account(
+        seeds = [EpochState::SEED],
+        bump  = epoch_state.bump,
+    )]
+    pub epoch_state: Account<'info, EpochState>,
 
-    let (expected_cert_pda, _) =
-        Pubkey::find_program_address(&[b"score", agent.as_ref()], ctx.program_id);
-    require_keys_eq!(
-        ctx.accounts.trust_certificate.key(),
-        expected_cert_pda,
-        HelixorError::InvalidCertificateAddress
-    );
-
-    let cert_account_info = ctx.accounts.trust_certificate.to_account_info();
-    let cert_data = cert_account_info.data.borrow();
-
-    if cert_data.is_empty() || cert_account_info.lamports() == 0 {
-        let score = TrustScore {
-            agent,
-            score: 500,
-            alert: AlertLevel::Yellow,
-            success_rate: 10_000,
-            anomaly_flag: false,
-            updated_at: 0,
-            is_fresh: false,
-            source: ScoreSource::Provisional,
-        };
-        emit!(HealthQueried {
-            agent,
-            querier: ctx.accounts.querier.key(),
-            score: 500,
-            alert: AlertLevel::Yellow,
-            is_fresh: false,
-            source: ScoreSource::Provisional,
-            timestamp: clock.unix_timestamp,
-        });
-        return Ok(score);
-    }
-
-    drop(cert_data);
-    let cert: TrustCertificate = {
-        let mut data: &[u8] = &cert_account_info.data.borrow();
-        TrustCertificate::try_deserialize(&mut data)
-            .map_err(|_| error!(HelixorError::InvalidCertificateAddress))?
-    };
-    require_keys_eq!(
-        cert.agent_wallet,
-        agent,
-        HelixorError::InvalidCertificateAddress
-    );
-
-    let age = clock
-        .unix_timestamp
-        .checked_sub(cert.updated_at)
-        .ok_or(HelixorError::MathOverflow)?;
-    let is_fresh = (0..TrustCertificate::MAX_AGE_SECONDS).contains(&age);
-    let source = if is_fresh {
-        ScoreSource::Live
-    } else {
-        ScoreSource::Stale
-    };
-
-    emit!(HealthQueried {
-        agent: cert.agent_wallet,
-        querier: ctx.accounts.querier.key(),
-        score: cert.score,
-        alert: cert.alert,
-        is_fresh,
-        source,
-        timestamp: clock.unix_timestamp,
-    });
-
-    Ok(TrustScore {
-        agent: cert.agent_wallet,
-        score: cert.score,
-        alert: cert.alert,
-        success_rate: cert.success_rate,
-        anomaly_flag: cert.anomaly_flag,
-        updated_at: cert.updated_at,
-        is_fresh,
-        source,
-    })
+    /// The current-epoch certificate, on the certificate-issuer program.
+    /// Its seeds use epoch_state.current_epoch — so this account resolves
+    /// to whatever the latest issued certificate for the agent is. If no
+    /// certificate has been issued for the current epoch yet, account
+    /// resolution fails — the correct "no current score" signal.
+    ///
+    /// `seeds::program` points the derivation at the certificate-issuer
+    /// program, since the PDA is owned by that program, not this one.
+    #[account(
+        seeds = [
+            HealthCertificate::SEED_PREFIX,
+            agent_wallet.as_ref(),
+            &epoch_state.current_epoch.to_le_bytes(),
+        ],
+        bump = certificate.bump,
+        seeds::program = certificate_issuer::ID,
+    )]
+    pub certificate: Account<'info, HealthCertificate>,
 }
 
-#[event]
-pub struct HealthQueried {
-    pub agent: Pubkey,
-    pub querier: Pubkey,
-    pub score: u16,
-    pub alert: AlertLevel,
-    pub is_fresh: bool,
-    pub source: ScoreSource,
-    pub timestamp: i64,
+pub fn handler(ctx: Context<GetHealth>, agent_wallet: Pubkey) -> Result<()> {
+    let cert = &ctx.accounts.certificate;
+
+    emit!(HealthRead {
+        agent_wallet,
+        epoch:         cert.epoch,
+        score:         cert.score,
+        alert_tier:    cert.alert_tier,
+        flags:         cert.flags,
+        immediate_red: cert.immediate_red,
+        issued_at:     cert.issued_at,
+    });
+
+    msg!(
+        "health read: agent={} epoch={} score={} tier={}",
+        agent_wallet, cert.epoch, cert.score, cert.alert_tier,
+    );
+    Ok(())
 }

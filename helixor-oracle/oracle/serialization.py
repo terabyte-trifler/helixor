@@ -100,10 +100,8 @@ class DecodedRegistration:
     agent_wallet:           Pubkey
     owner_wallet:           Pubkey
     registered_at:          int
-    escrow_lamports:        int
     active:                 bool
     bump:                   int
-    vault_bump:             int
 
     baseline_committed:     bool
     baseline_hash:          bytes
@@ -124,20 +122,18 @@ def decode_agent_registration_v2(data: bytes) -> DecodedRegistration:
        8..40      agent_wallet                (Pubkey)
       40..72      owner_wallet                (Pubkey)
       72..80      registered_at               (i64 LE)
-      80..88      escrow_lamports             (u64 LE)
-      88..89      active                      (u8)
-      89..90      bump                        (u8)
-      90..91      vault_bump                  (u8)
-      91..92      baseline_committed          (u8)
-      92..124     baseline_hash               ([u8; 32])
-     124..125     baseline_algo_version       (u8)
-     125..157     baseline_committer          (Pubkey)
-     157..165     baseline_committed_at       (i64 LE)
-     165..173     commit_nonce                (u64 LE)
-     173..174     layout_version              (u8)
-     174..238     _reserved                   ([u8; 64])
+      80..81      active                      (u8)
+      81..82      bump                        (u8)
+      82..83      baseline_committed          (u8)
+      83..115     baseline_hash               ([u8; 32])
+     115..116     baseline_algo_version       (u8)
+     116..148     baseline_committer          (Pubkey)
+     148..156     baseline_committed_at       (i64 LE)
+     156..164     commit_nonce                (u64 LE)
+     164..165     layout_version              (u8)
+     165..229     _reserved                   ([u8; 64])
     """
-    if len(data) < 174:
+    if len(data) < 165:
         raise ValueError(f"AgentRegistration data too short: {len(data)} bytes")
     if data[:8] != AGENT_REGISTRATION_DISCRIMINATOR:
         raise ValueError(
@@ -149,15 +145,13 @@ def decode_agent_registration_v2(data: bytes) -> DecodedRegistration:
         agent_wallet           = Pubkey.from_bytes(data[8:40]),
         owner_wallet           = Pubkey.from_bytes(data[40:72]),
         registered_at          = struct.unpack("<q", data[72:80])[0],
-        escrow_lamports        = struct.unpack("<Q", data[80:88])[0],
-        active                 = bool(data[88]),
-        bump                   = data[89],
-        vault_bump             = data[90],
-        baseline_committed     = bool(data[91]),
-        baseline_hash          = bytes(data[92:124]),
-        baseline_algo_version  = data[124],
-        baseline_committer     = Pubkey.from_bytes(data[125:157]),
-        baseline_committed_at  = struct.unpack("<q", data[157:165])[0],
-        commit_nonce           = struct.unpack("<Q", data[165:173])[0],
-        layout_version         = data[173],
+        active                 = bool(data[80]),
+        bump                   = data[81],
+        baseline_committed     = bool(data[82]),
+        baseline_hash          = bytes(data[83:115]),
+        baseline_algo_version  = data[115],
+        baseline_committer     = Pubkey.from_bytes(data[116:148]),
+        baseline_committed_at  = struct.unpack("<q", data[148:156])[0],
+        commit_nonce           = struct.unpack("<Q", data[156:164])[0],
+        layout_version         = data[164],
     )

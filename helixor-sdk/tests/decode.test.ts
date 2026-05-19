@@ -8,12 +8,25 @@
 // Run: tsx test/decode.test.ts
 // =============================================================================
 
-import { describe, expect, it } from "vitest";
+import * as assert from "assert";
 
 import {
   decodeHealthCertificate,
   decodeEpochState,
 } from "../src/decode";
+
+let passed = 0;
+function test(name: string, fn: () => void): void {
+  try {
+    fn();
+    passed++;
+    console.log(`  ok  ${name}`);
+  } catch (err) {
+    console.error(`FAIL  ${name}`);
+    console.error(err);
+    process.exitCode = 1;
+  }
+}
 
 // =============================================================================
 // Build a HealthCertificate buffer in the Rust layout
@@ -66,82 +79,86 @@ function buildEpochState(opts: {
 // HealthCertificate decode
 // =============================================================================
 
-describe("account decoders", () => {
-  it("decodes a HealthCertificate round trip", () => {
-    const buf = buildHealthCertificate({
-      epoch: 1,
-      score: 916,
-      alertTier: 0,
-      flags: 0,
-      issuedAt: 1_777_000_000,
-      immediateRed: false,
-    });
-    const cert = decodeHealthCertificate(buf);
-    expect(cert.epoch).toBe(1);
-    expect(cert.score).toBe(916);
-    expect(cert.alertTier).toBe(0);
-    expect(cert.issuedAt).toBe(1_777_000_000);
-    expect(cert.immediateRed).toBe(false);
-    expect(cert.layoutVersion).toBe(1);
+test("decodes a HealthCertificate round trip", () => {
+  const buf = buildHealthCertificate({
+    epoch: 1,
+    score: 916,
+    alertTier: 0,
+    flags: 0,
+    issuedAt: 1_777_000_000,
+    immediateRed: false,
   });
-
-  it("decodes immediate_red true", () => {
-    const buf = buildHealthCertificate({
-      epoch: 5,
-      score: 120,
-      alertTier: 2,
-      flags: 0x08,
-      issuedAt: 1_777_100_000,
-      immediateRed: true,
-    });
-    const cert = decodeHealthCertificate(buf);
-    expect(cert.immediateRed).toBe(true);
-    expect(cert.alertTier).toBe(2);
-    expect(cert.flags).toBe(0x08);
-  });
-
-  it("decodes the maximum score", () => {
-    const buf = buildHealthCertificate({
-      epoch: 2,
-      score: 1000,
-      alertTier: 0,
-      flags: 0,
-      issuedAt: 1_777_200_000,
-      immediateRed: false,
-    });
-    expect(decodeHealthCertificate(buf).score).toBe(1000);
-  });
-
-  it("decodes 32-byte agent / issuer / baseline_hash slices", () => {
-    const buf = buildHealthCertificate({
-      epoch: 1, score: 700, alertTier: 0, flags: 0,
-      issuedAt: 1, immediateRed: false,
-    });
-    const cert = decodeHealthCertificate(buf);
-    expect(cert.agentWallet.length).toBe(32);
-    expect(cert.issuer.length).toBe(32);
-    expect(cert.baselineHash.length).toBe(32);
-  });
-
-  it("decodes an EpochState round trip", () => {
-    const buf = buildEpochState({
-      currentEpoch: 7,
-      lastAdvancedAt: 1_777_000_000,
-      durationSeconds: 86_400,
-    });
-    const state = decodeEpochState(buf);
-    expect(state.currentEpoch).toBe(7);
-    expect(state.lastAdvancedAt).toBe(1_777_000_000);
-    expect(state.epochDurationSeconds).toBe(86_400);
-    expect(state.advanceAuthority.length).toBe(32);
-  });
-
-  it("decodes epoch 1 (the first epoch)", () => {
-    const buf = buildEpochState({
-      currentEpoch: 1,
-      lastAdvancedAt: 0,
-      durationSeconds: 86_400,
-    });
-    expect(decodeEpochState(buf).currentEpoch).toBe(1);
-  });
+  const cert = decodeHealthCertificate(buf);
+  assert.strictEqual(cert.epoch, 1);
+  assert.strictEqual(cert.score, 916);
+  assert.strictEqual(cert.alertTier, 0);
+  assert.strictEqual(cert.issuedAt, 1_777_000_000);
+  assert.strictEqual(cert.immediateRed, false);
+  assert.strictEqual(cert.layoutVersion, 1);
 });
+
+test("decodes immediate_red true", () => {
+  const buf = buildHealthCertificate({
+    epoch: 5,
+    score: 120,
+    alertTier: 2,
+    flags: 0x08,
+    issuedAt: 1_777_100_000,
+    immediateRed: true,
+  });
+  const cert = decodeHealthCertificate(buf);
+  assert.strictEqual(cert.immediateRed, true);
+  assert.strictEqual(cert.alertTier, 2);
+  assert.strictEqual(cert.flags, 0x08);
+});
+
+test("decodes the maximum score", () => {
+  const buf = buildHealthCertificate({
+    epoch: 2,
+    score: 1000,
+    alertTier: 0,
+    flags: 0,
+    issuedAt: 1_777_200_000,
+    immediateRed: false,
+  });
+  assert.strictEqual(decodeHealthCertificate(buf).score, 1000);
+});
+
+test("decodes 32-byte agent / issuer / baseline_hash slices", () => {
+  const buf = buildHealthCertificate({
+    epoch: 1, score: 700, alertTier: 0, flags: 0,
+    issuedAt: 1, immediateRed: false,
+  });
+  const cert = decodeHealthCertificate(buf);
+  assert.strictEqual(cert.agentWallet.length, 32);
+  assert.strictEqual(cert.issuer.length, 32);
+  assert.strictEqual(cert.baselineHash.length, 32);
+});
+
+// =============================================================================
+// EpochState decode
+// =============================================================================
+
+test("decodes an EpochState round trip", () => {
+  const buf = buildEpochState({
+    currentEpoch: 7,
+    lastAdvancedAt: 1_777_000_000,
+    durationSeconds: 86_400,
+  });
+  const state = decodeEpochState(buf);
+  assert.strictEqual(state.currentEpoch, 7);
+  assert.strictEqual(state.lastAdvancedAt, 1_777_000_000);
+  assert.strictEqual(state.epochDurationSeconds, 86_400);
+  assert.strictEqual(state.advanceAuthority.length, 32);
+});
+
+test("decodes epoch 1 (the first epoch)", () => {
+  const buf = buildEpochState({
+    currentEpoch: 1,
+    lastAdvancedAt: 0,
+    durationSeconds: 86_400,
+  });
+  assert.strictEqual(decodeEpochState(buf).currentEpoch, 1);
+});
+
+console.log(`\n${passed} decode tests passed`);

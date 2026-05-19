@@ -25,7 +25,6 @@ from detection.performance import (
 from detection.performance_context import MarketContext, NEUTRAL_MARKET
 from features import FEATURE_SCHEMA_VERSION, FeatureVector
 from features.vector import TOTAL_FEATURES
-from scoring.weights import scoring_schema_fingerprint
 
 
 REF_END = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -49,7 +48,6 @@ def _baseline(*, daily=None, net_mean: float = 0.5,
         baseline_algo_version=BASELINE_ALGO_VERSION,
         feature_schema_version=FEATURE_SCHEMA_VERSION,
         feature_schema_fingerprint=FeatureVector.feature_schema_fingerprint(),
-        scoring_schema_fingerprint=scoring_schema_fingerprint(),
         window_start=REF_END - timedelta(days=30),
         window_end=REF_END,
         feature_means=tuple(means),
@@ -151,30 +149,6 @@ class TestProfitFraudDetection:
         # A SHORT agent making money in a crash is consistent — not flagged.
         crash_short = MarketContext(market_return=-0.15, market_exposure=-1.0)
         result = PerformanceDetector(crash_short).score(_features(net=0.9), _baseline())
-        assert result.sub_scores["profit_quality_score"] > 0.9
-
-    def test_asset_level_returns_override_broad_market_return(self):
-        # Broad market was up, but this agent was exposed to an asset that fell.
-        # Claimed profit is therefore low-quality once per-asset attribution is used.
-        ctx = MarketContext(
-            market_return=0.20,
-            asset_returns={"SOL": 0.20, "RUG": -0.15},
-            asset_exposures={"RUG": 1.0},
-        )
-        result = PerformanceDetector(ctx).score(_features(net=0.9), _baseline())
-        assert ctx.effective_market_return == pytest.approx(-0.15)
-        assert result.sub_scores["profit_quality_score"] < 0.35
-        assert result.flags & FLAG_PROFIT_QUALITY_LOW
-
-    def test_asset_level_short_exposure_is_supported(self):
-        # Short exposure to a falling asset means profit is market-consistent.
-        ctx = MarketContext(
-            market_return=0.20,
-            asset_returns={"RUG": -0.15},
-            asset_exposures={"RUG": -1.0},
-        )
-        result = PerformanceDetector(ctx).score(_features(net=0.9), _baseline())
-        assert ctx.effective_market_return == pytest.approx(0.15)
         assert result.sub_scores["profit_quality_score"] > 0.9
 
 

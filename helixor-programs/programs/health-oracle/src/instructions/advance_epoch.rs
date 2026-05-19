@@ -48,14 +48,14 @@ pub fn handler(ctx: Context<AdvanceEpoch>) -> Result<()> {
     );
 
     let from = epoch_state.current_epoch;
-    epoch_state.current_epoch = from
+    epoch_state.current_epoch    = from
         .checked_add(1)
         .expect("epoch counter overflow — unreachable in any realistic lifetime");
     epoch_state.last_advanced_at = clock.unix_timestamp;
 
     emit!(EpochAdvanced {
-        from_epoch: from,
-        to_epoch: epoch_state.current_epoch,
+        from_epoch:  from,
+        to_epoch:    epoch_state.current_epoch,
         advanced_at: clock.unix_timestamp,
     });
 
