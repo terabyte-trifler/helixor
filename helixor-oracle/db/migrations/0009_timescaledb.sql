@@ -68,9 +68,6 @@ CREATE TABLE IF NOT EXISTS agent_transactions (
     PRIMARY KEY (signature, block_time)
 );
 
--- Legacy webhook ingestion created this table before Day 15 with
--- `tx_signature` as the unique key. Upgrade it in place for the V2 extractor
--- shape instead of assuming CREATE TABLE populated the new columns.
 ALTER TABLE agent_transactions
     ADD COLUMN IF NOT EXISTS tx_signature  TEXT,
     ADD COLUMN IF NOT EXISTS signature     TEXT,

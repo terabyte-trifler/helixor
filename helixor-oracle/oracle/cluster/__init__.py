@@ -51,6 +51,27 @@ from oracle.cluster.commit_reveal_runner import (
     CommitRevealEpochReport,
     simulate_commit_reveal_epoch,
 )
+from oracle.cluster.byzantine import (
+    BYZANTINE_DEVIATION_THRESHOLD,
+    DeviationReport,
+    NodeDeviation,
+    OMResult,
+    analyse_deviation,
+    om1_agreement,
+)
+from oracle.cluster.byzantine_watchdog import (
+    STRIKE_THRESHOLD,
+    ByzantineChallenge,
+    ByzantineWatchdog,
+    ChallengeFn,
+    EpochByzantineFlag,
+    StrikeRecord,
+)
+from oracle.cluster.byzantine_runner import (
+    ByzantineAgentResult,
+    ByzantineEpochReport,
+    run_byzantine_epoch,
+)
 from oracle.cluster.identity import (
     NodeIdentity,
     NodeKeypair,
@@ -93,4 +114,9 @@ __all__ = [
     "CommitRejected", "RevealRejected",
     "CommitRevealEpochReport", "CommitRevealAgentResult",
     "simulate_commit_reveal_epoch",
+    "BYZANTINE_DEVIATION_THRESHOLD", "DeviationReport", "NodeDeviation",
+    "OMResult", "analyse_deviation", "om1_agreement",
+    "STRIKE_THRESHOLD", "ByzantineWatchdog", "ByzantineChallenge",
+    "ChallengeFn", "EpochByzantineFlag", "StrikeRecord",
+    "ByzantineEpochReport", "ByzantineAgentResult", "run_byzantine_epoch",
 ]

@@ -41,7 +41,7 @@ the scoring path, so every node in the cluster scores identically.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -181,6 +181,18 @@ class OracleNode:
         # logical clock (not the wall clock) keeps the protocol fully
         # deterministic and testable.
         self._round_clock: float = 0.0
+        # Day 26: an optional score-corruptor — models a BYZANTINE node.
+        # A real Byzantine node's malice happens inside its own process: it
+        # runs the engine (or not) and then alters its scores before
+        # committing. This hook is that alteration point. None for an
+        # honest node; set on a node deliberately made Byzantine for
+        # testing / red-teaming. It is applied at the END of `score_epoch`,
+        # so the node still commits/reveals its (corrupted) scores
+        # consistently — i.e. it passes commit-reveal and must be caught by
+        # DEVIATION detection, which is exactly the Day-26 case.
+        self._score_corruptor: (
+            Callable[[dict[str, AgentScore]], dict[str, AgentScore]] | None
+        ) = None
         logger.info(
             "oracle node %s constructed — %d-node cluster%s",
             self.node_id, membership.size,
@@ -312,10 +324,31 @@ class OracleNode:
                 immediate_red=score_result.immediate_red,
                 confidence=score_result.confidence,
             )
+        # Day 26: a Byzantine node corrupts its own scores here, AFTER
+        # honest computation — so it still commits/reveals consistently and
+        # must be caught by deviation detection, not commit-reveal.
+        if self._score_corruptor is not None:
+            scores = self._score_corruptor(scores)
+
         self._epoch_scores[epoch_id] = scores
         logger.info("node %s scored %d agents for epoch %d",
                     self.node_id, len(scores), epoch_id)
         return scores
+
+    def make_byzantine(
+        self,
+        corruptor: Callable[[dict[str, AgentScore]], dict[str, AgentScore]],
+    ) -> None:
+        """
+        Turn this node Byzantine — install a `corruptor` that alters the
+        node's scores after honest computation. For testing and red-teaming
+        the Byzantine-detection path; a production node never calls this.
+        """
+        self._score_corruptor = corruptor
+
+    def make_honest(self) -> None:
+        """Remove any Byzantine corruptor — restore honest behaviour."""
+        self._score_corruptor = None
 
     def scores_for_epoch(self, epoch_id: int) -> dict[str, AgentScore] | None:
         """This node's stored scores for an epoch, or None if not yet scored."""
@@ -358,6 +391,10 @@ class OracleNode:
             opened_at=opened_at,
         )
         self._rounds[epoch] = round_
+        # The logical round clock is per-round — opening a new round resets
+        # it to that round's start, so a fresh epoch is not blocked by the
+        # previous epoch's elapsed time.
+        self._round_clock = opened_at
         return round_
 
     def round_for(self, epoch: int) -> "CommitRevealRound | None":

@@ -42,11 +42,6 @@ ALTER TABLE agent_baselines
     ADD COLUMN IF NOT EXISTS computed_at                TIMESTAMPTZ;
 
 -- Any pre-existing MVP rows: tag them as algo v1 so the backfill finds them.
---
--- asyncpg prepares a whole migration batch before executing it. A plain
--- UPDATE can therefore fail to resolve a column that was added earlier in the
--- same batch on a legacy database. Dynamic SQL resolves after the ALTER has
--- executed, which keeps the migration safe for both fresh and upgraded DBs.
 DO $$
 BEGIN
     EXECUTE 'UPDATE agent_baselines

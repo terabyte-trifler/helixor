@@ -33,10 +33,6 @@ CREATE TABLE IF NOT EXISTS agent_scores (
     computed_at  TIMESTAMPTZ NOT NULL
 );
 
--- Legacy databases already have the MVP `agent_scores` table. CREATE TABLE
--- IF NOT EXISTS does not add columns to an existing table, so V2 is an
--- explicit in-place upgrade. Defaults keep legacy rows valid; new inserts
--- overwrite these with real scorer output.
 ALTER TABLE agent_scores
     ADD COLUMN IF NOT EXISTS alert_tier              TEXT,
     ADD COLUMN IF NOT EXISTS dim1                    INTEGER,
@@ -70,11 +66,11 @@ BEGIN
                      confidence = COALESCE(confidence, 1000),
                      gaming_flag = COALESCE(gaming_flag, FALSE),
                      scoring_algo_version = COALESCE(scoring_algo_version, 1),
-                     baseline_stats_hash = COALESCE(baseline_stats_hash, ''''),
+                     baseline_stats_hash = COALESCE(baseline_stats_hash, baseline_hash, ''''),
                      feature_schema_fp = COALESCE(feature_schema_fp, ''''),
                      scoring_schema_fp = COALESCE(scoring_schema_fp, ''''),
                      aggregated_flags = COALESCE(aggregated_flags, 0),
-                     delta_clamped = COALESCE(delta_clamped, FALSE),
+                     delta_clamped = COALESCE(delta_clamped, guard_rail_applied, FALSE),
                      inserted_at = COALESCE(inserted_at, computed_at, now())';
     ELSE
         EXECUTE 'UPDATE agent_scores
@@ -96,11 +92,6 @@ BEGIN
     END IF;
 END $$;
 
--- Compatibility bridge: the MVP scorer and API tests still insert the legacy
--- score columns (`alert`, `success_rate_score`, `consistency_score`,
--- `stability_score`). V2 adds richer columns but must not break those callers.
--- A BEFORE trigger fills the V2 fields from the legacy fields on every future
--- insert/update, while newer callers can still supply the V2 values directly.
 CREATE OR REPLACE FUNCTION sync_agent_scores_v2_defaults()
 RETURNS TRIGGER AS $$
 BEGIN
