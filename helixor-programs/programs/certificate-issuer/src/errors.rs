@@ -22,6 +22,8 @@ pub enum CertificateError {
     ZeroEpoch = 6012,
     #[msg("baseline_hash is all zeros — refusing to issue against an empty baseline")]
     ZeroBaselineHash = 6013,
+    #[msg("confidence exceeds the maximum (1000)")]
+    ConfidenceOutOfRange = 6014,
 
     // ── State preconditions ─────────────────────────────────────────────────
     #[msg("the score / alert pair is inconsistent: a RED alert needs immediate_red \

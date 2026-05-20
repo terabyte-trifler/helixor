@@ -100,6 +100,7 @@ pub fn handler(
     score:         u16,
     alert_tier:    u8,
     flags:         u32,
+    confidence:    u16,
     immediate_red: bool,
 ) -> Result<()> {
     // ── Validate the inputs ─────────────────────────────────────────────────
@@ -107,6 +108,10 @@ pub fn handler(
     require!(
         score <= HealthCertificate::MAX_SCORE,
         CertificateError::ScoreOutOfRange,
+    );
+    require!(
+        confidence <= HealthCertificate::MAX_CONFIDENCE,
+        CertificateError::ConfidenceOutOfRange,
     );
 
     let tier = AlertTier::from_u8(alert_tier)
@@ -129,14 +134,14 @@ pub fn handler(
 
     // ── DAY 27: verify the THRESHOLD SIGNATURES from the cluster ────────────
     // The cert payload (the canonical digest of agent/epoch/score/tier/
-    // flags/immediate_red) MUST have been signed by at least `threshold`
+    // flags/confidence/immediate_red) MUST have been signed by at least `threshold`
     // distinct cluster keys, via Ed25519 precompile instructions in this
     // same transaction. Below threshold -> InsufficientSignatures -> ix
     // fails. This is the on-chain enforcement of 3-of-5 (or whatever the
     // configured threshold is).
     let digest = crate::signing::cert_payload_digest(
         &ctx.accounts.baseline_stats.agent_wallet,
-        epoch, score, alert_tier, flags, immediate_red,
+        epoch, score, alert_tier, flags, confidence, immediate_red,
     );
     let valid_signers = crate::signing::verify_threshold_signatures(
         &digest,
@@ -156,6 +161,7 @@ pub fn handler(
     cert.issued_at      = clock.unix_timestamp;
     cert.issuer         = ctx.accounts.issuer.key();
     cert.baseline_hash  = ctx.accounts.baseline_stats.baseline_hash;
+    cert.confidence     = confidence;
     cert.immediate_red  = immediate_red;
     cert.bump           = ctx.bumps.certificate;
     cert.layout_version = HealthCertificate::CURRENT_LAYOUT_VERSION;
@@ -166,6 +172,7 @@ pub fn handler(
         score,
         alert_tier:    cert.alert_tier,
         flags,
+        confidence,
         immediate_red,
         issuer:        cert.issuer,
         issued_at:     cert.issued_at,

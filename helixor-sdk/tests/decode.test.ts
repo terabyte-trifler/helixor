@@ -37,6 +37,7 @@ function buildHealthCertificate(opts: {
   score: number;
   alertTier: number;
   flags: number;
+  confidence?: number;
   issuedAt: number;
   immediateRed: boolean;
 }): Buffer {
@@ -52,6 +53,7 @@ function buildHealthCertificate(opts: {
   buf.writeBigInt64LE(BigInt(opts.issuedAt), o); o += 8;
   buf.fill(0xbb, o, o + 32); o += 32; // issuer
   buf.fill(0xcc, o, o + 32); o += 32; // baseline_hash
+  buf.writeUInt16LE(opts.confidence ?? 900, o); o += 2;
   buf.writeUInt8(opts.immediateRed ? 1 : 0, o); o += 1;
   buf.writeUInt8(254, o); o += 1; // bump
   buf.writeUInt8(1, o); o += 1; // layout_version
@@ -92,6 +94,7 @@ test("decodes a HealthCertificate round trip", () => {
   assert.strictEqual(cert.epoch, 1);
   assert.strictEqual(cert.score, 916);
   assert.strictEqual(cert.alertTier, 0);
+  assert.strictEqual(cert.confidence, 900);
   assert.strictEqual(cert.issuedAt, 1_777_000_000);
   assert.strictEqual(cert.immediateRed, false);
   assert.strictEqual(cert.layoutVersion, 1);
@@ -122,6 +125,19 @@ test("decodes the maximum score", () => {
     immediateRed: false,
   });
   assert.strictEqual(decodeHealthCertificate(buf).score, 1000);
+});
+
+test("decodes certificate confidence", () => {
+  const buf = buildHealthCertificate({
+    epoch: 3,
+    score: 742,
+    alertTier: 1,
+    flags: 0,
+    confidence: 417,
+    issuedAt: 1_777_300_000,
+    immediateRed: false,
+  });
+  assert.strictEqual(decodeHealthCertificate(buf).confidence, 417);
 });
 
 test("decodes 32-byte agent / issuer / baseline_hash slices", () => {

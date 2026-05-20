@@ -39,7 +39,7 @@
 // CANONICAL PAYLOAD
 // -----------------
 // The signed payload is sha256( agent || epoch || score || alert_tier ||
-// flags || immediate_red ). Fixed-width big-endian integers, fixed order
+// flags || confidence || immediate_red ). Fixed-width big-endian integers, fixed order
 // — same canonical-serialisation discipline as Day 25's commit_reveal. A
 // signer signs the DIGEST, not the unhashed bytes, so we control payload
 // length (the Ed25519 precompile signs arbitrary-length messages, but
@@ -70,6 +70,7 @@ pub fn cert_payload_digest(
     score:          u16,
     alert_tier:     u8,
     flags:          u32,
+    confidence:     u16,
     immediate_red:  bool,
 ) -> [u8; 32] {
     // The byte layout is FIXED and PUBLIC — every signer and verifier must
@@ -82,6 +83,7 @@ pub fn cert_payload_digest(
         &score.to_be_bytes(),                //  2 bytes
         &[alert_tier],                       //  1 byte
         &flags.to_be_bytes(),                //  4 bytes
+        &confidence.to_be_bytes(),           //  2 bytes
         &[immediate_red_byte],               //  1 byte
     ]);
     h.to_bytes()

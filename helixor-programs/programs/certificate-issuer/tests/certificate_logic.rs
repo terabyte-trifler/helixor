@@ -19,8 +19,8 @@ use certificate_issuer::state::{AlertTier, BaselineStats, HealthCertificate, Iss
 
 #[test]
 fn health_certificate_size_constants_are_correct() {
-    //   32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 = 122
-    // + 48 reserved                                   =  48
+    //   32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 2 + 1 + 1 + 1 = 124
+    // + 46 reserved                                      =  46
     // = 170
     assert_eq!(HealthCertificate::SIZE_WITHOUT_DISCRIMINATOR, 170);
     assert_eq!(HealthCertificate::SPACE, 178);          // + 8 discriminator

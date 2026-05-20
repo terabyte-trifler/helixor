@@ -49,6 +49,7 @@ def cert_payload_digest(
     score:              int,
     alert_tier:         int,
     flags:              int,
+    confidence:         int,
     immediate_red:      bool,
 ) -> bytes:
     """
@@ -58,6 +59,8 @@ def cert_payload_digest(
     message matches.
 
     `agent_wallet_bytes` is the 32-byte Solana pubkey of the agent.
+    `confidence` is the 0..1000 data-sufficiency confidence stored in the
+    HealthCertificate and signed as part of the same payload.
     """
     import hashlib
 
@@ -69,6 +72,8 @@ def cert_payload_digest(
         raise ValueError(f"alert_tier out of u8 range: {alert_tier}")
     if not (0 <= flags <= 0xFFFFFFFF):
         raise ValueError(f"flags out of u32 range: {flags}")
+    if not (0 <= confidence <= 1000):
+        raise ValueError(f"confidence out of 0..1000 range: {confidence}")
     if not (0 <= epoch <= 0xFFFFFFFFFFFFFFFF):
         raise ValueError(f"epoch out of u64 range: {epoch}")
 
@@ -79,6 +84,7 @@ def cert_payload_digest(
         + score.to_bytes(2, "big")                      #  2
         + alert_tier.to_bytes(1, "big")                 #  1
         + flags.to_bytes(4, "big")                      #  4
+        + confidence.to_bytes(2, "big")                 #  2
         + immediate_red_byte                            #  1
     )
     return hashlib.sha256(payload).digest()

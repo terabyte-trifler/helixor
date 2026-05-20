@@ -76,10 +76,11 @@ pub mod certificate_issuer {
         score:         u16,
         alert_tier:    u8,
         flags:         u32,
+        confidence:    u16,
         immediate_red: bool,
     ) -> Result<()> {
         instructions::issue_certificate::handler(
-            ctx, epoch, score, alert_tier, flags, immediate_red,
+            ctx, epoch, score, alert_tier, flags, confidence, immediate_red,
         )
     }
 

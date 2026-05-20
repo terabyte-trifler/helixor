@@ -23,57 +23,64 @@ fn agent() -> Pubkey {
 
 #[test]
 fn digest_is_32_bytes() {
-    let d = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
+    let d = cert_payload_digest(&agent(), 1, 851, 2, 8, 900, true);
     assert_eq!(d.len(), 32);
 }
 
 #[test]
 fn digest_is_deterministic() {
-    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
-    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, 900, true);
+    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, 900, true);
     assert_eq!(a, b);
 }
 
 #[test]
 fn digest_changes_with_score() {
-    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
-    let b = cert_payload_digest(&agent(), 1, 852, 2, 8, true);
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, 900, true);
+    let b = cert_payload_digest(&agent(), 1, 852, 2, 8, 900, true);
     assert_ne!(a, b);
 }
 
 #[test]
 fn digest_changes_with_epoch() {
-    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
-    let b = cert_payload_digest(&agent(), 2, 851, 2, 8, true);
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, 900, true);
+    let b = cert_payload_digest(&agent(), 2, 851, 2, 8, 900, true);
     assert_ne!(a, b);
 }
 
 #[test]
 fn digest_changes_with_alert_tier() {
-    let a = cert_payload_digest(&agent(), 1, 851, 0, 8, true);
-    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
+    let a = cert_payload_digest(&agent(), 1, 851, 0, 8, 900, true);
+    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, 900, true);
     assert_ne!(a, b);
 }
 
 #[test]
 fn digest_changes_with_flags() {
-    let a = cert_payload_digest(&agent(), 1, 851, 2, 0, true);
-    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 0, 900, true);
+    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, 900, true);
     assert_ne!(a, b);
 }
 
 #[test]
 fn digest_changes_with_immediate_red() {
-    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
-    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, false);
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, 900, true);
+    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, 900, false);
+    assert_ne!(a, b);
+}
+
+#[test]
+fn digest_changes_with_confidence() {
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, 900, true);
+    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, 901, true);
     assert_ne!(a, b);
 }
 
 #[test]
 fn digest_changes_with_agent() {
     let other = Pubkey::new_from_array([0x22; 32]);
-    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
-    let b = cert_payload_digest(&other, 1, 851, 2, 8, true);
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, 900, true);
+    let b = cert_payload_digest(&other, 1, 851, 2, 8, 900, true);
     assert_ne!(a, b);
 }
 

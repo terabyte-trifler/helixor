@@ -67,6 +67,7 @@ pub fn handler(ctx: Context<GetHealth>, agent_wallet: Pubkey) -> Result<()> {
         score:         cert.score,
         alert_tier:    cert.alert_tier,
         flags:         cert.flags,
+        confidence:    cert.confidence,
         immediate_red: cert.immediate_red,
         issued_at:     cert.issued_at,
     });

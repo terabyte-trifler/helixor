@@ -21,6 +21,8 @@ pub struct CertificateIssued {
     pub alert_tier:    u8,
     /// The aggregated detection flag bits.
     pub flags:         u32,
+    /// The data-sufficiency confidence, 0..=1000.
+    pub confidence:    u16,
     /// Whether the IMMEDIATE_RED fast-path was tripped.
     pub immediate_red: bool,
     /// The oracle authority that issued the certificate.
@@ -50,6 +52,7 @@ pub struct CertificateRead {
     pub score:        u16,
     pub alert_tier:   u8,
     pub flags:        u32,
+    pub confidence:   u16,
     pub immediate_red: bool,
     pub issued_at:    i64,
 }

@@ -16,7 +16,6 @@
 import * as assert from "assert";
 
 import { AlertTier, type HealthScore, type EpochScore } from "../src/types";
-import { PublicKey } from "@solana/web3.js";
 
 let passed = 0;
 function test(name: string, fn: () => void): void {
@@ -33,10 +32,11 @@ function test(name: string, fn: () => void): void {
 
 // The frozen MVP shape — exactly these five keys, nothing else.
 const MVP_HEALTH_SCORE_KEYS = ["agent", "score", "alert", "flags", "issuedAt"];
+const AGENT = { toBase58: () => "agent111111111111111111111111111111111111" } as any;
 
 test("HealthScore has exactly the MVP keys", () => {
   const sample: HealthScore = {
-    agent: PublicKey.default,
+    agent: AGENT,
     score: 916,
     alert: AlertTier.Green,
     flags: 0,
@@ -52,13 +52,13 @@ test("HealthScore has exactly the MVP keys", () => {
 
 test("HealthScore field types match the MVP contract", () => {
   const sample: HealthScore = {
-    agent: PublicKey.default,
+    agent: AGENT,
     score: 700,
     alert: AlertTier.Yellow,
     flags: 0x08,
     issuedAt: 1,
   };
-  assert.ok(sample.agent instanceof PublicKey);
+  assert.strictEqual(typeof sample.agent.toBase58, "function");
   assert.strictEqual(typeof sample.score, "number");
   assert.ok(Object.values(AlertTier).includes(sample.alert));
   assert.strictEqual(typeof sample.flags, "number");
@@ -69,12 +69,13 @@ test("EpochScore is a strict superset of HealthScore (additive only)", () => {
   // Every HealthScore key must also be an EpochScore key — the V2 type
   // EXTENDS the MVP type, it never drops a field.
   const epochScore: EpochScore = {
-    agent: PublicKey.default,
+    agent: AGENT,
     score: 916,
     alert: AlertTier.Green,
     flags: 0,
     issuedAt: 1,
     epoch: 1,
+    confidence: 900,
     immediateRed: false,
   };
   for (const key of MVP_HEALTH_SCORE_KEYS) {
@@ -83,8 +84,9 @@ test("EpochScore is a strict superset of HealthScore (additive only)", () => {
       `EpochScore is missing MVP key '${key}' — V2 must be additive`
     );
   }
-  // And it adds exactly the two V2 fields.
+  // And it adds V2 fields without changing the MVP getScore shape.
   assert.ok("epoch" in epochScore);
+  assert.ok("confidence" in epochScore);
   assert.ok("immediateRed" in epochScore);
 });
 

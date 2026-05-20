@@ -73,7 +73,7 @@ describe("health-oracle <-> certificate-issuer CPI (Day 19)", () => {
 
     // submit_score on health_oracle — internally CPIs issue_certificate.
     await oracleProgram.methods
-      .submitScore(new BN(epoch), 916, 0 /* GREEN */, 0, false)
+      .submitScore(new BN(epoch), 916, 0 /* GREEN */, 0, 900, false)
       .accounts({
         agentRegistration: /* derived elsewhere */ undefined as any,
         oracleConfig: undefined as any,
@@ -115,7 +115,7 @@ describe("health-oracle <-> certificate-issuer CPI (Day 19)", () => {
 
     // Submit an epoch-2 score — a NEW certificate PDA.
     await oracleProgram.methods
-      .submitScore(new BN(2), 720, 0, 0, false)
+      .submitScore(new BN(2), 720, 0, 0, 900, false)
       .accounts({
         agentRegistration: undefined as any,
         oracleConfig: undefined as any,

@@ -63,6 +63,7 @@ pub struct ScoreSubmitted {
     pub score:         u16,
     pub alert_tier:    u8,
     pub flags:         u32,
+    pub confidence:    u16,
     pub immediate_red: bool,
     pub oracle:        Pubkey,
     pub submitted_at:  i64,
@@ -76,6 +77,7 @@ pub struct HealthRead {
     pub score:         u16,
     pub alert_tier:    u8,
     pub flags:         u32,
+    pub confidence:    u16,
     pub immediate_red: bool,
     pub issued_at:     i64,
 }

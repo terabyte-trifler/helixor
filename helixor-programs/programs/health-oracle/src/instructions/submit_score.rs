@@ -112,12 +112,17 @@ pub fn handler(
     score:         u16,
     alert_tier:    u8,
     flags:         u32,
+    confidence:    u16,
     immediate_red: bool,
 ) -> Result<()> {
     // ── 2. precondition checks ──────────────────────────────────────────────
     require!(
         score <= HealthCertificate::MAX_SCORE,
         HelixorError::ScoreOutOfRange,
+    );
+    require!(
+        confidence <= HealthCertificate::MAX_CONFIDENCE,
+        HelixorError::ConfidenceOutOfRange,
     );
 
     // ── 3. epoch check — the score must be for the CURRENT epoch ────────────
@@ -146,7 +151,9 @@ pub fn handler(
 
     // This CALL is the certificate write. If it reverts, submit_score
     // reverts — the score submission is all-or-nothing.
-    cpi_issue_certificate(cpi_ctx, epoch, score, alert_tier, flags, immediate_red)?;
+    cpi_issue_certificate(
+        cpi_ctx, epoch, score, alert_tier, flags, confidence, immediate_red,
+    )?;
 
     // ── emit the oracle-side event ──────────────────────────────────────────
     let clock = Clock::get()?;
@@ -156,6 +163,7 @@ pub fn handler(
         score,
         alert_tier,
         flags,
+        confidence,
         immediate_red,
         oracle:        ctx.accounts.oracle.key(),
         submitted_at:  clock.unix_timestamp,

@@ -82,6 +82,8 @@ export interface TrustScore extends HealthScore {
 export interface EpochScore extends HealthScore {
   /** The epoch this score covers. */
   epoch: number;
+  /** Data-sufficiency confidence, 0..1000. */
+  confidence: number;
   /** Whether the IMMEDIATE_RED security fast-path was tripped. */
   immediateRed: boolean;
 }

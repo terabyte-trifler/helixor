@@ -114,6 +114,7 @@ export class HelixorClient {
       alert: alertTierFromCode(cert.alertTier),
       flags: cert.flags,
       issuedAt: cert.issuedAt,
+      confidence: cert.confidence,
       immediateRed: cert.immediateRed,
     };
   }
@@ -153,6 +154,7 @@ export class HelixorClient {
         alert: alertTierFromCode(cert.alertTier),
         flags: cert.flags,
         issuedAt: cert.issuedAt,
+        confidence: cert.confidence,
         immediateRed: cert.immediateRed,
       });
     });

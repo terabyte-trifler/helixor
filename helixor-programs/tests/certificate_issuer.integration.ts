@@ -89,7 +89,7 @@ describe("certificate-issuer (Day 18)", () => {
   // ── 3. issue an epoch-1 certificate ────────────────────────────────────────
   it("issues an epoch-1 certificate", async () => {
     await program.methods
-      .issueCertificate(new BN(1), 916, 0 /* GREEN */, 0, false)
+      .issueCertificate(new BN(1), 916, 0 /* GREEN */, 0, 900, false)
       .accounts({
         certificate: certPda(agent, 1),
         baselineStats: baselinePda(agent),
@@ -123,7 +123,7 @@ describe("certificate-issuer (Day 18)", () => {
   it("rejects re-issuing the same (agent, epoch)", async () => {
     try {
       await program.methods
-        .issueCertificate(new BN(1), 800, 0, 0, false)
+        .issueCertificate(new BN(1), 800, 0, 0, 900, false)
         .accounts({
           certificate: certPda(agent, 1),
           baselineStats: baselinePda(agent),
@@ -144,7 +144,7 @@ describe("certificate-issuer (Day 18)", () => {
     try {
       // score 916 (high) but alert RED, without immediate_red — inconsistent.
       await program.methods
-        .issueCertificate(new BN(2), 916, 2 /* RED */, 0, false)
+        .issueCertificate(new BN(2), 916, 2 /* RED */, 0, 900, false)
         .accounts({
           certificate: certPda(agent, 2),
           baselineStats: baselinePda(agent),
@@ -162,7 +162,7 @@ describe("certificate-issuer (Day 18)", () => {
   // ── per-epoch history: epoch-2 is a SEPARATE certificate ───────────────────
   it("keeps per-epoch history — epoch 2 is a distinct certificate", async () => {
     await program.methods
-      .issueCertificate(new BN(2), 720, 0 /* GREEN */, 0, false)
+      .issueCertificate(new BN(2), 720, 0 /* GREEN */, 0, 900, false)
       .accounts({
         certificate: certPda(agent, 2),
         baselineStats: baselinePda(agent),

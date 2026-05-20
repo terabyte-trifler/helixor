@@ -23,10 +23,11 @@
 //   issued_at                8   (i64   — unix seconds at issuance)
 //   issuer                  32   (Pubkey — the oracle authority that issued)
 //   baseline_hash           32   ([u8;32] — the baseline this score derives from)
+//   confidence               2   (u16   — 0..1000 data-sufficiency confidence)
 //   immediate_red            1   (bool  — was the IMMEDIATE_RED fast-path tripped)
 //   bump                     1   (u8)
 //   layout_version           1   (u8)
-//   _reserved               48   (zeroed cushion for future fields)
+//   _reserved               46   (zeroed cushion for future fields)
 //   TOTAL (without discriminator): 170 bytes
 //
 // A certificate is WRITE-ONCE: once issued for (agent, epoch) the account
@@ -83,6 +84,10 @@ pub struct HealthCertificate {
     /// The baseline-hash the score was derived from — links the certificate
     /// to the committed baseline on the health-oracle program.
     pub baseline_hash:  [u8; 32],
+    /// Data-sufficiency confidence for this score, 0..=1000. This is part
+    /// of the signed cert payload, so a submitter cannot downgrade or inflate
+    /// confidence without invalidating the cluster signatures.
+    pub confidence:     u16,
     /// True iff the IMMEDIATE_RED security fast-path was tripped this epoch.
     pub immediate_red:  bool,
     /// Canonical PDA bump.
@@ -90,7 +95,7 @@ pub struct HealthCertificate {
     /// Account-layout version, for future migrations.
     pub layout_version: u8,
     /// Zero-padded reserve for small future fields without a realloc.
-    pub _reserved:      [u8; 48],
+    pub _reserved:      [u8; 46],
 }
 
 impl HealthCertificate {
@@ -99,13 +104,15 @@ impl HealthCertificate {
 
     /// The highest valid composite score. Mirrors the off-chain 0..1000 range.
     pub const MAX_SCORE: u16 = 1000;
+    /// The highest valid confidence value. Mirrors the off-chain 0..1000 range.
+    pub const MAX_CONFIDENCE: u16 = 1000;
 
     /// Data size in bytes, WITHOUT the 8-byte Anchor discriminator.
-    ///   32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1  = 122
-    /// + 48 reserved                                    =  48
+    ///   32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 2 + 1 + 1 + 1 = 124
+    /// + 46 reserved                                      =  46
     /// = 170
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
-        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 48;
+        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 2 + 1 + 1 + 1 + 46;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;
