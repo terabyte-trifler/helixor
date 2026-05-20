@@ -74,11 +74,10 @@ pub mod health_oracle {
         score:         u16,
         alert_tier:    u8,
         flags:         u32,
-        confidence:    u16,
         immediate_red: bool,
     ) -> Result<()> {
         instructions::submit_score::handler(
-            ctx, epoch, score, alert_tier, flags, confidence, immediate_red,
+            ctx, epoch, score, alert_tier, flags, immediate_red,
         )
     }
 

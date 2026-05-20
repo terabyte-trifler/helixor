@@ -82,6 +82,18 @@ from oracle.cluster.cert_signing import (
     cert_payload_digest,
     sign_cert_digest,
 )
+from oracle.cluster.kafka_ingest import (
+    IngestedAgentBatch,
+    batch_transactions_by_agent,
+    replay_from_broker,
+)
+from oracle.cluster.pipeline import (
+    OnChainSubmitFn,
+    PipelineAgentResult,
+    PipelineEpochReport,
+    SubmittableCertificate,
+    run_full_pipeline_epoch,
+)
 from oracle.cluster.identity import (
     NodeIdentity,
     NodeKeypair,
@@ -132,4 +144,7 @@ __all__ = [
     "cert_payload_digest", "sign_cert_digest", "aggregate_signatures",
     "build_ed25519_ix_data", "build_ed25519_instructions",
     "ClusterSignature", "AggregatedSignatures", "InsufficientSignatures",
+    "IngestedAgentBatch", "batch_transactions_by_agent", "replay_from_broker",
+    "SubmittableCertificate", "PipelineAgentResult", "PipelineEpochReport",
+    "OnChainSubmitFn", "run_full_pipeline_epoch",
 ]

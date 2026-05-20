@@ -32,7 +32,9 @@ function test(name: string, fn: () => void): void {
 
 // The frozen MVP shape — exactly these five keys, nothing else.
 const MVP_HEALTH_SCORE_KEYS = ["agent", "score", "alert", "flags", "issuedAt"];
-const AGENT = { toBase58: () => "agent111111111111111111111111111111111111" } as any;
+const AGENT = {
+  toBase58: () => "11111111111111111111111111111111",
+} as HealthScore["agent"];
 
 test("HealthScore has exactly the MVP keys", () => {
   const sample: HealthScore = {
@@ -58,7 +60,7 @@ test("HealthScore field types match the MVP contract", () => {
     flags: 0x08,
     issuedAt: 1,
   };
-  assert.strictEqual(typeof sample.agent.toBase58, "function");
+  assert.strictEqual(typeof sample.agent.toBase58(), "string");
   assert.strictEqual(typeof sample.score, "number");
   assert.ok(Object.values(AlertTier).includes(sample.alert));
   assert.strictEqual(typeof sample.flags, "number");
@@ -75,7 +77,6 @@ test("EpochScore is a strict superset of HealthScore (additive only)", () => {
     flags: 0,
     issuedAt: 1,
     epoch: 1,
-    confidence: 900,
     immediateRed: false,
   };
   for (const key of MVP_HEALTH_SCORE_KEYS) {
@@ -84,9 +85,8 @@ test("EpochScore is a strict superset of HealthScore (additive only)", () => {
       `EpochScore is missing MVP key '${key}' — V2 must be additive`
     );
   }
-  // And it adds V2 fields without changing the MVP getScore shape.
+  // And it adds exactly the two V2 fields.
   assert.ok("epoch" in epochScore);
-  assert.ok("confidence" in epochScore);
   assert.ok("immediateRed" in epochScore);
 });
 

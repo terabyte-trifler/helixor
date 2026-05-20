@@ -28,7 +28,6 @@ export interface DecodedHealthCertificate {
   score: number;
   alertTier: number;
   flags: number;
-  confidence: number;
   issuedAt: number;
   issuer: Uint8Array; // 32 bytes
   baselineHash: Uint8Array; // 32 bytes
@@ -43,9 +42,8 @@ export interface DecodedHealthCertificate {
  * LAYOUT (after the 8-byte discriminator):
  *   agent_wallet    32   epoch          8   score          2
  *   alert_tier       1   flags          4   issued_at      8
- *   issuer          32   baseline_hash 32   confidence     2
- *   immediate_red    1   bump           1   layout_version 1
- *   _reserved       46
+ *   issuer          32   baseline_hash 32   immediate_red  1
+ *   bump             1   layout_version 1   _reserved     48
  */
 export function decodeHealthCertificate(
   data: Buffer | Uint8Array
@@ -61,7 +59,6 @@ export function decodeHealthCertificate(
   const issuedAt = Number(buf.readBigInt64LE(o)); o += 8;
   const issuer = buf.subarray(o, o + 32); o += 32;
   const baselineHash = buf.subarray(o, o + 32); o += 32;
-  const confidence = buf.readUInt16LE(o); o += 2;
   const immediateRed = buf.readUInt8(o) !== 0; o += 1;
   const bump = buf.readUInt8(o); o += 1;
   const layoutVersion = buf.readUInt8(o); o += 1;
@@ -73,7 +70,6 @@ export function decodeHealthCertificate(
     score,
     alertTier,
     flags,
-    confidence,
     issuedAt,
     issuer,
     baselineHash,

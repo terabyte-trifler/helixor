@@ -40,8 +40,6 @@ pub enum HelixorError {
     EpochNotElapsed = 6040,
     #[msg("score exceeds the maximum (1000)")]
     ScoreOutOfRange = 6041,
-    #[msg("confidence exceeds the maximum (1000)")]
-    ConfidenceOutOfRange = 6044,
     #[msg("no baseline has been committed for this agent — commit one before scoring")]
     BaselineNotCommitted = 6042,
     #[msg("the supplied epoch does not match the current on-chain epoch")]

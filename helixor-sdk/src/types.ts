@@ -61,20 +61,6 @@ export interface HealthScore {
 }
 
 /**
- * Legacy API score shape used by the policy-error classes and older client
- * tests. The Day-19 on-chain SDK keeps `HealthScore` as the frozen minimal
- * getScore shape; this richer alias preserves compatibility for callers that
- * still consume the earlier REST-style SDK helpers.
- */
-export interface TrustScore extends HealthScore {
-  updatedAt: string;
-  source: "live" | "stale" | "deactivated" | "provisional" | string;
-  success_rate?: number;
-  is_fresh?: boolean;
-  anomaly_flag?: boolean;
-}
-
-/**
  * EpochScore — a HealthScore for a SPECIFIC epoch. This is the V2 ADDITION:
  * it carries the epoch number. `getScore` still returns the frozen
  * `HealthScore`; callers who want the epoch use the new methods.
@@ -82,10 +68,31 @@ export interface TrustScore extends HealthScore {
 export interface EpochScore extends HealthScore {
   /** The epoch this score covers. */
   epoch: number;
-  /** Data-sufficiency confidence, 0..1000. */
-  confidence: number;
   /** Whether the IMMEDIATE_RED security fast-path was tripped. */
   immediateRed: boolean;
+}
+
+/** Legacy REST/API score shape used by the policy error helpers. */
+export interface TrustScore {
+  agentWallet: string;
+  score: number;
+  alert: AlertTier | string;
+  source: string;
+  successRate?: number;
+  anomalyFlag: boolean;
+  updatedAt: number;
+  isFresh: boolean;
+  active?: boolean;
+  provisional?: boolean;
+  cached?: boolean;
+  servedAt?: number;
+  breakdown?: {
+    successRateScore?: number;
+    consistencyScore?: number;
+    stabilityScore?: number;
+    rawScore?: number;
+    guardRailApplied?: boolean;
+  };
 }
 
 /** Program IDs the SDK talks to. */

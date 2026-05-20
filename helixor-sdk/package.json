@@ -7,14 +7,14 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "test": "tsx tests/decode.test.ts && tsx tests/getscore_shape.test.ts"
+    "test": "tsx tests/decode.test.ts && tsx tests/getscore_shape.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@solana/web3.js": "1.95.0"
+    "@solana/web3.js": "^1.95.0"
   },
   "devDependencies": {
-    "tsx": "^4.7.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "tsx": "^4.7.0"
   }
 }

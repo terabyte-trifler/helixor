@@ -150,9 +150,9 @@ impl OracleChallenge {
     pub const CURRENT_LAYOUT_VERSION: u8 = 1;
 
     /// Data size WITHOUT the 8-byte Anchor discriminator.
-    ///   32 + 32 + 8 + 1 + 1 + 32 + 32 + 8 + 8 + 8 + 1 + 1 = 164
+    ///   32 + 32 + 8 + 1 + 1 + 32 + 32 + 8 + 8 + 8 + 1 + 1 = 174
     /// + 32 reserved                                        =  32
-    /// = 196
+    /// = 206
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
         32 + 32 + 8 + 1 + 1 + 32 + 32 + 8 + 8 + 8 + 1 + 1 + 32;
 
@@ -166,7 +166,7 @@ impl OracleChallenge {
 /// An oracle-node challenge counter — one per accused oracle, so each new
 /// OracleChallenge PDA has a fresh, append-only index.
 ///
-/// PDA seeds: `["challenge_counter", accused_oracle]`.
+///     seeds = ["challenge_counter", accused_oracle]
 #[account]
 #[derive(Default, Debug)]
 pub struct ChallengeCounter {

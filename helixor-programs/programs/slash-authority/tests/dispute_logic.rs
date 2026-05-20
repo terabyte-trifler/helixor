@@ -20,16 +20,16 @@ use slash_authority::instructions::appeal_slash::APPEAL_COOLDOWN_SECONDS;
 
 #[test]
 fn slash_record_grew_for_the_lifecycle_fields() {
-    // Day 20: 182. Day 21 spends most of the reserve + adds 14 -> 196.
-    assert_eq!(SlashRecord::SIZE_WITHOUT_DISCRIMINATOR, 196);
-    assert_eq!(SlashRecord::SPACE, 204);
+    // Day 20: 182. Day 21 spends the 32-byte reserve + adds 17 -> 206.
+    assert_eq!(SlashRecord::SIZE_WITHOUT_DISCRIMINATOR, 206);
+    assert_eq!(SlashRecord::SPACE, 214);
 }
 
 #[test]
 fn oracle_challenge_size_is_correct() {
-    //   32+32+8+1+1+32+32+8+8+8+1+1 = 164  + 32 reserve = 196
-    assert_eq!(OracleChallenge::SIZE_WITHOUT_DISCRIMINATOR, 196);
-    assert_eq!(OracleChallenge::SPACE, 204);
+    //   32+32+8+1+1+32+32+8+8+8+1+1 = 174  + 32 reserve = 206
+    assert_eq!(OracleChallenge::SIZE_WITHOUT_DISCRIMINATOR, 206);
+    assert_eq!(OracleChallenge::SPACE, 214);
 }
 
 #[test]

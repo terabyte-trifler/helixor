@@ -29,15 +29,14 @@ ON CONFLICT (version) DO NOTHING;
 
 
 -- ── 0. The TimescaleDB extension ─────────────────────────────────────────────
--- Provided by the TimescaleDB image in production. Testcontainers use plain
--- postgres:16-alpine, so this migration must degrade gracefully when the
--- extension is not installed.
+-- Production runs on a TimescaleDB image. Some local/test environments use
+-- plain postgres:16-alpine; in that case keep the base table/indexes and skip
+-- Timescale-only hypertable/compression/continuous-aggregate features.
 DO $$
 BEGIN
-    CREATE EXTENSION IF NOT EXISTS timescaledb;
-EXCEPTION
-    WHEN undefined_file OR feature_not_supported THEN
-        RAISE NOTICE 'TimescaleDB extension unavailable; using plain PostgreSQL fallback.';
+    IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb') THEN
+        CREATE EXTENSION IF NOT EXISTS timescaledb;
+    END IF;
 END $$;
 
 
@@ -68,19 +67,31 @@ CREATE TABLE IF NOT EXISTS agent_transactions (
     PRIMARY KEY (signature, block_time)
 );
 
--- If schema.sql / Migration 0001 already created the MVP transaction table,
--- CREATE TABLE IF NOT EXISTS is a no-op. Bridge the MVP names into the Day-15
--- time-series schema so indexes/views below work on both fresh and upgraded DBs.
+-- If schema.sql already created the Day-1 webhook transaction table, the
+-- CREATE TABLE IF NOT EXISTS above is a no-op. Add the Day-15 streaming
+-- columns explicitly and backfill the canonical `signature` alias from the
+-- older `tx_signature` column so both old webhook code and new Kafka/Timescale
+-- code can read the same table.
 ALTER TABLE agent_transactions
     ADD COLUMN IF NOT EXISTS signature     TEXT,
-    ADD COLUMN IF NOT EXISTS priority_fee  BIGINT NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS compute_units BIGINT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS priority_fee  BIGINT      NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS compute_units BIGINT      NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS counterparty  TEXT,
     ADD COLUMN IF NOT EXISTS ingested_at   TIMESTAMPTZ NOT NULL DEFAULT now();
 
-UPDATE agent_transactions
-    SET signature = COALESCE(signature, tx_signature)
-    WHERE signature IS NULL;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'agent_transactions'
+          AND column_name = 'tx_signature'
+    ) THEN
+        UPDATE agent_transactions
+            SET signature = COALESCE(signature, tx_signature)
+            WHERE signature IS NULL;
+    END IF;
+END $$;
 
 
 -- ── 2. Promote to a hypertable ───────────────────────────────────────────────
@@ -89,20 +100,6 @@ UPDATE agent_transactions
 -- 30 days; daily chunks mean a 30-day scan touches ~30 chunks and the
 -- planner prunes everything outside the range. Smaller chunks would
 -- multiply planning overhead; larger chunks would scan slack data.
-
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
-        PERFORM create_hypertable(
-            'agent_transactions',
-            'block_time',
-            chunk_time_interval => INTERVAL '1 day',
-            if_not_exists       => TRUE,
-            migrate_data        => TRUE
-        );
-    END IF;
-END $$;
-
 
 -- ── 3. Indexes ───────────────────────────────────────────────────────────────
 --
@@ -114,10 +111,8 @@ CREATE INDEX IF NOT EXISTS idx_agent_tx_wallet_time
     ON agent_transactions (agent_wallet, block_time DESC);
 
 -- Signature lookups (dedup on ingest, point lookups).
-DO $$
-BEGIN
-    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_agent_tx_signature ON agent_transactions (signature)';
-END $$;
+CREATE INDEX IF NOT EXISTS idx_agent_tx_signature
+    ON agent_transactions (signature);
 
 
 -- ── 4. Compression ───────────────────────────────────────────────────────────
@@ -128,43 +123,36 @@ END $$;
 -- contiguous within a compressed chunk, so a per-agent window scan over
 -- compressed data stays a localised read.
 
+-- ── 4-6. Timescale-only hypertable, compression, CAGG, retention ─────────────
+-- These statements are intentionally grouped behind an extension check so
+-- migration replay works on both production TimescaleDB and plain Postgres
+-- test containers.
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+    IF EXISTS (
+        SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'
+    ) THEN
+        PERFORM create_hypertable(
+            'agent_transactions',
+            'block_time',
+            chunk_time_interval => INTERVAL '1 day',
+            if_not_exists       => TRUE,
+            migrate_data        => TRUE
+        );
+
         ALTER TABLE agent_transactions SET (
             timescaledb.compress,
             timescaledb.compress_segmentby = 'agent_wallet',
             timescaledb.compress_orderby   = 'block_time DESC'
         );
-    END IF;
-END $$;
 
--- Auto-compress chunks once they age past the 7-day active window.
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
         PERFORM add_compression_policy(
             'agent_transactions',
             INTERVAL '7 days',
             if_not_exists => TRUE
         );
-    END IF;
-END $$;
 
-
--- ── 5. Continuous aggregate — daily per-agent rollup ─────────────────────────
---
--- The feature extractor and baseline engine repeatedly need per-active-day
--- rollups: transaction count, success rate, fee totals, distinct
--- counterparties. The `daily_success_rate_series` (baseline v3, migration
--- 0007) is exactly this. A continuous aggregate MATERIALISES the rollup
--- and refreshes incrementally — a 30-day series becomes a 30-row read of a
--- pre-computed view instead of an aggregate over ~thousands of raw rows.
-
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
-        EXECUTE $sql$
+        EXECUTE $cagg$
             CREATE MATERIALIZED VIEW IF NOT EXISTS agent_tx_daily
             WITH (timescaledb.continuous) AS
             SELECT
@@ -179,32 +167,8 @@ BEGIN
             FROM agent_transactions
             GROUP BY agent_wallet, day
             WITH NO DATA
-        $sql$;
-    ELSE
-        EXECUTE $sql$
-            CREATE MATERIALIZED VIEW IF NOT EXISTS agent_tx_daily AS
-            SELECT
-                agent_wallet,
-                date_trunc('day', block_time)                     AS day,
-                count(*)                                          AS tx_count,
-                count(*) FILTER (WHERE success)                   AS success_count,
-                avg(CASE WHEN success THEN 1.0 ELSE 0.0 END)      AS success_rate,
-                sum(sol_change)                                   AS net_sol_change,
-                sum(fee + priority_fee)                           AS total_fees,
-                count(DISTINCT counterparty)                      AS distinct_counterparties
-            FROM agent_transactions
-            GROUP BY agent_wallet, day
-            WITH NO DATA
-        $sql$;
-    END IF;
-END $$;
+        $cagg$;
 
--- Refresh policy: keep the materialised rollup current. The most recent
--- day is left to the real-time aggregation layer (start_offset bounds the
--- materialised range; rows newer than end_offset are computed on read).
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
         PERFORM add_continuous_aggregate_policy(
             'agent_tx_daily',
             start_offset      => INTERVAL '90 days',
@@ -212,32 +176,29 @@ BEGIN
             schedule_interval => INTERVAL '1 hour',
             if_not_exists     => TRUE
         );
-    END IF;
-END $$;
 
-
--- ── 6. Retention ─────────────────────────────────────────────────────────────
---
--- Raw transactions older than 180 days are dropped — well beyond the
--- 30-day feature window and the baseline horizon. The daily continuous
--- aggregate (which the longer-horizon analytics use) is retained longer
--- by virtue of being a separate, far smaller hypertable.
-
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
         PERFORM add_retention_policy(
             'agent_transactions',
             INTERVAL '180 days',
             if_not_exists => TRUE
         );
+
+        COMMENT ON MATERIALIZED VIEW agent_tx_daily IS
+            'Continuous aggregate: per-agent per-day transaction rollup. Serves the '
+            'feature extractor''s daily-window queries and the baseline daily series.';
     END IF;
 END $$;
 
 
+-- ── 5. Continuous aggregate — daily per-agent rollup ─────────────────────────
+--
+-- The feature extractor and baseline engine repeatedly need per-active-day
+-- rollups: transaction count, success rate, fee totals, distinct
+-- counterparties. The `daily_success_rate_series` (baseline v3, migration
+-- 0007) is exactly this. A continuous aggregate MATERIALISES the rollup
+-- and refreshes incrementally — a 30-day series becomes a 30-row read of a
+-- pre-computed view instead of an aggregate over ~thousands of raw rows.
+
 COMMENT ON TABLE agent_transactions IS
-    'Time-series of agent Solana transactions. TimescaleDB hypertable, '
-    '1-day chunks, compressed past 7 days, 180-day retention (Day 15).';
-COMMENT ON MATERIALIZED VIEW agent_tx_daily IS
-    'Continuous aggregate: per-agent per-day transaction rollup. Serves the '
-    'feature extractor''s daily-window queries and the baseline daily series.';
+    'Time-series of agent Solana transactions. Plain Postgres in tests; '
+    'TimescaleDB hypertable with compression/retention when the extension is installed.';

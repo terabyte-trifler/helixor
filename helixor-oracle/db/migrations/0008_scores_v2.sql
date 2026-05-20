@@ -70,54 +70,40 @@ CREATE TABLE IF NOT EXISTS agent_scores (
                AND dim4 >= 0 AND dim5 >= 0)
 );
 
--- If Migration 0003 already created the MVP current-score table, the CREATE
--- above is a no-op. Add the v2 columns explicitly so a fresh schema.sql + all
--- migrations path lands on the same shape as a v2-created database.
+-- If migration 0003 already created the MVP current-score table, the
+-- CREATE TABLE IF NOT EXISTS above is a no-op. Add the V2 columns explicitly
+-- so a fresh replay of 0001..0008 leaves the table compatible with both the
+-- older API code (`alert`, success/consistency/stability columns) and the V2
+-- scorer metadata.
 ALTER TABLE agent_scores
-    ADD COLUMN IF NOT EXISTS alert_tier              TEXT,
-    ADD COLUMN IF NOT EXISTS dim1                    INTEGER,
-    ADD COLUMN IF NOT EXISTS dim2                    INTEGER,
-    ADD COLUMN IF NOT EXISTS dim3                    INTEGER,
-    ADD COLUMN IF NOT EXISTS dim4                    INTEGER,
-    ADD COLUMN IF NOT EXISTS dim5                    INTEGER,
-    ADD COLUMN IF NOT EXISTS confidence              INTEGER,
-    ADD COLUMN IF NOT EXISTS gaming_flag             BOOLEAN,
-    ADD COLUMN IF NOT EXISTS baseline_stats_hash     TEXT,
-    ADD COLUMN IF NOT EXISTS feature_schema_fp       TEXT,
-    ADD COLUMN IF NOT EXISTS scoring_schema_fp       TEXT,
-    ADD COLUMN IF NOT EXISTS aggregated_flags        BIGINT DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS delta_clamped           BOOLEAN DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS inserted_at             TIMESTAMPTZ DEFAULT now();
+    ADD COLUMN IF NOT EXISTS alert_tier           TEXT,
+    ADD COLUMN IF NOT EXISTS dim1                 INTEGER,
+    ADD COLUMN IF NOT EXISTS dim2                 INTEGER,
+    ADD COLUMN IF NOT EXISTS dim3                 INTEGER,
+    ADD COLUMN IF NOT EXISTS dim4                 INTEGER,
+    ADD COLUMN IF NOT EXISTS dim5                 INTEGER,
+    ADD COLUMN IF NOT EXISTS confidence           INTEGER,
+    ADD COLUMN IF NOT EXISTS gaming_flag          BOOLEAN,
+    ADD COLUMN IF NOT EXISTS baseline_stats_hash  TEXT,
+    ADD COLUMN IF NOT EXISTS feature_schema_fp    TEXT,
+    ADD COLUMN IF NOT EXISTS scoring_schema_fp    TEXT,
+    ADD COLUMN IF NOT EXISTS aggregated_flags     BIGINT DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS delta_clamped        BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS inserted_at          TIMESTAMPTZ DEFAULT now();
 
-UPDATE agent_scores
-    SET alert_tier = COALESCE(alert_tier, alert)
-    WHERE alert_tier IS NULL;
-
-UPDATE agent_scores
-    SET dim1 = COALESCE(dim1, success_rate_score, 0),
-        dim2 = COALESCE(dim2, 0),
-        dim3 = COALESCE(dim3, consistency_score, 0),
-        dim4 = COALESCE(dim4, stability_score, 0),
-        dim5 = COALESCE(dim5, 0),
-        confidence = COALESCE(confidence, 1000),
-        gaming_flag = COALESCE(gaming_flag, anomaly_flag, FALSE),
-        baseline_stats_hash = COALESCE(baseline_stats_hash, baseline_hash, ''),
-        feature_schema_fp = COALESCE(feature_schema_fp, ''),
-        scoring_schema_fp = COALESCE(scoring_schema_fp, ''),
-        aggregated_flags = COALESCE(aggregated_flags, 0),
-        delta_clamped = COALESCE(delta_clamped, guard_rail_applied, FALSE),
-        inserted_at = COALESCE(inserted_at, computed_at, now())
-    WHERE dim1 IS NULL
-       OR dim2 IS NULL
-       OR dim3 IS NULL
-       OR dim4 IS NULL
-       OR dim5 IS NULL
-       OR confidence IS NULL
-       OR gaming_flag IS NULL
-       OR baseline_stats_hash IS NULL
-       OR feature_schema_fp IS NULL
-       OR scoring_schema_fp IS NULL
-       OR inserted_at IS NULL;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'agent_scores'
+          AND column_name = 'alert'
+    ) THEN
+        UPDATE agent_scores
+            SET alert_tier = COALESCE(alert_tier, alert)
+            WHERE alert_tier IS NULL;
+    END IF;
+END $$;
 
 -- Latest-score lookups: most reads ask "what is agent X's current score".
 CREATE INDEX IF NOT EXISTS idx_agent_scores_wallet_time

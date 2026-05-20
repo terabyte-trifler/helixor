@@ -26,9 +26,9 @@ fn escrow_vault_size_is_correct() {
 
 #[test]
 fn slash_record_size_is_correct() {
-    //   Day-20 core 140 + Day-21 lifecycle 49 + reserve 7 = 196
-    assert_eq!(SlashRecord::SIZE_WITHOUT_DISCRIMINATOR, 196);
-    assert_eq!(SlashRecord::SPACE, 204); // + 8 discriminator
+    //   Day-20 core 150 + Day-21 lifecycle 49 + reserve 7 = 206
+    assert_eq!(SlashRecord::SIZE_WITHOUT_DISCRIMINATOR, 206);
+    assert_eq!(SlashRecord::SPACE, 214); // + 8 discriminator
 }
 
 #[test]

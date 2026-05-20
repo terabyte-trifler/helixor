@@ -51,60 +51,53 @@ def _keys_of(kps):
 class TestCertPayloadDigest:
 
     def test_digest_is_32_bytes(self):
-        d = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
+        d = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
         assert len(d) == 32
 
     def test_digest_is_deterministic(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
-        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
+        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
         assert a == b
 
     def test_digest_changes_with_score(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
-        b = cert_payload_digest(AGENT_PK, 1, 852, 2, 8, 900, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
+        b = cert_payload_digest(AGENT_PK, 1, 852, 2, 8, True)
         assert a != b
 
     def test_digest_changes_with_epoch(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
-        b = cert_payload_digest(AGENT_PK, 2, 851, 2, 8, 900, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
+        b = cert_payload_digest(AGENT_PK, 2, 851, 2, 8, True)
         assert a != b
 
     def test_digest_changes_with_alert_tier(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 0, 8, 900, True)
-        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 0, 8, True)
+        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
         assert a != b
 
     def test_digest_changes_with_flags(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 0, 900, True)
-        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 0, True)
+        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
         assert a != b
 
     def test_digest_changes_with_immediate_red(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
-        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, False)
-        assert a != b
-
-    def test_digest_changes_with_confidence(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
-        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 901, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
+        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, False)
         assert a != b
 
     def test_digest_changes_with_agent(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
-        b = cert_payload_digest(b"\x22" * 32, 1, 851, 2, 8, 900, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
+        b = cert_payload_digest(b"\x22" * 32, 1, 851, 2, 8, True)
         assert a != b
 
     def test_bad_agent_length_rejected(self):
         with pytest.raises(ValueError):
-            cert_payload_digest(b"short", 1, 851, 2, 8, 900, True)
+            cert_payload_digest(b"short", 1, 851, 2, 8, True)
 
     def test_out_of_range_inputs_rejected(self):
         with pytest.raises(ValueError):
-            cert_payload_digest(AGENT_PK, 1, 1 << 17, 2, 8, 900, True)
+            cert_payload_digest(AGENT_PK, 1, 1 << 17, 2, 8, True)
         with pytest.raises(ValueError):
-            cert_payload_digest(AGENT_PK, 1, 851, 1 << 9, 8, 900, True)
-        with pytest.raises(ValueError):
-            cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 1 << 17, True)
+            cert_payload_digest(AGENT_PK, 1, 851, 1 << 9, 8, True)
 
 
 # =============================================================================
@@ -115,7 +108,7 @@ class TestSignCertDigest:
 
     def test_signature_is_64_bytes(self):
         kp = _cluster()[0]
-        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
+        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
         sig = sign_cert_digest(kp, digest)
         assert len(sig.signature) == 64
         assert sig.signer_pubkey == kp.public_key
@@ -125,7 +118,7 @@ class TestSignCertDigest:
         # The off-chain pre-check is the same check the on-chain
         # precompile does — sanity here.
         kp = _cluster()[0]
-        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
+        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
         sig = sign_cert_digest(kp, digest)
         assert kp.identity.verify(digest, sig.signature)
 
@@ -144,7 +137,7 @@ class TestAggregateSignatures:
     def _setup(self, signers: int = 3, threshold: int = 3):
         kps = _cluster(5)
         cluster_keys = _keys_of(kps)
-        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
+        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
         sigs = [sign_cert_digest(kps[i], digest) for i in range(signers)]
         return cluster_keys, digest, sigs, kps
 
@@ -176,7 +169,7 @@ class TestAggregateSignatures:
         # A signature over a DIFFERENT digest must not count toward the
         # threshold. This is exactly what stops a replay across cert payloads.
         cluster_keys, digest, sigs, kps = self._setup(2, 3)
-        wrong_digest = cert_payload_digest(AGENT_PK, 1, 999, 2, 8, 900, True)
+        wrong_digest = cert_payload_digest(AGENT_PK, 1, 999, 2, 8, True)
         wrong_sig = sign_cert_digest(kps[2], wrong_digest)
         with pytest.raises(InsufficientSignatures):
             aggregate_signatures(
@@ -244,7 +237,7 @@ class TestEd25519InstructionBuilder:
 
     def test_data_blob_layout(self):
         kp = _cluster()[0]
-        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
+        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
         sig = sign_cert_digest(kp, digest)
         data = build_ed25519_ix_data(sig)
 
@@ -272,7 +265,7 @@ class TestEd25519InstructionBuilder:
 
     def test_builds_one_ix_per_signature(self):
         kps = _cluster(5)
-        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, 900, True)
+        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, True)
         sigs = [sign_cert_digest(kp, digest) for kp in kps[:3]]
         agg = aggregate_signatures(
             digest, sigs, cluster_keys=_keys_of(kps), threshold=3,
