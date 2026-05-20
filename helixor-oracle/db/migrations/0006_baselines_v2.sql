@@ -42,12 +42,9 @@ ALTER TABLE agent_baselines
     ADD COLUMN IF NOT EXISTS computed_at                TIMESTAMPTZ;
 
 -- Any pre-existing MVP rows: tag them as algo v1 so the backfill finds them.
-DO $$
-BEGIN
-    EXECUTE 'UPDATE agent_baselines
-             SET baseline_algo_version = 1
-             WHERE baseline_algo_version IS NULL';
-END $$;
+UPDATE agent_baselines
+    SET baseline_algo_version = 1
+    WHERE baseline_algo_version IS NULL;
 
 -- ── Array-length contract ───────────────────────────────────────────────────
 -- A 100-element vector stored as an unbounded float[] will, eventually, get a
@@ -132,35 +129,26 @@ ALTER TABLE agent_baseline_history
     ADD COLUMN IF NOT EXISTS txtype_distribution        DOUBLE PRECISION[],
     ADD COLUMN IF NOT EXISTS action_entropy             DOUBLE PRECISION,
     ADD COLUMN IF NOT EXISTS success_rate_30d           DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS transaction_count          INTEGER,
     ADD COLUMN IF NOT EXISTS days_with_activity         INTEGER,
     ADD COLUMN IF NOT EXISTS is_provisional             BOOLEAN,
     ADD COLUMN IF NOT EXISTS stats_hash                 TEXT;
 
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'agent_baseline_history'
-          AND column_name = 'algo_version'
-    ) THEN
-        EXECUTE 'UPDATE agent_baseline_history
-                 SET baseline_algo_version = COALESCE(baseline_algo_version, algo_version, 1)
-                 WHERE baseline_algo_version IS NULL';
-    ELSE
-        EXECUTE 'UPDATE agent_baseline_history
-                 SET baseline_algo_version = COALESCE(baseline_algo_version, 1)
-                 WHERE baseline_algo_version IS NULL';
-    END IF;
-END $$;
+-- If the table came from Migration 0002, translate the MVP column names into
+-- their v2 equivalents before adding indexes/queries that reference them.
+UPDATE agent_baseline_history
+    SET baseline_algo_version = COALESCE(baseline_algo_version, algo_version, 1)
+    WHERE baseline_algo_version IS NULL;
+
+UPDATE agent_baseline_history
+    SET transaction_count = COALESCE(transaction_count, tx_count)
+    WHERE transaction_count IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_baseline_history_agent_time
     ON agent_baseline_history (agent_wallet, computed_at DESC);
 
-DO $$
-BEGIN
-    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_baseline_history_algo
-             ON agent_baseline_history (baseline_algo_version)';
-END $$;
+CREATE INDEX IF NOT EXISTS idx_baseline_history_algo
+    ON agent_baseline_history (baseline_algo_version);
 
 
 -- ── Append-only enforcement ─────────────────────────────────────────────────
@@ -182,11 +170,8 @@ CREATE TRIGGER trg_baseline_history_no_update
 
 
 -- ── Index for the backfill worklist query ───────────────────────────────────
-DO $$
-BEGIN
-    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_baselines_algo_schema
-             ON agent_baselines (baseline_algo_version, feature_schema_fingerprint)';
-END $$;
+CREATE INDEX IF NOT EXISTS idx_baselines_algo_schema
+    ON agent_baselines (baseline_algo_version, feature_schema_fingerprint);
 
 
 COMMENT ON TABLE  agent_baseline_history IS

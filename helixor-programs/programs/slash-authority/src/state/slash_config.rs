@@ -57,8 +57,8 @@ impl SlashConfig {
     /// The Solana incinerator address — lamports sent here are burned
     /// (economically destroyed; the address has no private key).
     /// This is the canonical, well-known incinerator pubkey.
-    pub const INCINERATOR: Pubkey =
-        anchor_lang::solana_program::pubkey!(
-            "1nc1nerator11111111111111111111111111111111"
-        );
+    pub const INCINERATOR: Pubkey = Pubkey::new_from_array([
+        0, 51, 144, 114, 141, 52, 17, 96, 121, 189, 201, 17, 191, 255, 0, 219,
+        212, 77, 46, 205, 204, 247, 156, 166, 225, 0, 56, 225, 0, 0, 0, 0,
+    ]);
 }

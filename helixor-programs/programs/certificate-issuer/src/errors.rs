@@ -29,4 +29,22 @@ pub enum CertificateError {
     InconsistentScoreAlert = 6020,
     #[msg("no baseline has been recorded for this agent — record one before issuing")]
     BaselineNotRecorded = 6021,
+
+    // ── Day 27: 3-of-5 threshold signing ────────────────────────────────────
+    #[msg("issuer cluster size invalid — must be 1 (single-key) or 3..=5 (BFT)")]
+    InvalidClusterSize = 6030,
+    #[msg("duplicate pubkey in the issuer cluster key set")]
+    DuplicateClusterKey = 6031,
+    #[msg("threshold invalid — must be 1..=cluster_size and a strict majority for BFT")]
+    InvalidThreshold = 6032,
+    #[msg("certificate write carries fewer valid cluster signatures than the threshold")]
+    InsufficientSignatures = 6033,
+    #[msg("supplied instructions sysvar does not match the expected sysvar pubkey")]
+    WrongInstructionsSysvar = 6034,
+    #[msg("Ed25519 precompile instruction is malformed or truncated")]
+    MalformedEd25519Instruction = 6035,
+    #[msg("Ed25519 instruction references another instruction's data — refused")]
+    CrossInstructionReference = 6036,
+    #[msg("Ed25519 signed message length is not the expected 32-byte digest")]
+    WrongDigestLength = 6037,
 }

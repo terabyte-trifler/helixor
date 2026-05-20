@@ -67,20 +67,29 @@ pub struct IssueCertificate<'info> {
     )]
     pub certificate: Account<'info, HealthCertificate>,
 
-    /// IssuerConfig — verifies the signer is the configured issuer.
+    /// IssuerConfig — supplies the cluster's signing keys + threshold.
+    /// The cluster signatures are what authorise the write; the signer
+    /// below is only the fee/rent payer (anyone may submit as long as the
+    /// threshold signatures are present).
     #[account(
         seeds = [IssuerConfig::SEED],
         bump  = issuer_config.bump,
     )]
     pub issuer_config: Account<'info, IssuerConfig>,
 
-    /// The signer. Must equal issuer_config.issuer_node.
-    #[account(
-        mut,
-        constraint = issuer.key() == issuer_config.issuer_node
-            @ CertificateError::NotIssuerAuthority,
-    )]
+    /// The submitter — pays rent + tx fee. Day 27 NO LONGER gates on this
+    /// being a fixed authority; the cluster THRESHOLD SIGNATURES gate the
+    /// write instead. Anyone may submit the ix as long as the tx carries
+    /// `issuer_config.threshold` valid cluster-key Ed25519 precompile
+    /// signatures over the canonical cert payload.
+    #[account(mut)]
     pub issuer: Signer<'info>,
+
+    /// CHECK: the Instructions sysvar — read inside the handler to find
+    /// the Ed25519 precompile instructions that carry the cluster
+    /// signatures. The handler verifies this is the right sysvar pubkey.
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -118,6 +127,23 @@ pub fn handler(
     // immediate_red is set.
     validate_score_alert(score, tier, immediate_red)?;
 
+    // ── DAY 27: verify the THRESHOLD SIGNATURES from the cluster ────────────
+    // The cert payload (the canonical digest of agent/epoch/score/tier/
+    // flags/immediate_red) MUST have been signed by at least `threshold`
+    // distinct cluster keys, via Ed25519 precompile instructions in this
+    // same transaction. Below threshold -> InsufficientSignatures -> ix
+    // fails. This is the on-chain enforcement of 3-of-5 (or whatever the
+    // configured threshold is).
+    let digest = crate::signing::cert_payload_digest(
+        &ctx.accounts.baseline_stats.agent_wallet,
+        epoch, score, alert_tier, flags, immediate_red,
+    );
+    let valid_signers = crate::signing::verify_threshold_signatures(
+        &digest,
+        &ctx.accounts.issuer_config,
+        &ctx.accounts.instructions_sysvar.to_account_info(),
+    )?;
+
     // ── Write the certificate ───────────────────────────────────────────────
     let clock = Clock::get()?;
     let cert = &mut ctx.accounts.certificate;
@@ -146,8 +172,9 @@ pub fn handler(
     });
 
     msg!(
-        "certificate issued: agent={} epoch={} score={} tier={:?}",
+        "certificate issued: agent={} epoch={} score={} tier={:?} signers={}/{}",
         cert.agent_wallet, epoch, score, tier,
+        valid_signers, ctx.accounts.issuer_config.threshold,
     );
     Ok(())
 }

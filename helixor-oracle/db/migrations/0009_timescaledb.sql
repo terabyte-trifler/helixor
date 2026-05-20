@@ -29,15 +29,15 @@ ON CONFLICT (version) DO NOTHING;
 
 
 -- ── 0. The TimescaleDB extension ─────────────────────────────────────────────
--- Production runs on TimescaleDB. Local CI often runs plain PostgreSQL, so the
--- migration degrades gracefully: hypertables / continuous aggregates are used
--- when available, and plain tables / materialized views otherwise.
+-- Provided by the TimescaleDB image in production. Testcontainers use plain
+-- postgres:16-alpine, so this migration must degrade gracefully when the
+-- extension is not installed.
 DO $$
 BEGIN
     CREATE EXTENSION IF NOT EXISTS timescaledb;
 EXCEPTION
-    WHEN feature_not_supported OR undefined_file THEN
-        RAISE NOTICE 'TimescaleDB extension unavailable; using plain PostgreSQL fallback';
+    WHEN undefined_file OR feature_not_supported THEN
+        RAISE NOTICE 'TimescaleDB extension unavailable; using plain PostgreSQL fallback.';
 END $$;
 
 
@@ -68,25 +68,19 @@ CREATE TABLE IF NOT EXISTS agent_transactions (
     PRIMARY KEY (signature, block_time)
 );
 
+-- If schema.sql / Migration 0001 already created the MVP transaction table,
+-- CREATE TABLE IF NOT EXISTS is a no-op. Bridge the MVP names into the Day-15
+-- time-series schema so indexes/views below work on both fresh and upgraded DBs.
 ALTER TABLE agent_transactions
-    ADD COLUMN IF NOT EXISTS tx_signature  TEXT,
     ADD COLUMN IF NOT EXISTS signature     TEXT,
     ADD COLUMN IF NOT EXISTS priority_fee  BIGINT NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS compute_units BIGINT NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS counterparty  TEXT;
+    ADD COLUMN IF NOT EXISTS counterparty  TEXT,
+    ADD COLUMN IF NOT EXISTS ingested_at   TIMESTAMPTZ NOT NULL DEFAULT now();
 
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'agent_transactions'
-          AND column_name = 'tx_signature'
-    ) THEN
-        EXECUTE 'UPDATE agent_transactions
-                 SET signature = COALESCE(signature, tx_signature)
-                 WHERE signature IS NULL';
-    END IF;
-END $$;
+UPDATE agent_transactions
+    SET signature = COALESCE(signature, tx_signature)
+    WHERE signature IS NULL;
 
 
 -- ── 2. Promote to a hypertable ───────────────────────────────────────────────
@@ -120,8 +114,10 @@ CREATE INDEX IF NOT EXISTS idx_agent_tx_wallet_time
     ON agent_transactions (agent_wallet, block_time DESC);
 
 -- Signature lookups (dedup on ingest, point lookups).
-CREATE INDEX IF NOT EXISTS idx_agent_tx_signature
-    ON agent_transactions (signature);
+DO $$
+BEGIN
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_agent_tx_signature ON agent_transactions (signature)';
+END $$;
 
 
 -- ── 4. Compression ───────────────────────────────────────────────────────────
@@ -140,7 +136,13 @@ BEGIN
             timescaledb.compress_segmentby = 'agent_wallet',
             timescaledb.compress_orderby   = 'block_time DESC'
         );
+    END IF;
+END $$;
 
+-- Auto-compress chunks once they age past the 7-day active window.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
         PERFORM add_compression_policy(
             'agent_transactions',
             INTERVAL '7 days',
@@ -178,14 +180,6 @@ BEGIN
             GROUP BY agent_wallet, day
             WITH NO DATA
         $sql$;
-
-        PERFORM add_continuous_aggregate_policy(
-            'agent_tx_daily',
-            start_offset      => INTERVAL '90 days',
-            end_offset        => INTERVAL '1 hour',
-            schedule_interval => INTERVAL '1 hour',
-            if_not_exists     => TRUE
-        );
     ELSE
         EXECUTE $sql$
             CREATE MATERIALIZED VIEW IF NOT EXISTS agent_tx_daily AS
@@ -199,9 +193,25 @@ BEGIN
                 sum(fee + priority_fee)                           AS total_fees,
                 count(DISTINCT counterparty)                      AS distinct_counterparties
             FROM agent_transactions
-            GROUP BY agent_wallet, date_trunc('day', block_time)
+            GROUP BY agent_wallet, day
             WITH NO DATA
         $sql$;
+    END IF;
+END $$;
+
+-- Refresh policy: keep the materialised rollup current. The most recent
+-- day is left to the real-time aggregation layer (start_offset bounds the
+-- materialised range; rows newer than end_offset are computed on read).
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
+        PERFORM add_continuous_aggregate_policy(
+            'agent_tx_daily',
+            start_offset      => INTERVAL '90 days',
+            end_offset        => INTERVAL '1 hour',
+            schedule_interval => INTERVAL '1 hour',
+            if_not_exists     => TRUE
+        );
     END IF;
 END $$;
 

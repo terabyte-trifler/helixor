@@ -37,8 +37,11 @@ fn baseline_stats_size_constants_are_correct() {
 
 #[test]
 fn issuer_config_size_is_correct() {
-    // 8 discriminator + 32 authority + 32 issuer_node + 1 bump = 73
-    assert_eq!(IssuerConfig::SPACE, 73);
+    // Day 27 extends IssuerConfig with cluster_keys + threshold:
+    //   8 disc + 32 authority + 32 issuer_node
+    // + 4 Vec prefix + 32*5 reserved key slots + 1 threshold + 1 bump = 238
+    assert_eq!(IssuerConfig::SPACE, 8 + 32 + 32 + 4 + (32 * 5) + 1 + 1);
+    assert_eq!(IssuerConfig::SPACE, 238);
 }
 
 #[test]

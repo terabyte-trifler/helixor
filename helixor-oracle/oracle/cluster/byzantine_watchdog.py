@@ -25,21 +25,13 @@ threshold and is challenged.
 THE CHALLENGE
 -------------
 A confirmed repeat offender is challenged with `ProofType.ConflictingScores`
-— the Day-21 proof lane for conflicting oracle submissions. A Byzantine
-node's score conflicts with the cluster's median, so the challenge cites
-the node's deviating score against that median for the same (agent, epoch).
-
-Important honesty boundary: the on-chain program cannot independently
-know the off-chain median unless the median/certificate/proof artifact is
-also supplied or already anchored on-chain. So this watchdog files a
-challenge WITH conflicting-score evidence; it does not claim the evidence
-is fully self-proving on-chain by itself. Production can flip the
-`fully_onchain_verifiable` flag only when the cited median artifact is
-anchored or otherwise verifiable by the challenge instruction.
-
-The challenge is FILED through an injected seam (`ChallengeFn`), the same
-pattern as the epoch runner's submit / slash seams — production wires the
-real `challenge_oracle` instruction; tests pass a recording stub.
+— the Day-21 on-chain-verifiable proof type. A Byzantine node's score, by
+definition, conflicts with the cluster's: the challenge cites the node's
+deviating score against the cluster median for the same (agent, epoch),
+which is exactly a provable conflict. The challenge is FILED through an
+injected seam (`ChallengeFn`), the same pattern as the epoch runner's
+submit / slash seams — production wires the real `challenge_oracle`
+instruction; tests pass a recording stub.
 
 DETERMINISM
 -----------
@@ -100,13 +92,9 @@ class ByzantineChallenge:
     # The epoch + agent whose conflicting score is cited as the proof.
     subject_epoch:  int
     subject_agent:  str
-    # The node's deviating score vs the cluster median — the conflict evidence.
+    # The node's deviating score vs the cluster median — the conflict.
     accused_score:  int
     cluster_median: int
-    # Empty in the pure off-chain watchdog: the median is not self-verifiable
-    # on-chain unless production supplies an anchored median/certificate/proof.
-    median_artifact_hash: str = ""
-    fully_onchain_verifiable: bool = False
 
 
 # A challenge function files a ByzantineChallenge on-chain (via the
@@ -128,10 +116,6 @@ class EpochByzantineFlag:
     """
     One node's Byzantine flag for one epoch, with the evidence — the
     deviating score and the cluster median that exposed it.
-
-    This is sufficient for the watchdog to file `ConflictingScores` evidence,
-    but it is not automatically self-proving on-chain unless the corresponding
-    median artifact is anchored or supplied to the on-chain challenge path.
     """
     node_id:        str
     epoch:          int

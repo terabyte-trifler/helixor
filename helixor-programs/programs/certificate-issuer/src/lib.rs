@@ -25,6 +25,7 @@ use anchor_lang::prelude::*;
 pub mod errors;
 pub mod events;
 pub mod instructions;
+pub mod signing;
 pub mod state;
 
 use instructions::*;
@@ -35,13 +36,21 @@ declare_id!("Cert1xor11111111111111111111111111111111111");
 pub mod certificate_issuer {
     use super::*;
 
-    /// One-time: create the IssuerConfig singleton, setting the oracle
-    /// authority permitted to issue certificates.
+    /// One-time: create the IssuerConfig singleton.
+    ///
+    /// Day 27 extends this: the config now carries the cluster's signing
+    /// keys and the threshold required for cert writes. `issuer_node` is
+    /// retained for backward compatibility (single-key deployment / rent
+    /// payer); `cluster_keys` + `threshold` are the Phase-4 BFT authority.
     pub fn initialize_config(
-        ctx:         Context<InitializeConfig>,
-        issuer_node: Pubkey,
+        ctx:          Context<InitializeConfig>,
+        issuer_node:  Pubkey,
+        cluster_keys: Vec<Pubkey>,
+        threshold:    u8,
     ) -> Result<()> {
-        instructions::initialize_config::handler(ctx, issuer_node)
+        instructions::initialize_config::handler(
+            ctx, issuer_node, cluster_keys, threshold,
+        )
     }
 
     /// Create or rotate an agent's BaselineStats record. A certificate

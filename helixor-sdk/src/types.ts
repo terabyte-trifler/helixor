@@ -61,21 +61,17 @@ export interface HealthScore {
 }
 
 /**
- * Legacy REST/API score shape still carried by SDK policy errors.
- *
- * `HealthScore` is the frozen on-chain getScore shape. Older operator-facing
- * helpers use this string-wallet shape, so keep it exported for source
- * compatibility while V2 clients migrate toward HealthScore/EpochScore.
+ * Legacy API score shape used by the policy-error classes and older client
+ * tests. The Day-19 on-chain SDK keeps `HealthScore` as the frozen minimal
+ * getScore shape; this richer alias preserves compatibility for callers that
+ * still consume the earlier REST-style SDK helpers.
  */
-export interface TrustScore {
-  agent: string;
-  score: number;
-  alert: AlertTier;
-  updatedAt: number;
-  source: string;
-  anomalyFlag?: boolean;
-  active?: boolean;
-  provisional?: boolean;
+export interface TrustScore extends HealthScore {
+  updatedAt: string;
+  source: "live" | "stale" | "deactivated" | "provisional" | string;
+  success_rate?: number;
+  is_fresh?: boolean;
+  anomaly_flag?: boolean;
 }
 
 /**

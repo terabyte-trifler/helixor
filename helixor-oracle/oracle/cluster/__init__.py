@@ -72,6 +72,16 @@ from oracle.cluster.byzantine_runner import (
     ByzantineEpochReport,
     run_byzantine_epoch,
 )
+from oracle.cluster.cert_signing import (
+    AggregatedSignatures,
+    ClusterSignature,
+    InsufficientSignatures,
+    aggregate_signatures,
+    build_ed25519_instructions,
+    build_ed25519_ix_data,
+    cert_payload_digest,
+    sign_cert_digest,
+)
 from oracle.cluster.identity import (
     NodeIdentity,
     NodeKeypair,
@@ -119,4 +129,7 @@ __all__ = [
     "STRIKE_THRESHOLD", "ByzantineWatchdog", "ByzantineChallenge",
     "ChallengeFn", "EpochByzantineFlag", "StrikeRecord",
     "ByzantineEpochReport", "ByzantineAgentResult", "run_byzantine_epoch",
+    "cert_payload_digest", "sign_cert_digest", "aggregate_signatures",
+    "build_ed25519_ix_data", "build_ed25519_instructions",
+    "ClusterSignature", "AggregatedSignatures", "InsufficientSignatures",
 ]

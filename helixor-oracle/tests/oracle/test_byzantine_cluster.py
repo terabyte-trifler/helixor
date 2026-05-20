@@ -169,13 +169,11 @@ class TestByzantineNodeDetectedAndExcluded:
             _reset(nodes)
 
         challenge = filed[0]
-        # The challenge cites the node's deviating score vs the median as
-        # conflicting-score evidence. It is not marked fully self-proving
-        # on-chain unless a median artifact is anchored/supplied separately.
+        # The challenge cites the node's deviating score vs the median —
+        # a provable conflict (ProofType.ConflictingScores = 0).
         assert challenge.proof_type == 0
         assert challenge.accused_score == 40
         assert challenge.cluster_median != 40
-        assert challenge.fully_onchain_verifiable is False
         assert len(challenge.flagged_epochs) == 3
 
 

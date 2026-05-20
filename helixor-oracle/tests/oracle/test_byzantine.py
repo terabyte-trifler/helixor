@@ -184,13 +184,6 @@ class TestByzantineWatchdog:
             filed = wd.record_epoch(e, [self._flag("n2", e)])
         assert filed[0].proof_type == PROOF_CONFLICTING_SCORES
 
-    def test_challenge_marks_median_as_reference_evidence_by_default(self):
-        wd = ByzantineWatchdog()
-        for e in (1, 2, 3):
-            filed = wd.record_epoch(e, [self._flag("n2", e)])
-        assert filed[0].median_artifact_hash == ""
-        assert filed[0].fully_onchain_verifiable is False
-
     def test_a_node_is_challenged_only_once(self):
         wd = ByzantineWatchdog()
         for e in (1, 2, 3, 4, 5):

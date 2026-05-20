@@ -229,14 +229,14 @@ impl SlashRecord {
     pub const CURRENT_LAYOUT_VERSION: u8 = 1;
 
     /// Data size WITHOUT the 8-byte Anchor discriminator.
-    ///   32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1 = 150  (Day-20 core)
+    ///   32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1 = 140  (Day-20 core)
     /// + 1 status + 8 appeal_deadline + 32 appeal_hash + 8 appealed_at = 49
     /// + 7 reserved                                                   =  7
-    /// = 206
+    /// = 196
     ///
     /// NOTE: Day 20 declared 182 bytes (150 core + 32 reserve). Day 21
-    /// spends that 32-byte reserve on the lifecycle fields and adds 17
-    /// more, so the account grows 182 -> 206. Because this is pre-mainnet
+    /// spends most of that reserve on the lifecycle fields and adds 14
+    /// more, so the account grows 182 -> 196. Because this is pre-mainnet
     /// devnet iteration, the larger size is simply the new SPACE — there
     /// are no Day-20 SlashRecords in existence to migrate.
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
@@ -254,4 +254,3 @@ impl SlashRecord {
         now < self.appeal_deadline
     }
 }
-

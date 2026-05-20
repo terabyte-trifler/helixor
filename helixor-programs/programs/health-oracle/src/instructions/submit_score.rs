@@ -93,6 +93,16 @@ pub struct SubmitScore<'info> {
     /// The certificate-issuer program — the CPI target.
     pub certificate_issuer_program: Program<'info, CertificateIssuer>,
 
+    /// CHECK: the Instructions sysvar — passed through to the CPI so the
+    /// certificate-issuer's threshold-signature verification (Day 27) can
+    /// read the Ed25519 precompile instructions attached to THIS outer
+    /// transaction. The cluster-direct path is the primary cert write
+    /// path in Phase 4; this CPI route is retained for backward
+    /// compatibility and only succeeds when the same outer tx carries the
+    /// required threshold signatures.
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -122,11 +132,12 @@ pub fn handler(
     // ITS IssuerConfig, so the oracle node must also be the issuer node
     // (configured once at deployment).
     let cpi_accounts = IssueCertificateAccounts {
-        baseline_stats: ctx.accounts.baseline_stats.to_account_info(),
-        certificate:    ctx.accounts.certificate.to_account_info(),
-        issuer_config:  ctx.accounts.issuer_config.to_account_info(),
-        issuer:         ctx.accounts.oracle.to_account_info(),
-        system_program: ctx.accounts.system_program.to_account_info(),
+        baseline_stats:      ctx.accounts.baseline_stats.to_account_info(),
+        certificate:         ctx.accounts.certificate.to_account_info(),
+        issuer_config:       ctx.accounts.issuer_config.to_account_info(),
+        issuer:              ctx.accounts.oracle.to_account_info(),
+        instructions_sysvar: ctx.accounts.instructions_sysvar.to_account_info(),
+        system_program:      ctx.accounts.system_program.to_account_info(),
     };
     let cpi_ctx = CpiContext::new(
         ctx.accounts.certificate_issuer_program.to_account_info(),
