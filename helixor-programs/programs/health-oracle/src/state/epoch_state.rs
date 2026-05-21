@@ -69,6 +69,6 @@ impl EpochState {
     /// grace margin is NOT applied here; the caller decides whether to
     /// allow early advance (e.g. an admin override).
     pub fn may_advance(&self, now: i64) -> bool {
-        now - self.last_advanced_at >= self.epoch_duration_seconds
+        now.saturating_sub(self.last_advanced_at) >= self.epoch_duration_seconds
     }
 }

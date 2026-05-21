@@ -65,7 +65,7 @@ impl BaselineStats {
     /// Data size WITHOUT the 8-byte Anchor discriminator.
     ///   32 + 32 + 1 + 8 + 32 + 8 + 1 + 1 = 115
     /// + 32 reserved                      =  32
-    /// = 147
+    ///   = 147
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
         32 + 32 + 1 + 8 + 32 + 8 + 1 + 1 + 32;
 

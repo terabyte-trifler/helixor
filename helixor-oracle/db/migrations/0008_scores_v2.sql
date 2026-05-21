@@ -70,32 +70,29 @@ CREATE TABLE IF NOT EXISTS agent_scores (
                AND dim4 >= 0 AND dim5 >= 0)
 );
 
--- If migration 0003 already created the MVP current-score table, the
--- CREATE TABLE IF NOT EXISTS above is a no-op. Add the V2 columns explicitly
--- so a fresh replay of 0001..0008 leaves the table compatible with both the
--- older API code (`alert`, success/consistency/stability columns) and the V2
--- scorer metadata.
+-- If the MVP table already existed (migration 0003), CREATE TABLE IF NOT
+-- EXISTS is a no-op. Add the v2 columns idempotently so fresh replay from
+-- schema.sql + migrations reaches the current shape.
 ALTER TABLE agent_scores
-    ADD COLUMN IF NOT EXISTS alert_tier           TEXT,
-    ADD COLUMN IF NOT EXISTS dim1                 INTEGER,
-    ADD COLUMN IF NOT EXISTS dim2                 INTEGER,
-    ADD COLUMN IF NOT EXISTS dim3                 INTEGER,
-    ADD COLUMN IF NOT EXISTS dim4                 INTEGER,
-    ADD COLUMN IF NOT EXISTS dim5                 INTEGER,
-    ADD COLUMN IF NOT EXISTS confidence           INTEGER,
-    ADD COLUMN IF NOT EXISTS gaming_flag          BOOLEAN,
-    ADD COLUMN IF NOT EXISTS baseline_stats_hash  TEXT,
-    ADD COLUMN IF NOT EXISTS feature_schema_fp    TEXT,
-    ADD COLUMN IF NOT EXISTS scoring_schema_fp    TEXT,
-    ADD COLUMN IF NOT EXISTS aggregated_flags     BIGINT DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS delta_clamped        BOOLEAN DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS inserted_at          TIMESTAMPTZ DEFAULT now();
+    ADD COLUMN IF NOT EXISTS alert_tier          TEXT,
+    ADD COLUMN IF NOT EXISTS dim1                INTEGER,
+    ADD COLUMN IF NOT EXISTS dim2                INTEGER,
+    ADD COLUMN IF NOT EXISTS dim3                INTEGER,
+    ADD COLUMN IF NOT EXISTS dim4                INTEGER,
+    ADD COLUMN IF NOT EXISTS dim5                INTEGER,
+    ADD COLUMN IF NOT EXISTS confidence          INTEGER,
+    ADD COLUMN IF NOT EXISTS gaming_flag         BOOLEAN,
+    ADD COLUMN IF NOT EXISTS baseline_stats_hash TEXT,
+    ADD COLUMN IF NOT EXISTS feature_schema_fp   TEXT,
+    ADD COLUMN IF NOT EXISTS scoring_schema_fp   TEXT,
+    ADD COLUMN IF NOT EXISTS aggregated_flags    BIGINT DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS delta_clamped       BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS inserted_at         TIMESTAMPTZ DEFAULT now();
 
 DO $$
 BEGIN
     IF EXISTS (
-        SELECT 1
-        FROM information_schema.columns
+        SELECT 1 FROM information_schema.columns
         WHERE table_name = 'agent_scores'
           AND column_name = 'alert'
     ) THEN

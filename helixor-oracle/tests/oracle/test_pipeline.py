@@ -1,15 +1,15 @@
 """
 tests/oracle/test_pipeline.py — the Day-28 done-when.
 
-The 5-node / 3-of-5 Phase-4 oracle cluster produces correct
-on-chain-submittable certificates under every single-node failure mode.
+"The 3-node BFT oracle cluster produces correct on-chain certificates
+ under every single-node failure mode."
 
-The clarification: a cluster signing 3-of-N can only survive a failure
-if N - 1 >= threshold. A 3-node cluster can demonstrate the Day-24/25/26
-cluster mechanics, but with a threshold of 3 it cannot survive any single
-failure. The Phase-4 capstone topology is the 5-node cluster with
-threshold 3 — the "3-of-5" signing of Day 27. With n=5, t=3, one node
-down still leaves 4 available signers (>= 3).
+The clarification: a cluster signing 3-of-N can only survive a failure if
+N - 1 >= threshold. So a 3-node cluster with threshold 3 cannot survive
+any single failure (3 is exactly the threshold). The Phase-4 deployment
+the spec describes is a 5-node cluster with threshold 3 — which is the
+"3-of-5" of Day 27, the BFT cluster of Days 24-26. With n=5, t=3, one
+node down still leaves 4 signers (>= 3).
 
 These tests run the full pipeline (Days 17 + 23-27 composed) under each
 of the three chaos scenarios and assert: an on-chain-submittable
@@ -45,7 +45,7 @@ THRESHOLD = 3
 
 
 def _submit_recorder():
-    """A recording submit_fn — captures every submittable cert artifact."""
+    """A recording submit_fn — captures every cert handed to it on-chain."""
     submitted = []
 
     def _submit(cert):
@@ -339,8 +339,7 @@ class TestEveryFailureModeProducesACorrectCert:
     def test_all_three_failure_modes_in_one_assertion(self):
         """
         The Day-28 done-when, rolled up: under EACH single-node failure
-        mode, the 5-node / 3-of-5 cluster produces a correct
-        on-chain-submittable cert.
+        mode, the cluster produces a correct on-chain-submittable cert.
         """
         profiles = [profile_adversarial()]
         scenarios = [

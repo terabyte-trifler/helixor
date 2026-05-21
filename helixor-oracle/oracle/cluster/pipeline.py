@@ -6,21 +6,20 @@ Days 23-27 each built one piece of Phase 4:
   24 — 3-node cluster + gRPC + median aggregation
   25 — commit-reveal (no copying)
   26 — Byzantine detection + watchdog slashing
-  27 — 3-of-5 threshold cert signing
+  27 — 3-of-5 multisig cert signing
 
 Day 28 composes them. `run_full_pipeline_epoch` drives one epoch end to
 end:
 
     Geyser/Kafka transactions  (Day 17 event bus)
-      → 5 nodes ingest, each scores independently
+      → 3 nodes ingest, each scores independently
       → COMMIT-REVEAL exchange      (Day 25)
       → BYZANTINE detection         (Day 26 — deviation + exclude)
       → MEDIAN aggregation          (Day 24 — on the honest survivors)
       → CERT PAYLOAD                (Day 27 canonical digest)
       → THRESHOLD SIGNATURES        (3 of 5 cluster keys sign)
       → SUBMITTABLE CERTIFICATE     (cert + Ed25519 precompile ixs)
-      → ON-CHAIN SUBMIT SEAM        (production sends issue_certificate tx;
-                                      tests record the artifact)
+      → ON-CHAIN SUBMIT             (injected seam)
 
 THE INJECTED SEAMS
 ------------------
@@ -30,15 +29,6 @@ the same dependency-inversion pattern as every prior day (submit_fn /
 slash_fn / challenge_fn). Production wires the real on-chain call; chaos
 tests pass a recording stub so failure modes are isolated to the
 off-chain pipeline.
-
-HONEST PHASE-4 TOPOLOGY
------------------------
-The chaos guarantee is for the 5-node deployment with 3-of-5 certificate
-signing. A 3-node cluster can demonstrate median, commit-reveal, and
-Byzantine detection, but it cannot survive a single-node failure if the
-certificate threshold is 3. With 5 nodes and threshold 3, any one node can
-be offline, partitioned, or excluded as Byzantine and the cluster still
-has enough honest signers to produce a submittable certificate.
 
 DETERMINISM, AGAIN
 ------------------

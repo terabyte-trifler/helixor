@@ -1,0 +1,33 @@
+{
+  "cluster": "http://127.0.0.1:8899",
+  "local_only": false,
+  "programs": {
+    "health_oracle": {
+      "programId": "Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P",
+      "local_path": "helixor-programs/target/deploy/health_oracle.so",
+      "local_size": 327465,
+      "local_sha256": "45e2efd4aaa110024822296b302d57044e0aa0becf5f4102e86ecc8bfbef95a1",
+      "deployed_size": 327465,
+      "deployed_sha256": "45e2efd4aaa110024822296b302d57044e0aa0becf5f4102e86ecc8bfbef95a1",
+      "match": true
+    },
+    "certificate_issuer": {
+      "programId": "3ViKj3cYMo76HwnLYAnbM5BDuMPxmKuKhotXhfPq94gW",
+      "local_path": "helixor-programs/target/deploy/certificate_issuer.so",
+      "local_size": 280201,
+      "local_sha256": "f0d5a6d0c585aa37dd3d0044f16a6c725a92cd1e602d4da2c014cb99adf2fb72",
+      "deployed_size": 280201,
+      "deployed_sha256": "f0d5a6d0c585aa37dd3d0044f16a6c725a92cd1e602d4da2c014cb99adf2fb72",
+      "match": true
+    },
+    "slash_authority": {
+      "programId": "2pGoLLvs3XegXDXm7HAZTrFoJZV9dPnNTU1PDEdcUhsN",
+      "local_path": "helixor-programs/target/deploy/slash_authority.so",
+      "local_size": 330633,
+      "local_sha256": "e5a1e65b17e482fcff4bcf614295b4d4301fe28b8a6979f8720264f084a42e2d",
+      "deployed_size": 330633,
+      "deployed_sha256": "e5a1e65b17e482fcff4bcf614295b4d4301fe28b8a6979f8720264f084a42e2d",
+      "match": true
+    }
+  }
+}

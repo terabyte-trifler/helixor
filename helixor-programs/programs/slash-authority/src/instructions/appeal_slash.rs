@@ -96,7 +96,7 @@ pub fn handler(
     let last = ctx.accounts.escrow_vault.last_appeal_at;
     if last != 0 {
         require!(
-            clock.unix_timestamp - last >= APPEAL_COOLDOWN_SECONDS,
+            clock.unix_timestamp.saturating_sub(last) >= APPEAL_COOLDOWN_SECONDS,
             SlashError::AppealCooldownActive,
         );
     }

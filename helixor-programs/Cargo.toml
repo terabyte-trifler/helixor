@@ -2,14 +2,16 @@
 members  = ["programs/*"]
 resolver = "2"
 
+# Day 29 — workspace-wide lints. clippy::all + unused_must_use denied so
+# CI fails on a warning that would otherwise hide an audit finding.
+[workspace.lints.clippy]
+all = "deny"
+
+[workspace.lints.rust]
+unused_must_use = "deny"
+
 [profile.release]
 # Hardening — same Day-13 standard
 overflow-checks = true
 lto             = "fat"
 codegen-units   = 1
-
-[patch.crates-io]
-# Anchor 0.30.1's IDL generator calls a proc-macro2 semver-exempt API that
-# newer proc-macro2 no longer exposes. Keep the patch local and explicit so
-# normal `anchor build` can generate IDLs without downgrading the toolchain.
-anchor-syn = { path = "vendor/anchor-syn-0.30.1" }

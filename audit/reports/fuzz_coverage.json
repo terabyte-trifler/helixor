@@ -1,0 +1,6 @@
+{
+  "mode": "trident-target",
+  "target": "fuzz_0",
+  "iterations": 1000,
+  "uncovered_handlers": []
+}

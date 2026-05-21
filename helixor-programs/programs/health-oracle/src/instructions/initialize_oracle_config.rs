@@ -59,7 +59,7 @@ pub fn handler(
     );
     // No duplicate node keys.
     for i in 0..oracle_keys.len() {
-        for j in (i + 1)..oracle_keys.len() {
+        for j in (i + 1)..oracle_keys.len() { // audit: loop index over Vec.len(), no overflow possible
             require!(
                 oracle_keys[i] != oracle_keys[j],
                 HelixorError::DuplicateOracleKey,

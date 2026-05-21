@@ -51,7 +51,7 @@ pub fn handler(
     );
     // No duplicate keys.
     for i in 0..cluster_keys.len() {
-        for j in (i + 1)..cluster_keys.len() {
+        for j in (i + 1)..cluster_keys.len() { // audit: loop index over Vec.len(), no overflow possible
             require!(
                 cluster_keys[i] != cluster_keys[j],
                 CertificateError::DuplicateClusterKey,

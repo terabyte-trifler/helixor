@@ -52,4 +52,7 @@ pub enum HelixorError {
     DuplicateOracleKey = 6051,
     #[msg("min_confidence out of range — must be 0..=1000")]
     InvalidMinConfidence = 6052,
+    #[msg("epoch counter overflow — protocol has been running long enough \
+           to exceed u64; recreate the epoch state")]
+    EpochCounterOverflow = 6053,
 }

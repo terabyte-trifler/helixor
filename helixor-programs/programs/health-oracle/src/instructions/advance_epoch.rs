@@ -50,7 +50,7 @@ pub fn handler(ctx: Context<AdvanceEpoch>) -> Result<()> {
     let from = epoch_state.current_epoch;
     epoch_state.current_epoch    = from
         .checked_add(1)
-        .expect("epoch counter overflow — unreachable in any realistic lifetime");
+        .ok_or(HelixorError::EpochCounterOverflow)?;
     epoch_state.last_advanced_at = clock.unix_timestamp;
 
     emit!(EpochAdvanced {

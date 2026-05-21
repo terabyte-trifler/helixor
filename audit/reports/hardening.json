@@ -1,0 +1,22 @@
+{
+  "hard_count": 0,
+  "soft_count": 2,
+  "findings": [
+    {
+      "category": "design-intent-no-signer-constraint",
+      "severity": "SOFT",
+      "file": "helixor-programs/.../instructions/issue_certificate.rs",
+      "line": 0,
+      "text": "issue_certificate: no signer constraint by design",
+      "note": "Day 27 \u2014 threshold signature verification replaces the issuer-key gate; see certificate-issuer/src/signing.rs"
+    },
+    {
+      "category": "design-intent-no-signer-constraint",
+      "severity": "SOFT",
+      "file": "helixor-programs/.../instructions/challenge_oracle.rs",
+      "line": 0,
+      "text": "challenge_oracle: no signer constraint by design",
+      "note": "Permissionless by design \u2014 any party may file; proof is validated by slash-authority"
+    }
+  ]
+}

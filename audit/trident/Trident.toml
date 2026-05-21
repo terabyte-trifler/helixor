@@ -1,0 +1,106 @@
+# =============================================================================
+# audit/trident/Trident.toml — Trident fuzz configuration for all 3 programs
+#
+# Day 29 — the audit-readiness fuzz gate. Targets 10M fuzz inputs across
+# every instruction in all three Anchor programs, with zero panics.
+#
+# This file is consumed by `trident fuzz run` from the repo root after
+# scaffolding the per-program fuzz targets via `trident init`. The
+# instructions to run (a) locally and (b) in CI are in audit/trident/README.md.
+#
+# HONEST SCOPE
+# ------------
+# Trident requires the full Anchor toolchain (anchor, solana-cli, cargo)
+# and a working build-bpf, which are environment-dependent. This config
+# is audit-deliverable: an auditor with the toolchain installed runs
+# `bash audit/trident/run_fuzz.sh` and the targets execute.
+#
+# The pure-logic Rust tests under `programs/*/tests/*_logic.rs` exercise
+# the same invariant set the fuzzer targets — they run in any environment
+# and gate every commit (`cargo test`). The fuzzer extends that with
+# arbitrary-input adversarial coverage.
+# =============================================================================
+
+[fuzz]
+# Target: 10M iterations distributed across all instructions, with random
+# seeds. Trident parallelises across cores; on an 8-core CI runner this
+# completes in 4-6 hours.
+fuzz_iterations = 10_000_000
+
+# Crash-fast: if any iteration panics, abort and persist the input. The
+# audit gate is ZERO panics.
+exit_code_for_crash = 1
+
+# Random seed root — produce reproducible runs when set; omit for a fresh
+# seed each invocation.
+# seed = 0x1234567890ABCDEF
+
+# Run state: deterministic ledger replay so any panic is reproducible from
+# the persisted input.
+deterministic = true
+
+# Coverage instrumentation — Trident accepts the standard SBF coverage
+# format; produces a report consumable by the audit team.
+coverage = true
+coverage_output = "audit/reports/fuzz_coverage.json"
+
+# Crash corpus — every crash input persisted here for triage.
+crash_dir = "audit/reports/fuzz_crashes/"
+
+# Honeggfuzz-style timeouts: any iteration over `timeout_seconds` is
+# treated as a hang (potential DOS) and counted as a crash.
+timeout_seconds = 30
+
+
+# =============================================================================
+# Per-program targets
+# =============================================================================
+#
+# Each program gets its own fuzz module under `trident-tests/<program>`.
+# `trident init` scaffolds these; the modules are committed under
+# audit/trident/targets/ so the audit team does not need to re-scaffold.
+
+[[programs]]
+name           = "health-oracle"
+address        = "HzOraCLE111111111111111111111111111111111"
+fuzz_targets   = [
+    "advance_epoch",
+    "commit_baseline",
+    "submit_score",
+    "initialize_oracle_config",
+    "initialize_epoch",
+    "migrate_registration",
+]
+
+[[programs]]
+name           = "certificate-issuer"
+address        = "CertIssuer1111111111111111111111111111111"
+fuzz_targets   = [
+    "initialize_config",
+    "record_baseline",
+    "issue_certificate",       # primary Day-27 target — threshold sig path
+    "get_certificate",
+]
+
+[[programs]]
+name           = "slash-authority"
+address        = "SLasH1111111111111111111111111111111111111"
+fuzz_targets   = [
+    "execute_slash",
+    "appeal_slash",
+    "resolve_appeal",
+    "challenge_oracle",
+]
+
+
+# =============================================================================
+# Acceptance criteria — what "fuzz clean" means
+# =============================================================================
+#
+# 1. fuzz_iterations >= 10_000_000  across all targets combined
+# 2. crash_dir is EMPTY at run end                         (zero panics)
+# 3. coverage report shows every reachable handler hit     (no dead targets)
+# 4. no iteration exceeds timeout_seconds                  (no DOS hangs)
+#
+# CI runs `bash audit/trident/run_fuzz.sh` and fails the build on any
+# violation. Local runs use the same script.

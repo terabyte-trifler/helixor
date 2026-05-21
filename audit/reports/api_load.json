@@ -1,0 +1,12 @@
+{
+  "total_requests": 120,
+  "errors": 0,
+  "error_rate": 0.0,
+  "p50_ms": 4.110021487576887,
+  "p95_ms": 6.095874996390194,
+  "p99_ms": 26.318791991798207,
+  "duration_s": 30,
+  "rate": 4.0,
+  "achieved_qps": 4.0,
+  "error_samples": []
+}

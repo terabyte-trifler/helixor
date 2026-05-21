@@ -9,6 +9,8 @@
 // program's #[program] block, plus the new state file + errors + events.
 // =============================================================================
 
+#![allow(unexpected_cfgs, ambiguous_glob_reexports)]
+
 use anchor_lang::prelude::*;
 
 pub mod errors;

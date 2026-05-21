@@ -20,6 +20,8 @@
 // below with the deployed key when this is published to devnet.
 // =============================================================================
 
+#![allow(unexpected_cfgs, ambiguous_glob_reexports)]
+
 use anchor_lang::prelude::*;
 
 pub mod errors;

@@ -14,7 +14,7 @@
 // breaking change to `getScore`.
 // =============================================================================
 
-import { PublicKey } from "@solana/web3.js";
+import type { PublicKey } from "@solana/web3.js";
 
 /**
  * The alert tier. Stable wire codes — 0/1/2 — matching the on-chain
@@ -61,6 +61,22 @@ export interface HealthScore {
 }
 
 /**
+ * TrustScore — legacy REST/API policy surface used by the SDK error
+ * classes. It is intentionally separate from the on-chain `HealthScore`
+ * shape, which stays frozen for `getScore`.
+ */
+export interface TrustScore {
+  agent: PublicKey;
+  score: number;
+  alert: AlertTier;
+  successRate?: number;
+  anomalyFlag?: boolean;
+  updatedAt: number;
+  isFresh?: boolean;
+  source?: string;
+}
+
+/**
  * EpochScore — a HealthScore for a SPECIFIC epoch. This is the V2 ADDITION:
  * it carries the epoch number. `getScore` still returns the frozen
  * `HealthScore`; callers who want the epoch use the new methods.
@@ -70,29 +86,6 @@ export interface EpochScore extends HealthScore {
   epoch: number;
   /** Whether the IMMEDIATE_RED security fast-path was tripped. */
   immediateRed: boolean;
-}
-
-/** Legacy REST/API score shape used by the policy error helpers. */
-export interface TrustScore {
-  agentWallet: string;
-  score: number;
-  alert: AlertTier | string;
-  source: string;
-  successRate?: number;
-  anomalyFlag: boolean;
-  updatedAt: number;
-  isFresh: boolean;
-  active?: boolean;
-  provisional?: boolean;
-  cached?: boolean;
-  servedAt?: number;
-  breakdown?: {
-    successRateScore?: number;
-    consistencyScore?: number;
-    stabilityScore?: number;
-    rawScore?: number;
-    guardRailApplied?: boolean;
-  };
 }
 
 /** Program IDs the SDK talks to. */

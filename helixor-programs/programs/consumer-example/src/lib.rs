@@ -10,6 +10,8 @@
 // verifies the PDAs, and the protocol applies its own risk policy locally.
 // =============================================================================
 
+#![allow(unexpected_cfgs)]
+
 use anchor_lang::prelude::*;
 
 use certificate_issuer::state::HealthCertificate;

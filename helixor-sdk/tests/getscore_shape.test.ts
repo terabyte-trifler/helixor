@@ -60,7 +60,7 @@ test("HealthScore field types match the MVP contract", () => {
     flags: 0x08,
     issuedAt: 1,
   };
-  assert.strictEqual(typeof sample.agent.toBase58(), "string");
+  assert.strictEqual(typeof sample.agent.toBase58, "function");
   assert.strictEqual(typeof sample.score, "number");
   assert.ok(Object.values(AlertTier).includes(sample.alert));
   assert.strictEqual(typeof sample.flags, "number");

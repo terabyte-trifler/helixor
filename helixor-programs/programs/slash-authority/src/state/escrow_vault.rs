@@ -85,7 +85,7 @@ impl EscrowVault {
     ///   32 + 8 + 8 + 8 + 8 + 1 + 1 + 1 = 67  (Day-20 core)
     /// + 8 encumbered_lamports + 8 last_appeal_at = 16
     /// + 16 reserved                              = 16
-    /// = 99
+    ///   = 99
     ///
     /// The size is UNCHANGED from Day 20 (still 99): the 16 new bytes are
     /// spent from the former 32-byte reserve, which shrinks to 16.

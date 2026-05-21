@@ -42,8 +42,12 @@
 //   executor             32   (Pubkey — the slash authority that executed)
 //   bump                  1   (u8)
 //   layout_version        1   (u8)
-//   _reserved            32   (zeroed cushion)
-//   TOTAL (without discriminator): 182 bytes
+//   status                1   (u8 — SlashStatus code)
+//   appeal_deadline       8   (i64 — unix seconds)
+//   appeal_hash          32   ([u8;32])
+//   appealed_at           8   (i64 — unix seconds)
+//   _reserved             7   (zeroed cushion)
+//   TOTAL (without discriminator): 196 bytes
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -124,7 +128,7 @@ impl SlashDestination {
 pub fn compute_slash_amount(staked_lamports: u64, tier: OffenseTier) -> u64 {
     // u128 intermediate so `stake * bps` cannot overflow u64.
     let product = (staked_lamports as u128) * (tier.slash_bps() as u128);
-    let amount = (product / 10_000u128) as u64;
+    let amount = (product / 10_000u128) as u64; // audit: u128 / constant, no overflow
     // A terminal tier must take the entire stake, defensively — guard
     // against any rounding leaving dust behind.
     if tier.is_terminal() {
@@ -229,14 +233,14 @@ impl SlashRecord {
     pub const CURRENT_LAYOUT_VERSION: u8 = 1;
 
     /// Data size WITHOUT the 8-byte Anchor discriminator.
-    ///   32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1 = 150  (Day-20 core)
+    ///   32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1 = 140  (Day-20 core)
     /// + 1 status + 8 appeal_deadline + 32 appeal_hash + 8 appealed_at = 49
     /// + 7 reserved                                                   =  7
-    /// = 206
+    ///   = 196
     ///
-    /// NOTE: Day 20 declared 182 bytes (150 core + 32 reserve). Day 21
+    /// NOTE: Day 20 declared 172 bytes (140 core + 32 reserve). Day 21
     /// spends that 32-byte reserve on the lifecycle fields and adds 17
-    /// more, so the account grows 182 -> 206. Because this is pre-mainnet
+    /// more, so the account grows 172 -> 196. Because this is pre-mainnet
     /// devnet iteration, the larger size is simply the new SPACE — there
     /// are no Day-20 SlashRecords in existence to migrate.
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =

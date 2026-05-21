@@ -103,7 +103,7 @@ impl HealthCertificate {
     /// Data size in bytes, WITHOUT the 8-byte Anchor discriminator.
     ///   32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1  = 122
     /// + 48 reserved                                    =  48
-    /// = 170
+    ///   = 170
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
         32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 48;
 

@@ -62,6 +62,26 @@ pub struct AgentRegistration {
     pub _reserved:              [u8; 64],
 }
 
+impl Default for AgentRegistration {
+    fn default() -> Self {
+        Self {
+            agent_wallet: Pubkey::default(),
+            owner_wallet: Pubkey::default(),
+            registered_at: 0,
+            active: false,
+            bump: 0,
+            baseline_committed: false,
+            baseline_hash: [0u8; 32],
+            baseline_algo_version: 0,
+            baseline_committer: Pubkey::default(),
+            baseline_committed_at: 0,
+            commit_nonce: 0,
+            layout_version: 0,
+            _reserved: [0u8; 64],
+        }
+    }
+}
+
 impl AgentRegistration {
     /// The current layout version. Anything older than this needs migration.
     pub const CURRENT_LAYOUT_VERSION: u8 = 2;
@@ -70,7 +90,7 @@ impl AgentRegistration {
     ///   32 + 32 + 8 + 1 + 1  =  74    (v1 fields)
     /// + 1 + 32 + 1 + 32 + 8 + 8 + 1   =  83    (v2 fields)
     /// + 64                            =  64    (reserved)
-    /// = 221
+    ///   = 221
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize = 32 + 32 + 8 + 1 + 1
                                                  + 1 + 32 + 1 + 32 + 8 + 8 + 1
                                                  + 64;

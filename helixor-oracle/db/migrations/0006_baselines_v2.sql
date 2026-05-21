@@ -133,12 +133,22 @@ ALTER TABLE agent_baseline_history
     ADD COLUMN IF NOT EXISTS is_provisional             BOOLEAN,
     ADD COLUMN IF NOT EXISTS stats_hash                 TEXT;
 
--- If the history table came from migration 0002, it has `algo_version`
--- rather than the V2 `baseline_algo_version` name. Backfill before indexing
--- so a fresh database can replay 0002 -> 0006 without failing.
-UPDATE agent_baseline_history
-    SET baseline_algo_version = COALESCE(baseline_algo_version, algo_version, 1)
-    WHERE baseline_algo_version IS NULL;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'agent_baseline_history'
+          AND column_name = 'algo_version'
+    ) THEN
+        UPDATE agent_baseline_history
+            SET baseline_algo_version = COALESCE(baseline_algo_version, algo_version, 1)
+            WHERE baseline_algo_version IS NULL;
+    ELSE
+        UPDATE agent_baseline_history
+            SET baseline_algo_version = 1
+            WHERE baseline_algo_version IS NULL;
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_baseline_history_agent_time
     ON agent_baseline_history (agent_wallet, computed_at DESC);
