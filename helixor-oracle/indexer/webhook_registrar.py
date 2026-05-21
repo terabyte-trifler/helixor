@@ -18,6 +18,8 @@ import asyncio
 
 import structlog
 
+from oracle.network_guard import enforce_network_guard
+
 from indexer import db, repo
 from indexer.helius import HeliusClient, HeliusError
 
@@ -80,6 +82,7 @@ async def loop() -> None:
 
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/indexer/webhook_registrar.py")
     structlog.configure(
         processors=[structlog.processors.TimeStamper(fmt="iso"), structlog.dev.ConsoleRenderer()],
     )

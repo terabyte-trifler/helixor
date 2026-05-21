@@ -15,6 +15,8 @@ from __future__ import annotations
 import asyncio
 import structlog
 
+from oracle.network_guard import enforce_network_guard
+
 from indexer import db
 from indexer.config import settings
 from scoring import baseline_engine, repo
@@ -77,6 +79,7 @@ async def loop() -> None:
 
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/scoring/scheduler.py")
     structlog.configure(
         processors=[
             structlog.processors.TimeStamper(fmt="iso", utc=True),

@@ -49,6 +49,8 @@ from pathlib import Path
 
 
 SCHEMA = """
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
 CREATE TABLE IF NOT EXISTS agent_transactions (
     block_time      TIMESTAMPTZ NOT NULL,
     agent_wallet    TEXT        NOT NULL,
@@ -56,6 +58,10 @@ CREATE TABLE IF NOT EXISTS agent_transactions (
     program_id      TEXT        NOT NULL,
     amount_lamports BIGINT      NOT NULL,
     instruction_idx INT         NOT NULL
+);
+SELECT create_hypertable(
+    'agent_transactions', 'block_time',
+    if_not_exists => TRUE, chunk_time_interval => INTERVAL '1 day'
 );
 CREATE INDEX IF NOT EXISTS ix_agent_tx_wallet_time
     ON agent_transactions (agent_wallet, block_time DESC);
@@ -69,14 +75,6 @@ CREATE TABLE IF NOT EXISTS agent_score_history (
     flags           INTEGER     NOT NULL,
     immediate_red   BOOLEAN     NOT NULL
 );
-"""
-
-TIMESCALE_SETUP = """
-CREATE EXTENSION IF NOT EXISTS timescaledb;
-SELECT create_hypertable(
-    'agent_transactions', 'block_time',
-    if_not_exists => TRUE, chunk_time_interval => INTERVAL '1 day'
-);
 SELECT create_hypertable(
     'agent_score_history', 'epoch_end',
     if_not_exists => TRUE, chunk_time_interval => INTERVAL '7 days'
@@ -87,14 +85,6 @@ SELECT create_hypertable(
 def setup(conn) -> None:
     with conn.cursor() as cur:
         cur.execute(SCHEMA)
-        cur.execute(
-            "SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb'"
-        )
-        timescale_available = cur.fetchone() is not None
-        if timescale_available:
-            cur.execute(TIMESCALE_SETUP)
-        else:
-            print("⚠️  TimescaleDB extension unavailable; running plain-Postgres smoke")
     conn.commit()
 
 

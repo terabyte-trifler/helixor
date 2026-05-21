@@ -12,6 +12,8 @@ import signal
 
 import structlog
 
+from oracle.network_guard import enforce_network_guard
+
 from api.redis_client import close_redis, init_redis
 from indexer import db
 from indexer.config import settings
@@ -66,6 +68,7 @@ async def run_forever() -> None:
 
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/indexer/webhook_worker.py")
     structlog.configure(
         processors=[
             structlog.processors.TimeStamper(fmt="iso", utc=True),

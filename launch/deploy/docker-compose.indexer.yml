@@ -1,0 +1,113 @@
+# =============================================================================
+# launch/deploy/docker-compose.indexer.yml
+#
+# Day 30 — deploy the helixor-indexer side of the stack: Kafka broker,
+# TimescaleDB, the indexer process itself, and a Prometheus scrape
+# endpoint.
+#
+# Targets a single-region indexer deployment. Cross-region replication of
+# the indexer is out-of-scope for V2 (the on-chain certs are the source
+# of truth; the indexer is an accelerated read path).
+#
+# USAGE
+# -----
+#   cp .env.example .env             # populate secrets
+#   docker compose -f launch/deploy/docker-compose.indexer.yml up -d
+#
+# The compose file pins versions explicitly — no `latest` tags — so a
+# fresh stand-up reproduces the audited environment.
+# =============================================================================
+
+version: "3.9"
+
+services:
+
+  # ── TimescaleDB — the indexer's hypertable store ──────────────────────────
+  timescaledb:
+    image: timescale/timescaledb:2.14.2-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       helixor
+      POSTGRES_USER:     helixor_indexer
+      POSTGRES_PASSWORD: "${TIMESCALE_PASSWORD:?TIMESCALE_PASSWORD must be set}"
+      # Tuning — sized for the load test target of 50M rows.
+      TIMESCALEDB_TELEMETRY: "off"
+    volumes:
+      - tsdb_data:/var/lib/postgresql/data
+      - ./schema:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helixor_indexer -d helixor"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+    ports:
+      - "5432:5432"
+    mem_limit: 4g
+    cpus: "2.0"
+
+  # ── Kafka — the agent.transactions event bus ──────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qg"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions",
+             "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+    ports:
+      - "9092:9092"
+    mem_limit: 4g
+    cpus: "2.0"
+
+  # ── The indexer process itself ───────────────────────────────────────────
+  indexer:
+    image: helixor/indexer:${HELIXOR_VERSION:?HELIXOR_VERSION must be set}
+    restart: unless-stopped
+    depends_on:
+      kafka:        { condition: service_healthy }
+      timescaledb:  { condition: service_healthy }
+    environment:
+      HELIXOR_NETWORK:      "${HELIXOR_NETWORK:-devnet}"
+      HELIXOR_MAINNET_OK:   "${HELIXOR_MAINNET_OK:-}"
+      SOLANA_RPC_URL:       "${SOLANA_RPC_URL:?SOLANA_RPC_URL must be set}"
+      DATABASE_URL:         "postgres://helixor_indexer:${TIMESCALE_PASSWORD}@timescaledb/helixor"
+      KAFKA_BOOTSTRAP:      "kafka:9092"
+      LOG_LEVEL:            "INFO"
+      METRICS_PORT:         "9090"
+    ports:
+      - "9090:9090"          # Prometheus scrape
+    mem_limit: 2g
+    cpus: "2.0"
+
+  # ── Prometheus — local scrape so the cluster has metrics from day one ─────
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom_data:/prometheus
+    ports:
+      - "9091:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    mem_limit: 1g
+
+
+volumes:
+  tsdb_data:
+  prom_data:

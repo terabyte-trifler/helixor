@@ -144,6 +144,19 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
+    # ── Day 30: mainnet refusal gate ────────────────────────────────────────
+    # Refuse to start against mainnet without an explicit HELIXOR_MAINNET_OK
+    # opt-in. The guard reads the env, logs the verdict, and raises
+    # ProductionRefused on misconfig — caught by the outer try/except below
+    # so the operator sees a clear error message rather than a stack trace.
+    from oracle.network_guard import enforce_network_guard, ProductionRefused
+    try:
+        enforce_network_guard(service=f"oracle-node:{args.node_id}")
+    except ProductionRefused as exc:
+        # The error message itself is the runbook.
+        logger.error(str(exc))
+        return 2
+
     try:
         peer_addrs = _parse_peers(args.peers)
         seed = args.seed.encode() if args.seed else None

@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS agent_baselines (
 
     -- Schema version for the baseline algorithm itself.
     -- If we change how signals are computed, bump this so consumers know.
-    algo_version         INTEGER      NOT NULL DEFAULT 1
+    algo_version         INTEGER      NOT NULL DEFAULT 1,
+    baseline_algo_version INTEGER     NOT NULL DEFAULT 1
 );
 
 CREATE INDEX IF NOT EXISTS idx_baselines_valid_until ON agent_baselines (valid_until);
@@ -54,6 +55,7 @@ CREATE TABLE IF NOT EXISTS agent_baseline_history (
     active_days          INTEGER      NOT NULL,
     baseline_hash        TEXT         NOT NULL,
     algo_version         INTEGER      NOT NULL,
+    baseline_algo_version INTEGER     NOT NULL DEFAULT 1,
     computed_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     window_start         TIMESTAMPTZ  NOT NULL,
     window_end           TIMESTAMPTZ  NOT NULL

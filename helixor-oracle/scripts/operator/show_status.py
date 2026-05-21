@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 
 import structlog
 
+from oracle.network_guard import enforce_network_guard
+
 from indexer import db
 from monitoring import slo
 
@@ -129,6 +131,7 @@ async def run() -> int:
 
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/scripts/operator/show_status.py")
     sys.exit(asyncio.run(run()))
 
 

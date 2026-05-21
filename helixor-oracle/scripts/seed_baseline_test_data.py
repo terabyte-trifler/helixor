@@ -21,6 +21,8 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 
+from oracle.network_guard import enforce_network_guard
+
 from indexer import db
 
 log = structlog.get_logger()
@@ -120,6 +122,7 @@ async def seed(
 
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/scripts/seed_baseline_test_data.py")
     p = argparse.ArgumentParser()
     p.add_argument("--wallet", required=True, help="Agent wallet pubkey to seed")
     p.add_argument("--tx-count",       type=int,   default=100)

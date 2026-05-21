@@ -14,6 +14,8 @@ from pathlib import Path
 import asyncpg
 import structlog
 
+from oracle.network_guard import enforce_network_guard
+
 from indexer.config import settings
 
 log = structlog.get_logger()
@@ -39,6 +41,7 @@ async def apply_schema() -> None:
 
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/db/migrate.py")
     structlog.configure(
         processors=[structlog.processors.TimeStamper(fmt="iso"), structlog.dev.ConsoleRenderer()],
     )

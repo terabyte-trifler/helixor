@@ -20,6 +20,8 @@ import struct
 from datetime import datetime, timezone
 
 import structlog
+
+from oracle.network_guard import enforce_network_guard
 from solana.rpc.async_api import AsyncClient
 from solders.pubkey import Pubkey
 
@@ -138,6 +140,7 @@ async def sync_loop() -> None:
 
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/indexer/agent_sync.py")
     structlog.configure(
         processors=[structlog.processors.TimeStamper(fmt="iso"), structlog.dev.ConsoleRenderer()],
     )

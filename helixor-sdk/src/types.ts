@@ -60,20 +60,25 @@ export interface HealthScore {
   issuedAt: number;
 }
 
-/**
- * TrustScore — legacy REST/API policy surface used by the SDK error
- * classes. It is intentionally separate from the on-chain `HealthScore`
- * shape, which stays frozen for `getScore`.
- */
+/** REST/API trust score shape retained for MVP SDK compatibility. */
 export interface TrustScore {
-  agent: PublicKey;
+  agentWallet: string;
   score: number;
-  alert: AlertTier;
-  successRate?: number;
-  anomalyFlag?: boolean;
+  alert: "GREEN" | "YELLOW" | "RED";
+  source: "live" | "provisional" | string;
+  successRate: number;
+  anomalyFlag: boolean;
   updatedAt: number;
-  isFresh?: boolean;
-  source?: string;
+  isFresh: boolean;
+  breakdown: {
+    successRateScore: number;
+    consistencyScore: number;
+    stabilityScore: number;
+    rawScore: number;
+  } | null;
+  scoringAlgoVersion: number | null;
+  weightsVersion: number | null;
+  baselineHashPrefix: string | null;
 }
 
 /**

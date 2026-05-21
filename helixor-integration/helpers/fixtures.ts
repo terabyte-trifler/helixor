@@ -221,13 +221,11 @@ export async function teardownAgent(db: DbHandle, wallet: string): Promise<void>
   const c = await db.pool.connect();
   try {
     await c.query("BEGIN");
-    await c.query("DELETE FROM agent_score_history    WHERE agent_wallet = $1", [wallet]);
     await c.query("DELETE FROM agent_scores           WHERE agent_wallet = $1", [wallet]);
-    await c.query("DELETE FROM agent_baseline_history WHERE agent_wallet = $1", [wallet]);
     await c.query("DELETE FROM agent_baselines        WHERE agent_wallet = $1", [wallet]);
     await c.query("DELETE FROM agent_transactions     WHERE agent_wallet = $1", [wallet]);
     await c.query("DELETE FROM monitored_agents       WHERE agent_wallet = $1", [wallet]);
-    await c.query("DELETE FROM registered_agents      WHERE agent_wallet = $1", [wallet]);
+    await c.query("UPDATE registered_agents SET active = FALSE WHERE agent_wallet = $1", [wallet]);
     await c.query("COMMIT");
   } catch (err) {
     await c.query("ROLLBACK");

@@ -492,20 +492,15 @@ pub fn gen_idl_type(
             // Handle type aliases and external types
             #[cfg(procmacro2_semver_exempt)]
             {
-                use super::{common::find_path, external::get_external_type};
+                use super::external::get_external_type;
                 use crate::parser::context::CrateContext;
                 use quote::ToTokens;
+                use std::path::PathBuf;
 
-                // Anchor 0.30.1 originally used Span::source_file(), a
-                // proc-macro2 semver-exempt API that was removed from newer
-                // proc-macro2 releases. local_file() is the modern equivalent
-                // when an on-disk path is available; file() is a display path
-                // fallback for synthetic spans.
-                let span = proc_macro2::Span::call_site();
-                let source_path = span
-                    .local_file()
-                    .unwrap_or_else(|| std::path::PathBuf::from(span.file()));
-                let lib_path = find_path("lib.rs", &source_path).expect("lib.rs should exist");
+                let lib_path = std::env::var("CARGO_MANIFEST_DIR")
+                    .map(|dir| PathBuf::from(dir).join("src/lib.rs"))
+                    .expect("CARGO_MANIFEST_DIR should be set");
+                let source_path = lib_path.clone();
 
                 if let Ok(ctx) = CrateContext::parse(lib_path) {
                     let name = path.path.segments.last().unwrap().ident.to_string();

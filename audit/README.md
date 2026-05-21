@@ -13,12 +13,10 @@ bash audit/run_all.sh
 ```
 
 Runs every gate this environment supports and prints a single PASS/FAIL.
-The local path now executes every gate instead of skipping: Trident runs
-the generated fuzz target, API/DB load tests start local smoke targets
-when staging credentials are absent, and `.so` verification deploys the
-audited artifacts to a disposable local validator before comparing
-on-chain ProgramData bytes. Production-sized gates can be dialed up with
-the environment variables shown below.
+External gates (Trident, deployed-API load, deployed-`.so` verification,
+multisig transfer) are explicitly **skipped with reasons** when the
+relevant tool or credentials aren't present, rather than silently
+passing.
 
 ## What's gated, and where it runs
 
@@ -27,17 +25,16 @@ the environment variables shown below.
 | 1. Programmatic hardening sweep      | `hardening_check.py`         | CI + local (Python) |
 | 2. cargo clippy `-D warnings`        | workspace lints table        | CI + local (Rust) |
 | 3. cargo audit                       | CVE scan                     | CI + local (Rust) |
-| 4. Trident fuzz                      | `trident/run_fuzz.sh`        | local + dedicated runner |
+| 4. Trident fuzz 10M                  | `trident/run_fuzz.sh`        | dedicated runner |
 | 5. Cluster load + chaos              | `load_tests/test_cluster_under_load.py` | CI + local |
-| 6. API load                          | `load_tests/api_load.py`     | local smoke + dedicated runner |
-| 7. DB stress                         | `load_tests/db_stress.py`    | local smoke + dedicated runner |
+| 6. API load 10K/h                    | `load_tests/api_load.py`     | dedicated runner |
+| 7. DB stress 50M rows                | `load_tests/db_stress.py`    | dedicated runner |
 | 8. Squads 3-of-5 authority transfer  | `multisig/transfer_upgrade_authority.ts` | deploy step |
-| 9. `.so` byte-match                  | `artifact_verification/deploy_and_verify_local.sh` / `verify_so_match.ts` | local validator + post-deploy |
+| 9. Deployed `.so` byte-match         | `artifact_verification/verify_so_match.ts` | post-deploy |
 
-CI (`.github/workflows/audit.yml`) sustains gates 1-5 plus the Python and
-Rust test suites. The same scripts support longer pre-mainnet runs by
-raising iteration counts, row counts, request duration, or pointing the
-artifact verifier at an already deployed cluster.
+CI (`.github/workflows/audit.yml`) sustains gates 1-3, 5, plus the Python
+and Rust test suites. The longer-running and credentialled gates (4, 6-9)
+run on dedicated triggers or pre-mainnet checklists.
 
 ## Programmatic hardening — runs here
 
@@ -96,9 +93,8 @@ git clone <repo> && cd helixor
 # 2. programmatic gates (no external services)
 bash audit/run_all.sh
 
-# 3. fuzz
-bash audit/trident/run_fuzz.sh                         # local gate, default 1000 iterations
-HELIXOR_TRIDENT_ITERATIONS=10000000 bash audit/trident/run_fuzz.sh
+# 3. fuzz (dedicated runner, ~6h)
+bash audit/trident/run_fuzz.sh
 
 # 4. load tests against staging deployment
 export HELIXOR_API_URL=https://api.staging.helixor.xyz
@@ -115,11 +111,6 @@ npx ts-node audit/multisig/transfer_upgrade_authority.ts \
     --execute
 
 # 6. verify deployed .so matches local build
-# local audit path: deploys the local .so files to a disposable validator,
-# then verifies the on-chain ProgramData bytes match the local artifacts.
-bash audit/artifact_verification/deploy_and_verify_local.sh
-
-# deployed cluster path:
 cd helixor-programs && anchor build --verifiable
 cd ../audit/artifact_verification && \
     npx ts-node verify_so_match.ts --cluster mainnet-beta
@@ -146,7 +137,6 @@ audit/
 ├── multisig/
 │   └── transfer_upgrade_authority.ts — Squads 3-of-5 transfer
 ├── artifact_verification/
-│   ├── deploy_and_verify_local.sh    — local validator deploy + byte-match
 │   └── verify_so_match.ts            — deployed vs local .so check
 └── reports/                          — all gate outputs land here
 ```

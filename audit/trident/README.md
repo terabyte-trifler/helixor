@@ -1,18 +1,19 @@
 # Trident fuzz harness — Day 29
 
-Trident is the Anchor-aware fuzzer. The local audit gate runs the
-generated Trident target directly and asserts zero panics; the same
-runner can be dialed up to the full 10,000,000-iteration campaign for a
-dedicated audit box.
+Trident is the Anchor-aware fuzzer that drives every instruction in the
+three Helixor programs across 10,000,000 randomised inputs and asserts
+zero panics.
 
 ## What's here
 
 ```
 audit/trident/
-├── Trident.toml                 — audit target metadata
+├── Trident.toml                 — fuzz config (10M iterations, crash dir)
 ├── run_fuzz.sh                  — one-shot runner with acceptance gates
-└── ../../helixor-programs/trident-tests/
-    └── fuzz_0/                  — generated Trident target crate
+└── targets/
+    ├── health-oracle/fuzz_target.rs       — every ix wired with Arbitrary
+    ├── certificate-issuer/fuzz_target.rs  — Day-27 ed25519 path is prime
+    └── slash-authority/fuzz_target.rs     — slash + appeal flow
 ```
 
 ## What you need
@@ -28,28 +29,21 @@ trident-cli = 0.7.0
 
 ```bash
 bash audit/trident/run_fuzz.sh
-HELIXOR_TRIDENT_ITERATIONS=10000000 bash audit/trident/run_fuzz.sh
 ```
 
 The runner:
-1. Builds the workspace with `overflow-checks = true`.
+1. Builds all three programs with `overflow-checks = true`.
 2. Wipes `audit/reports/fuzz_crashes/`.
-3. Invokes the generated Trident target with
-   `trident fuzz run fuzz_0 --with-exit-code`.
+3. Invokes `trident fuzz run` with `Trident.toml`.
 4. Asserts the crash dir is empty, coverage hit every handler, no
    iteration timed out.
 
-The default local gate uses `HELIXOR_TRIDENT_ITERATIONS=1000`, which is
-fast enough to run inside `audit/run_all.sh`. The full 10M campaign is
-the same command with `HELIXOR_TRIDENT_ITERATIONS=10000000`; expected
-runtime on an 8-core audit runner is **4-6 hours**.
+Expected runtime on an 8-core CI runner: **4-6 hours** for 10M iterations.
 
 ## Acceptance gates
 
-- **Default local gate:** 1000 generated Trident iterations with zero
-  panics.
-- **Full audit campaign:** 10M generated Trident iterations with zero
-  panics.
+- **10M iterations** across all targets combined (Trident distributes per
+  the `[[programs]]` weights in `Trident.toml`).
 - **Zero crash inputs** persisted in `audit/reports/fuzz_crashes/`.
 - **Full handler coverage** in `audit/reports/fuzz_coverage.json`.
 - **No iteration over `timeout_seconds`** (DOS-hang detector).

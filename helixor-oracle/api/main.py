@@ -25,6 +25,7 @@ from api.redis_client import close_redis, init_redis
 from api.routes import monitoring, registration, score, status, telemetry
 from indexer import db
 from indexer.config import settings
+from oracle.network_guard import enforce_network_guard
 
 log = structlog.get_logger(__name__)
 
@@ -32,6 +33,7 @@ log = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Configure logging + DB pool around the app's lifetime."""
+    enforce_network_guard(service="helixor-api")
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,

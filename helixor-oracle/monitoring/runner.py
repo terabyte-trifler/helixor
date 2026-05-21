@@ -23,6 +23,8 @@ from pathlib import Path
 
 import structlog
 
+from oracle.network_guard import enforce_network_guard
+
 from indexer import db
 from indexer.config import settings
 from monitoring.alert_state import AlertDecision, evaluate, record_slo_sample
@@ -203,6 +205,7 @@ async def loop_forever(interval_seconds: int) -> None:
 # =============================================================================
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/monitoring/runner.py")
     p = argparse.ArgumentParser(description="Helixor monitoring runner")
     p.add_argument("--once", action="store_true",
                    help="Run a single pass and exit")

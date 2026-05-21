@@ -38,6 +38,8 @@ from datetime import datetime, timedelta, timezone
 import asyncpg
 import structlog
 
+from oracle.network_guard import enforce_network_guard
+
 from baseline import (
     BASELINE_ALGO_VERSION,
     InsufficientDataError,
@@ -303,6 +305,7 @@ async def run(database_url: str, dry_run: bool, limit: int | None) -> int:
 
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/scripts/backfill_baselines_v2.py")
     import os
 
     parser = argparse.ArgumentParser(description="Backfill v2 baselines for all agents.")

@@ -28,6 +28,8 @@ import sys
 
 import structlog
 
+from oracle.network_guard import enforce_network_guard
+
 from indexer import db
 
 log = structlog.get_logger()
@@ -90,6 +92,7 @@ async def run(
 
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/scripts/operator/issue_api_key.py")
     p = argparse.ArgumentParser()
     p.add_argument("--org",     dest="organization", required=True)
     p.add_argument("--email",   default=None)

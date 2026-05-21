@@ -19,6 +19,8 @@ import sys
 
 import structlog
 
+from oracle.network_guard import enforce_network_guard
+
 from indexer import db
 from scoring import baseline_engine
 from scoring.signals import (
@@ -103,6 +105,7 @@ async def run(agent_wallet: str, *, store: bool, window_days: int) -> int:
 
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/scripts/compute_baseline.py")
     p = argparse.ArgumentParser(
         description="Compute a baseline for one agent (Day 5 verification CLI)",
     )

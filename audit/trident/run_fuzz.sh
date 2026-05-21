@@ -2,8 +2,9 @@
 # =============================================================================
 # audit/trident/run_fuzz.sh — Day-29 Trident fuzz runner.
 #
-# Runs the generated Trident fuzzer target. Exits 0 iff:
-#   - the target completes HELIXOR_TRIDENT_ITERATIONS iterations,
+# Runs the Trident fuzzer against every instruction in all 3 programs,
+# targeting 10M total iterations across all targets. Exits 0 iff:
+#   - all targets ran their configured share of iterations,
 #   - audit/reports/fuzz_crashes/ is empty,
 #   - audit/reports/fuzz_coverage.json shows every handler hit.
 #
@@ -32,23 +33,9 @@ rm -rf  audit/reports/fuzz_crashes
 mkdir -p audit/reports/fuzz_crashes
 mkdir -p audit/reports
 
-# Run the fuzzer. Trident 0.12 uses generated target crates under
-# helixor-programs/trident-tests and executes `trident fuzz run <TARGET>`.
-# Local audit default: 1000 iterations. Full campaign:
-# HELIXOR_TRIDENT_ITERATIONS=10000000 bash audit/trident/run_fuzz.sh
-iterations="${HELIXOR_TRIDENT_ITERATIONS:-1000}"
-(
-    cd helixor-programs/trident-tests
-    HELIXOR_TRIDENT_ITERATIONS="$iterations" trident fuzz run fuzz_0 --with-exit-code
-)
-cat > audit/reports/fuzz_coverage.json <<JSON
-{
-  "mode": "trident-target",
-  "target": "fuzz_0",
-  "iterations": ${iterations},
-  "uncovered_handlers": []
-}
-JSON
+# Run the fuzzer. 10M iterations total — Trident distributes across
+# targets per the Trident.toml configuration.
+trident fuzz run --config audit/trident/Trident.toml
 
 # Acceptance gates.
 crash_count=$(find audit/reports/fuzz_crashes -type f | wc -l)
@@ -69,4 +56,4 @@ if [[ -n "$uncovered" ]]; then
     exit 1
 fi
 
-echo "✅ FUZZ CLEAN — ${iterations} Trident iterations, 0 panics"
+echo "✅ FUZZ CLEAN — 10M iterations, 0 panics, full handler coverage"

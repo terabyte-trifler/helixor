@@ -1,0 +1,55 @@
+# =============================================================================
+# launch/monitoring/prometheus.yml — Day 30 — metrics scrape config.
+#
+# Production: scrapes the 5 oracle nodes + the indexer + the API. Each
+# exposes a /metrics endpoint with the Prometheus exposition format.
+# Alerts that fire are routed to PagerDuty / Slack via Alertmanager
+# (config: alertmanager.yml in the same directory).
+# =============================================================================
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    deployment: helixor-v2
+
+# ── Alert rules (loaded from a separate file for clarity) ────────────────────
+rule_files:
+  - "/etc/prometheus/alerts.yml"
+
+# ── Alertmanager — where firing alerts are routed ────────────────────────────
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+# ── Scrape targets ───────────────────────────────────────────────────────────
+scrape_configs:
+
+  # 5 oracle nodes — one per region in production.
+  - job_name: "oracle-node"
+    static_configs:
+      - targets:
+          - "oracle-node-0:9090"
+          - "oracle-node-1:9090"
+          - "oracle-node-2:9090"
+          - "oracle-node-3:9090"
+          - "oracle-node-4:9090"
+        labels: { service: "oracle-cluster" }
+
+  # The indexer.
+  - job_name: "indexer"
+    static_configs:
+      - targets: ["indexer:9090"]
+        labels: { service: "indexer" }
+
+  # The read API.
+  - job_name: "api"
+    static_configs:
+      - targets: ["api:9090"]
+        labels: { service: "api" }
+
+  # Self-scrape — keep an eye on the monitoring itself.
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

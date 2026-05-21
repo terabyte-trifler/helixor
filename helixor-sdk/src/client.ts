@@ -22,11 +22,26 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 
 import {
+  AgentNotFoundError,
+  AgentDeactivatedError,
+  AnomalyDetectedError,
+  HelixorError,
+  InvalidAgentWalletError,
+  NetworkError,
+  ProvisionalScoreError,
+  RateLimitedError,
+  ScoreTooLowError,
+  ServerError,
+  StaleScoreError,
+  TimeoutError,
+} from "./errors";
+import {
   AlertTier,
   alertTierFromCode,
   EpochScore,
   HealthScore,
   HelixorProgramIds,
+  TrustScore,
 } from "./types";
 import {
   certificatePda,
@@ -44,11 +59,38 @@ export class CertificateNotFoundError extends Error {
   }
 }
 
+export interface HelixorApiClientOptions {
+  apiBase: string;
+  apiKey?: string;
+  timeoutMs?: number;
+  maxRetries?: number;
+  cacheTtlMs?: number;
+}
+
 export class HelixorClient {
+  private readonly apiBase?: string;
+  private readonly apiKey?: string;
+  private readonly timeoutMs: number;
+  private readonly cacheTtlMs: number = 0;
+  private readonly cache = new Map<string, { expiresAt: number; score: TrustScore }>();
+
   constructor(
-    private readonly connection: Connection,
-    private readonly programs: HelixorProgramIds
-  ) {}
+    connectionOrOptions: Connection | HelixorApiClientOptions,
+    private readonly programs?: HelixorProgramIds
+  ) {
+    if (connectionOrOptions instanceof Connection) {
+      this.connection = connectionOrOptions;
+      this.timeoutMs = 10_000;
+      return;
+    }
+    this.apiBase = connectionOrOptions.apiBase.replace(/\/+$/, "");
+    this.apiKey = connectionOrOptions.apiKey;
+    this.timeoutMs = connectionOrOptions.timeoutMs ?? 10_000;
+    this.cacheTtlMs = connectionOrOptions.cacheTtlMs ?? 0;
+    this.connection = undefined as unknown as Connection;
+  }
+
+  private readonly connection: Connection;
 
   // ===========================================================================
   // getScore — the MVP-compatible entry point
@@ -64,9 +106,18 @@ export class HelixorClient {
    * Throws `CertificateNotFoundError` if the agent has no certificate for
    * the current epoch yet (e.g. scoring has not run this cycle).
    */
-  async getScore(agent: PublicKey): Promise<HealthScore> {
+  async getScore(agent: string): Promise<TrustScore>;
+  async getScore(agent: PublicKey): Promise<HealthScore>;
+  async getScore(agent: PublicKey | string): Promise<HealthScore | TrustScore> {
+    if (this.apiBase) {
+      return this.getScoreFromApi(String(agent));
+    }
+    if (!this.programs) {
+      throw new Error("program IDs required for on-chain HelixorClient mode");
+    }
+    const agentKey = typeof agent === "string" ? new PublicKey(agent) : agent;
     const epoch = await this.getCurrentEpoch();
-    const full = await this.getScoreAtEpoch(agent, epoch);
+    const full = await this.getScoreAtEpoch(agentKey, epoch);
     // Project the EpochScore down to the frozen HealthScore shape — the
     // epoch / immediateRed fields are V2 additions not in the MVP contract.
     return {
@@ -84,6 +135,9 @@ export class HelixorClient {
 
   /** The current epoch number, from the health-oracle EpochState. */
   async getCurrentEpoch(): Promise<number> {
+    if (!this.programs) {
+      throw new Error("program IDs required for on-chain HelixorClient mode");
+    }
     const pda = epochStatePda(this.programs.healthOracle);
     const info = await this.connection.getAccountInfo(pda);
     if (info === null) {
@@ -92,11 +146,91 @@ export class HelixorClient {
     return decodeEpochState(info.data).currentEpoch;
   }
 
+  async requireMinScore(
+    agent: string,
+    minimum: number,
+    opts: { allowStale?: boolean; allowAnomaly?: boolean; allowProvisional?: boolean } = {},
+  ): Promise<TrustScore> {
+    const score = await this.getScoreFromApi(agent);
+    if (score.source === "deactivated") {
+      throw new AgentDeactivatedError(score);
+    }
+    if (score.source === "provisional" && !opts.allowProvisional) {
+      throw new ProvisionalScoreError(score);
+    }
+    if (!score.isFresh && !opts.allowStale) {
+      throw new StaleScoreError(score);
+    }
+    if (score.anomalyFlag && !opts.allowAnomaly) {
+      throw new AnomalyDetectedError(score);
+    }
+    if (score.score < minimum) {
+      throw new ScoreTooLowError(score, minimum);
+    }
+    return score;
+  }
+
+  invalidate(agent?: string): void {
+    if (agent) {
+      this.cache.delete(agent);
+      return;
+    }
+    this.cache.clear();
+  }
+
+  private async getScoreFromApi(agent: string): Promise<TrustScore> {
+    try {
+      new PublicKey(agent);
+    } catch {
+      throw new InvalidAgentWalletError(agent);
+    }
+    const cached = this.cache.get(agent);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.score;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let res: Response;
+    try {
+      res = await fetch(`${this.apiBase}/score/${agent}`, {
+        signal: controller.signal,
+        headers: this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : undefined,
+      });
+    } catch (err) {
+      if ((err as Error).name === "AbortError") {
+        throw new TimeoutError(this.timeoutMs);
+      }
+      throw new NetworkError((err as Error).message);
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const requestId = res.headers.get("x-request-id") ?? undefined;
+    const body: any = await res.json().catch(() => ({}));
+    if (res.status === 404 || body.code === "AGENT_NOT_FOUND") {
+      throw new AgentNotFoundError(agent, requestId);
+    }
+    if (res.status === 429) {
+      throw new RateLimitedError();
+    }
+    if (!res.ok) {
+      throw new ServerError(res.status, body.error ?? res.statusText, requestId);
+    }
+    const score = mapApiScore(body);
+    if (this.cacheTtlMs > 0) {
+      this.cache.set(agent, { expiresAt: Date.now() + this.cacheTtlMs, score });
+    }
+    return score;
+  }
+
   /**
    * The agent's score for a SPECIFIC epoch. Because V2 keeps a per-epoch
    * certificate, any past epoch is queryable — this is the on-chain history.
    */
   async getScoreAtEpoch(agent: PublicKey, epoch: number): Promise<EpochScore> {
+    if (!this.programs) {
+      throw new Error("program IDs required for on-chain HelixorClient mode");
+    }
     const pda = certificatePda(
       this.programs.certificateIssuer,
       agent,
@@ -130,6 +264,9 @@ export class HelixorClient {
     fromEpoch: number,
     toEpoch: number
   ): Promise<EpochScore[]> {
+    if (!this.programs) {
+      throw new Error("program IDs required for on-chain HelixorClient mode");
+    }
     if (toEpoch < fromEpoch) {
       throw new Error(`toEpoch (${toEpoch}) is before fromEpoch (${fromEpoch})`);
     }
@@ -158,4 +295,26 @@ export class HelixorClient {
     });
     return out;
   }
+}
+
+function mapApiScore(body: any): TrustScore {
+  return {
+    agentWallet: body.agent_wallet,
+    score: body.score,
+    alert: body.alert,
+    source: body.source,
+    successRate: body.success_rate,
+    anomalyFlag: body.anomaly_flag,
+    updatedAt: body.updated_at,
+    isFresh: body.is_fresh,
+    breakdown: body.breakdown ? {
+      successRateScore: body.breakdown.success_rate_score,
+      consistencyScore: body.breakdown.consistency_score,
+      stabilityScore: body.breakdown.stability_score,
+      rawScore: body.breakdown.raw_score,
+    } : null,
+    scoringAlgoVersion: body.scoring_algo_version,
+    weightsVersion: body.weights_version,
+    baselineHashPrefix: body.baseline_hash_prefix,
+  };
 }

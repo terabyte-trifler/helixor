@@ -1,0 +1,123 @@
+# =============================================================================
+# launch/monitoring/alerts.yml — Day 30 — Prometheus alert rules.
+#
+# Every alert here has:
+#   * a CONDITION that triggers it
+#   * a SEVERITY (page / ticket / info)
+#   * a clear runbook URL pointing into launch/runbooks/
+#
+# Page-severity alerts wake on-call. Ticket-severity create a Jira /
+# Linear issue. Info-severity log only.
+# =============================================================================
+
+groups:
+
+  # ── 1. The cluster is up ────────────────────────────────────────────────────
+  - name: cluster-liveness
+    rules:
+
+      - alert: OracleNodeDown
+        expr: up{job="oracle-node"} == 0
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "Oracle node {{ $labels.instance }} is down"
+          runbook: "launch/runbooks/node_down.md"
+          description: >
+            Node {{ $labels.instance }} has not responded to Prometheus
+            scrapes for 5 minutes. The cluster tolerates one node down,
+            but two means quorum risk.
+
+      - alert: ClusterBelowQuorum
+        expr: count(up{job="oracle-node"} == 1) < 3
+        for: 1m
+        labels: { severity: page }
+        annotations:
+          summary: "Oracle cluster below quorum (< 3 nodes up)"
+          runbook: "launch/runbooks/below_quorum.md"
+          description: >
+            Fewer than 3 oracle nodes are reachable. Threshold-of-3 cert
+            writes will FAIL until at least 3 nodes are up.
+
+  # ── 2. The cluster is correct ───────────────────────────────────────────────
+  - name: cluster-correctness
+    rules:
+
+      - alert: ByzantineNodeDetected
+        expr: increase(helixor_byzantine_flags_total[10m]) > 0
+        for: 0m
+        labels: { severity: page }
+        annotations:
+          summary: "Byzantine flag fired on {{ $labels.node }}"
+          runbook: "launch/runbooks/byzantine_flag.md"
+          description: >
+            A node was flagged Byzantine (score deviation > 30%) in the
+            last 10 minutes. Inspect the watchdog strike count; if it
+            reaches threshold, challenge_oracle will fire.
+
+      - alert: ChallengeOracleFiled
+        expr: increase(helixor_challenges_filed_total[1h]) > 0
+        for: 0m
+        labels: { severity: page }
+        annotations:
+          summary: "challenge_oracle was filed against {{ $labels.node }}"
+          runbook: "launch/runbooks/challenge_filed.md"
+          description: >
+            The watchdog filed an on-chain challenge. The accused node is
+            now eligible for slashing. Confirm this was an intentional
+            adversarial detection, not a false positive.
+
+      - alert: CertSubmissionFailureSpike
+        expr: rate(helixor_cert_submit_failures_total[5m]) > 0.05
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "On-chain cert submission failing (>5%/min)"
+          runbook: "launch/runbooks/cert_submit_failure.md"
+          description: >
+            More than 5% of cert submissions are failing — likely RPC
+            outage, Squads vault misconfig, or threshold sig assembly bug.
+
+  # ── 3. The cluster is fast ──────────────────────────────────────────────────
+  - name: cluster-latency
+    rules:
+
+      - alert: EpochLatencyHigh
+        expr: histogram_quantile(0.95, rate(helixor_epoch_seconds_bucket[10m])) > 60
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: "p95 epoch latency > 60s"
+          runbook: "launch/runbooks/latency_regression.md"
+          description: >
+            p95 per-epoch latency exceeded 60s for 10 minutes. The 24h
+            protocol budget still has 1400x margin, but this is a
+            regression vs the ~6s baseline. Investigate.
+
+      - alert: ApiP95LatencyHigh
+        expr: histogram_quantile(0.95, rate(helixor_api_request_seconds_bucket[5m])) > 0.5
+        for: 5m
+        labels: { severity: ticket }
+        annotations:
+          summary: "API p95 latency > 500ms"
+          runbook: "launch/runbooks/api_slow.md"
+
+  # ── 4. Mainnet refusal heartbeat ───────────────────────────────────────────
+  # If a node ever starts against mainnet without HELIXOR_MAINNET_OK,
+  # this counter increments. Anything > 0 in steady state is an instant
+  # page.
+  - name: mainnet-refusal
+    rules:
+
+      - alert: ProductionRefusalTriggered
+        expr: increase(helixor_production_refusal_total[5m]) > 0
+        for: 0m
+        labels: { severity: page }
+        annotations:
+          summary: "Network guard refused production start on {{ $labels.service }}"
+          runbook: "launch/runbooks/mainnet_refusal_triggered.md"
+          description: >
+            A Helixor service tried to start against mainnet without
+            HELIXOR_MAINNET_OK=1. This is the SAFETY BELT firing —
+            confirm the start was intentional. If yes, set the env var.
+            If no, the env file was misconfigured — fix and redeploy.

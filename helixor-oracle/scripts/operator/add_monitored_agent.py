@@ -21,6 +21,8 @@ import sys
 
 import structlog
 
+from oracle.network_guard import enforce_network_guard
+
 from indexer import db
 
 log = structlog.get_logger()
@@ -77,6 +79,7 @@ async def run(
 
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/scripts/operator/add_monitored_agent.py")
     p = argparse.ArgumentParser()
     p.add_argument("--wallet",    required=True, help="Agent wallet pubkey")
     p.add_argument("--label",     required=True, help="Human-readable name")

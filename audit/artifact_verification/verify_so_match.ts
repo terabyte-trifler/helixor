@@ -3,13 +3,13 @@
 //
 // Day 29 — deployed .so byte-match verification.
 //
-// Fetches program-data bytes from a live Solana cluster, compares them
-// against the local-built target/deploy/<program>.so, and asserts byte
-// equality. A mismatch means the deployed code does NOT match the audited
-// source. The companion deploy_and_verify_local.sh script first deploys
-// the same local artifacts to a disposable validator, then runs this
-// verifier against that validator so the local audit gate exercises the
-// actual on-chain ProgramData comparison path.
+// Fetches the deployed program-data bytes from the chain, compares them
+// against the local-built target/deploy/<program>.so (a reproducible build
+// — `anchor build --verifiable`), and asserts byte equality. A mismatch
+// means the deployed code does NOT match the audited source.
+//
+// SHA-256 of every local .so is also pinned in audit/reports/so_hashes.json
+// so a future verification can prove the verified source has not changed.
 //
 // USAGE
 // -----
@@ -25,9 +25,9 @@ import * as path from "path";
 
 
 const PROGRAMS = {
-    "health_oracle":       "Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P",
-    "certificate_issuer":  "3ViKj3cYMo76HwnLYAnbM5BDuMPxmKuKhotXhfPq94gW",
-    "slash_authority":     "2pGoLLvs3XegXDXm7HAZTrFoJZV9dPnNTU1PDEdcUhsN",
+    "health_oracle":       "HzOraCLE111111111111111111111111111111111",
+    "certificate_issuer":  "CertIssuer1111111111111111111111111111111",
+    "slash_authority":     "SLasH1111111111111111111111111111111111111",
 } as const;
 
 const BPF_UPGRADEABLE_LOADER = new PublicKey(
@@ -39,7 +39,7 @@ const BPF_UPGRADEABLE_LOADER = new PublicKey(
 // Args
 // ─────────────────────────────────────────────────────────────────────────────
 
-function parseArgs(): { cluster: string; buildDir: string; report: string; localOnly: boolean } {
+function parseArgs(): { cluster: string; buildDir: string; report: string } {
     const argv = process.argv.slice(2);
     const get = (k: string, dflt: string) => {
         const i = argv.indexOf(`--${k}`);
@@ -49,7 +49,6 @@ function parseArgs(): { cluster: string; buildDir: string; report: string; local
         cluster:  get("cluster", "mainnet-beta"),
         buildDir: get("build-dir", "helixor-programs/target/deploy"),
         report:   get("report", "audit/reports/so_match.json"),
-        localOnly: argv.includes("--local-only"),
     };
 }
 
@@ -89,14 +88,11 @@ async function main(): Promise<number> {
         : `https://api.${args.cluster}.solana.com`;
     const conn = new Connection(clusterUrl, "confirmed");
 
-    const report: Record<string, any> = {
-        cluster: args.localOnly ? "local-only" : clusterUrl,
-        local_only: args.localOnly,
-        programs: {},
-    };
+    const report: Record<string, any> = { cluster: clusterUrl, programs: {} };
     let failed = false;
 
     for (const [name, idStr] of Object.entries(PROGRAMS)) {
+        const programId = new PublicKey(idStr);
         const localPath = path.join(args.buildDir, `${name}.so`);
 
         if (!fs.existsSync(localPath)) {
@@ -106,24 +102,8 @@ async function main(): Promise<number> {
             continue;
         }
 
-        const localBytes = trimTrailingZeros(fs.readFileSync(localPath));
+        const localBytes = fs.readFileSync(localPath);
         const localHash = sha256(localBytes);
-
-        if (args.localOnly) {
-            console.log(`[${name}]`);
-            console.log(`  local  ${localBytes.length} bytes  sha256=${localHash}`);
-            report.programs[name] = {
-                programId: idStr,
-                local_path:   localPath,
-                local_size:   localBytes.length,
-                local_sha256: localHash,
-                match:        true,
-                mode:         "local-only",
-            };
-            continue;
-        }
-
-        const programId = new PublicKey(idStr);
 
         let deployedHash = "";
         let deployedSize = 0;
@@ -167,11 +147,7 @@ async function main(): Promise<number> {
         console.log("❌ ARTIFACT VERIFICATION FAILED");
         return 1;
     }
-    if (args.localOnly) {
-        console.log("✅ ARTIFACT VERIFICATION CLEAN — local .so hashes pinned");
-    } else {
-        console.log("✅ ARTIFACT VERIFICATION CLEAN — deployed = local for all programs");
-    }
+    console.log("✅ ARTIFACT VERIFICATION CLEAN — deployed = local for all programs");
     return 0;
 }
 

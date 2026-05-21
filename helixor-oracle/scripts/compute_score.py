@@ -18,6 +18,8 @@ import sys
 
 import structlog
 
+from oracle.network_guard import enforce_network_guard
+
 from indexer import db
 from scoring import score_engine
 from scoring.engine import score_to_dict
@@ -108,6 +110,7 @@ async def run(agent_wallet: str, *, dry_run: bool) -> int:
 
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/scripts/compute_score.py")
     p = argparse.ArgumentParser(description="Compute trust score for one agent")
     p.add_argument("agent_wallet", help="Agent wallet pubkey")
     p.add_argument("--dry-run", action="store_true",

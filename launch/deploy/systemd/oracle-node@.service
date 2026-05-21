@@ -1,0 +1,78 @@
+# =============================================================================
+# launch/deploy/systemd/oracle-node@.service
+#
+# A templated systemd unit, one instance per cluster node. Usage:
+#
+#   sudo systemctl enable --now oracle-node@0.service
+#   sudo systemctl enable --now oracle-node@1.service
+#   ...
+#
+# The instance ID (%i) is the node's cluster index (0..4 for a 5-node
+# cluster). Each instance reads its own env file at
+# /etc/helixor/oracle-node-%i.env.
+#
+# Hardening:
+#   * Runs as a dedicated `helixor` user.
+#   * NoNewPrivileges, ProtectSystem, ProtectHome — process can't escalate.
+#   * MemoryMax + CPUQuota bound resource use.
+#   * Restart=on-failure with bounded retries — does NOT loop on
+#     ProductionRefused (exit code 2) so a misconfigured mainnet start
+#     fails LOUDLY rather than thrashing.
+# =============================================================================
+
+[Unit]
+Description=Helixor Oracle Node (cluster instance %i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=helixor
+Group=helixor
+WorkingDirectory=/opt/helixor
+
+# Per-instance env file — pinned cluster id, port, peer list, network.
+EnvironmentFile=/etc/helixor/oracle-node-%i.env
+
+# The entrypoint refuses to start against mainnet without explicit
+# HELIXOR_MAINNET_OK=1 in the env file.
+ExecStart=/opt/helixor/venv/bin/python -m oracle.cluster.run_cluster_node \
+    --node-id ${HELIXOR_NODE_ID} \
+    --port    ${HELIXOR_PORT} \
+    --peers   ${HELIXOR_PEERS}
+
+# Restart policy: bounded retries for transient failures, but NOT for the
+# guard-refusal exit code (2). systemd's `RestartPreventExitStatus=`
+# blocks restart on those exits.
+Restart=on-failure
+RestartSec=10s
+StartLimitIntervalSec=300s
+StartLimitBurst=5
+RestartPreventExitStatus=2
+
+# Process hardening.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+# Bound resource use — keeps a runaway node from starving the host.
+MemoryMax=2G
+CPUQuota=200%
+TasksMax=512
+
+# Log to journald with structured rate-limiting.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helixor-oracle-%i
+
+[Install]
+WantedBy=multi-user.target

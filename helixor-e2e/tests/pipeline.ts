@@ -55,6 +55,7 @@ async function run(
 
 const ORACLE_DIR = process.env.HELIXOR_ORACLE_DIR
   ?? "../helixor-oracle";
+const PYTHON_BIN = process.env.HELIXOR_PYTHON_BIN ?? "python3";
 
 /**
  * Compute baseline + score for one agent. Bypasses the schedulers.
@@ -63,14 +64,14 @@ const ORACLE_DIR = process.env.HELIXOR_ORACLE_DIR
 export async function recomputeForAgent(agentWallet: string): Promise<RunResult> {
   // Day 5 CLI: --store persists agent_baselines row
   const baseline = await run(
-    "python", ["-m", "scripts.compute_baseline", agentWallet, "--store"],
+    PYTHON_BIN, ["-m", "scripts.compute_baseline", agentWallet, "--store"],
     { cwd: ORACLE_DIR, timeoutMs: 60_000 },
   );
   if (baseline.exitCode !== 0) return baseline;
 
   // Day 6 CLI: persists to agent_scores
   return await run(
-    "python", ["-m", "scripts.compute_score", agentWallet],
+    PYTHON_BIN, ["-m", "scripts.compute_score", agentWallet],
     { cwd: ORACLE_DIR, timeoutMs: 60_000 },
   );
 }
@@ -79,8 +80,20 @@ export async function recomputeForAgent(agentWallet: string): Promise<RunResult>
  * Run one pass of the Day 7 epoch_runner — submits unsynced scores on-chain.
  */
 export async function runEpochOnce(): Promise<RunResult> {
-  return await run(
-    "python", ["-m", "oracle.epoch_runner", "--once"],
+  const epoch = await run(
+    PYTHON_BIN, ["-m", "oracle.epoch_runner", "--once"],
     { cwd: ORACLE_DIR, timeoutMs: 300_000 },
   );
+  if (epoch.exitCode !== 0) return epoch;
+
+  const submit = await run(
+    PYTHON_BIN, ["-m", "scripts.submit_legacy_scores", "--limit", "25"],
+    { cwd: ORACLE_DIR, timeoutMs: 300_000 },
+  );
+  return {
+    exitCode: submit.exitCode,
+    stdout: `${epoch.stdout}\n${submit.stdout}`,
+    stderr: `${epoch.stderr}\n${submit.stderr}`,
+    durationMs: epoch.durationMs + submit.durationMs,
+  };
 }

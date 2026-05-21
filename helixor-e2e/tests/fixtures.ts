@@ -261,12 +261,12 @@ export async function teardownAgent(
   const client = await db.pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query("DELETE FROM agent_score_history WHERE agent_wallet = $1", [agentWallet]);
+    // History tables are append-only in V2. Teardown removes mutable/current
+    // rows only; history remains as the audit trail by design.
     await client.query("DELETE FROM agent_scores WHERE agent_wallet = $1", [agentWallet]);
-    await client.query("DELETE FROM agent_baseline_history WHERE agent_wallet = $1", [agentWallet]);
     await client.query("DELETE FROM agent_baselines WHERE agent_wallet = $1", [agentWallet]);
     await client.query("DELETE FROM agent_transactions WHERE agent_wallet = $1", [agentWallet]);
-    await client.query("DELETE FROM registered_agents WHERE agent_wallet = $1", [agentWallet]);
+    await client.query("UPDATE registered_agents SET active = FALSE WHERE agent_wallet = $1", [agentWallet]);
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");

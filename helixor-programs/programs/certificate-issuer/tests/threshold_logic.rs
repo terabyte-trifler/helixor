@@ -116,10 +116,9 @@ fn is_cluster_key_recognises_members() {
 fn three_of_five_is_a_strict_majority() {
     // The on-chain validator (initialize_config) enforces strict majority
     // for a BFT cluster — 3 of 5, 2 of 3.
-    let five_node_threshold = 3;
-    let five_node_cluster = 5;
-    let three_node_threshold = 2;
-    let three_node_cluster = 3;
-    assert!(five_node_threshold > five_node_cluster / 2);
-    assert!(three_node_threshold > three_node_cluster / 2);
+    let three = 3u8;
+    let five = 5u8;
+    let two = 2u8;
+    assert!(three > five / 2);
+    assert!(two > three / 2);
 }

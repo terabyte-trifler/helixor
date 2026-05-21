@@ -1,6 +1,8 @@
 """
 Benchmark Day-15 TimescaleDB query latency against a plain Postgres table.
 
+from oracle.network_guard import enforce_network_guard
+
 This is intentionally a standalone benchmark, not a unit test:
   * it needs a real TimescaleDB instance,
   * it seeds a large synthetic transaction history,
@@ -336,6 +338,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    enforce_network_guard(service="helixor-oracle/scripts/benchmark_timescale_latency.py")
     result = asyncio.run(_run(parse_args()))
     print(json.dumps(result, indent=2, sort_keys=True))
 

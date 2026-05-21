@@ -28,6 +28,32 @@ os.environ.pop("REDIS_URL", None)
 
 @pytest.fixture(scope="session")
 def postgres_url():
+    """Provide a PostgreSQL URL for the test session.
+
+    CI usually uses testcontainers. Local devnet rehearsals may not have Docker
+    installed, so HELIXOR_TEST_DATABASE_URL lets the suite run against an
+    operator-provided disposable database instead of failing before collection.
+    """
+    external_url = os.environ.get("HELIXOR_TEST_DATABASE_URL")
+    if external_url:
+        os.environ["DATABASE_URL"] = external_url
+
+        async def setup_external():
+            conn = await asyncpg.connect(external_url)
+            try:
+                root = Path(__file__).parent.parent
+                await conn.execute((root / "db" / "schema.sql").read_text())
+                migrations_dir = root / "db" / "migrations"
+                if migrations_dir.exists():
+                    for migration in sorted(migrations_dir.glob("*.sql")):
+                        await conn.execute(migration.read_text())
+            finally:
+                await conn.close()
+
+        asyncio.run(setup_external())
+        yield external_url
+        return
+
     """Spin up a Postgres container for the test session."""
     try:
         from testcontainers.postgres import PostgresContainer

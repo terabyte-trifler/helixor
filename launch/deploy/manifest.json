@@ -1,0 +1,19 @@
+{
+  "devnet": {
+    "health-oracle": {
+      "program_id": "Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P",
+      "so_sha256": "devnet-existing",
+      "deployed_at": "existing-devnet"
+    },
+    "certificate-issuer": {
+      "program_id": "3ViKj3cYMo76HwnLYAnbM5BDuMPxmKuKhotXhfPq94gW",
+      "so_sha256": "devnet-existing",
+      "deployed_at": "existing-devnet"
+    },
+    "slash-authority": {
+      "program_id": "2pGoLLvs3XegXDXm7HAZTrFoJZV9dPnNTU1PDEdcUhsN",
+      "so_sha256": "devnet-existing",
+      "deployed_at": "existing-devnet"
+    }
+  }
+}

@@ -16,6 +16,7 @@
 import * as assert from "assert";
 
 import { AlertTier, type HealthScore, type EpochScore } from "../src/types";
+import type { PublicKey } from "@solana/web3.js";
 
 let passed = 0;
 function test(name: string, fn: () => void): void {
@@ -32,13 +33,13 @@ function test(name: string, fn: () => void): void {
 
 // The frozen MVP shape — exactly these five keys, nothing else.
 const MVP_HEALTH_SCORE_KEYS = ["agent", "score", "alert", "flags", "issuedAt"];
-const AGENT = {
-  toBase58: () => "11111111111111111111111111111111",
-} as HealthScore["agent"];
+const fakeAgent = {
+  toBase58: () => "Agent111111111111111111111111111111111111111",
+} as unknown as PublicKey;
 
 test("HealthScore has exactly the MVP keys", () => {
   const sample: HealthScore = {
-    agent: AGENT,
+    agent: fakeAgent,
     score: 916,
     alert: AlertTier.Green,
     flags: 0,
@@ -54,7 +55,7 @@ test("HealthScore has exactly the MVP keys", () => {
 
 test("HealthScore field types match the MVP contract", () => {
   const sample: HealthScore = {
-    agent: AGENT,
+    agent: fakeAgent,
     score: 700,
     alert: AlertTier.Yellow,
     flags: 0x08,
@@ -71,7 +72,7 @@ test("EpochScore is a strict superset of HealthScore (additive only)", () => {
   // Every HealthScore key must also be an EpochScore key — the V2 type
   // EXTENDS the MVP type, it never drops a field.
   const epochScore: EpochScore = {
-    agent: AGENT,
+    agent: fakeAgent,
     score: 916,
     alert: AlertTier.Green,
     flags: 0,
