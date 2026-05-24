@@ -121,7 +121,6 @@ CREATE TABLE IF NOT EXISTS agent_baseline_history (
 
 -- If the table pre-existed from the MVP, add any missing v2 columns.
 ALTER TABLE agent_baseline_history
-    ADD COLUMN IF NOT EXISTS baseline_algo_version      INTEGER,
     ADD COLUMN IF NOT EXISTS feature_schema_version     INTEGER,
     ADD COLUMN IF NOT EXISTS feature_schema_fingerprint TEXT,
     ADD COLUMN IF NOT EXISTS feature_means              DOUBLE PRECISION[],
@@ -132,10 +131,6 @@ ALTER TABLE agent_baseline_history
     ADD COLUMN IF NOT EXISTS days_with_activity         INTEGER,
     ADD COLUMN IF NOT EXISTS is_provisional             BOOLEAN,
     ADD COLUMN IF NOT EXISTS stats_hash                 TEXT;
-
-UPDATE agent_baseline_history
-    SET baseline_algo_version = COALESCE(baseline_algo_version, algo_version, 1)
-    WHERE baseline_algo_version IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_baseline_history_agent_time
     ON agent_baseline_history (agent_wallet, computed_at DESC);

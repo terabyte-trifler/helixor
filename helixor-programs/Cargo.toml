@@ -9,17 +9,9 @@ all = "deny"
 
 [workspace.lints.rust]
 unused_must_use = "deny"
-unexpected_cfgs = "allow"
-ambiguous_glob_reexports = "allow"
 
 [profile.release]
 # Hardening — same Day-13 standard
 overflow-checks = true
 lto             = "fat"
 codegen-units   = 1
-
-[patch.crates-io]
-# Anchor 0.30.1's IDL generator uses proc_macro2::Span::source_file(), which
-# is semver-exempt and fails on the current stable toolchain used here. The
-# vendored patch changes only that source-path lookup to CARGO_MANIFEST_DIR.
-anchor-syn = { path = "vendor/anchor-syn-0.30.1" }

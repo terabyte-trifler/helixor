@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import statistics
 import sys
@@ -48,6 +49,14 @@ from urllib.error import URLError
 DEFAULT_AGENTS = [
     f"agent{i:04d}{'x'*36}"[:44] for i in range(100)
 ]
+
+
+def _agents_from_env_or_default() -> list[str]:
+    raw = os.environ.get("HELIXOR_API_LOAD_AGENTS", "").strip()
+    if not raw:
+        return DEFAULT_AGENTS
+    agents = [item.strip() for item in raw.split(",") if item.strip()]
+    return agents or DEFAULT_AGENTS
 
 
 def one_query(base_url: str, agent_wallet: str, timeout_s: float = 5.0):
@@ -165,12 +174,25 @@ def main(argv=None) -> int:
     p.add_argument("--duration", type=int, default=30,
                    help="seconds (default 30; full audit run = 3600)")
     p.add_argument("--workers", type=int, default=16)
+    p.add_argument(
+        "--agents",
+        default="",
+        help=(
+            "comma-separated agent wallets to query; defaults to "
+            "HELIXOR_API_LOAD_AGENTS or a synthetic unknown-agent pool"
+        ),
+    )
     p.add_argument("--report",
                    default="audit/reports/api_load.json")
     args = p.parse_args(argv)
 
+    agents = (
+        [item.strip() for item in args.agents.split(",") if item.strip()]
+        if args.agents
+        else _agents_from_env_or_default()
+    )
     result = run_load(args.base_url, args.rate, args.duration,
-                      DEFAULT_AGENTS, workers=args.workers)
+                      agents, workers=args.workers)
     print(json.dumps(result, indent=2))
 
     out = Path(args.report)

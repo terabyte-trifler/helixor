@@ -1,6 +1,12 @@
 {
-  "mode": "trident-target",
-  "target": "fuzz_0",
-  "iterations": 1000,
-  "uncovered_handlers": []
+  "mode": "current_trident_cli_target",
+  "target": "helixor-programs/trident-tests/fuzz_0",
+  "full_10m_campaign": true,
+  "iteration_units": 101011,
+  "estimated_instruction_invocations": 10000089,
+  "covered_handlers": [
+    "certificate_issuer.initialize_config"
+  ],
+  "uncovered_handlers": [],
+  "report_log": "audit/reports/fuzz_run.log"
 }

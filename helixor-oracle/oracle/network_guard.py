@@ -1,19 +1,18 @@
 """
 oracle/network_guard.py — the mainnet refusal gate.
 
-This is the launch-safety belt for every Helixor service. Entrypoints call
-`enforce_network_guard()` before opening RPC connections or starting worker
-loops. The guard asserts the configured Solana network is NOT mainnet,
-unless `HELIXOR_MAINNET_OK` is explicitly set to `"1"`.
+This is the launch-safety belt for every Helixor service. Importing this
+module from an entrypoint asserts the configured Solana network is NOT
+mainnet, unless `HELIXOR_MAINNET_OK` is explicitly set to `"1"`.
 
-WHY ENTRYPOINT-INIT
--------------------
-A "config check before doing anything" deferred to first RPC use is too
-late — the wrong network may already be reached, an RPC keypair may
-already be loaded, side effects may already have started. We refuse at
-entrypoint startup, before those effects. The cost is a single env-var
-read; the benefit is that no service can accidentally start against
-mainnet without an explicit, loud, audited opt-in.
+WHY MODULE-INIT
+---------------
+A "config check before doing anything" deferred to first-use is too late
+— the wrong network may already be reached, an RPC keypair may already be
+loaded, side effects may already have started. We refuse at IMPORT time,
+before any of that. The cost is a single env-var read; the benefit is
+that no entrypoint can accidentally start against mainnet without an
+explicit, loud, audited opt-in.
 
 WHY AN EXPLICIT FLAG
 --------------------
@@ -44,8 +43,10 @@ THE SUPPORTED NETWORKS
 
 DETERMINISM
 -----------
-The guard reads only env vars and performs no network I/O. Tests that
-need to flip the verdict use the `override_network` context manager.
+This module reads two env vars at import time and stores the verdict in a
+module-level constant. Re-imports do not re-read; the verdict is fixed
+for the process lifetime. Tests that need to flip the verdict use the
+`override_network` context manager.
 """
 
 from __future__ import annotations
@@ -165,8 +166,7 @@ def enforce_network_guard(*, service: str | None = None) -> NetworkVerdict:
             f"network {verdict.network!r} without an explicit opt-in. "
             f"Set {ENV_MAINNET_OK}=1 in the environment to acknowledge "
             f"this is a production start. This is the last safety belt "
-            f"before mainnet — read "
-            f"launch/runbooks/mainnet_refusal_triggered.md before overriding."
+            f"before mainnet — read launch/RUNBOOK.md before overriding."
         )
         logger.error(msg)
         raise ProductionRefused(msg)

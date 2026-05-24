@@ -74,45 +74,6 @@ CREATE TABLE IF NOT EXISTS agent_scores (
 CREATE INDEX IF NOT EXISTS idx_agent_scores_wallet_time
     ON agent_scores (agent_wallet, computed_at DESC);
 
--- Existing Day-3 databases already have an agent_scores table. CREATE TABLE
--- IF NOT EXISTS is not enough for those; add the v2 columns explicitly.
-ALTER TABLE agent_scores
-    ADD COLUMN IF NOT EXISTS id                      BIGSERIAL,
-    ADD COLUMN IF NOT EXISTS alert_tier              TEXT,
-    ADD COLUMN IF NOT EXISTS dim1                    INTEGER,
-    ADD COLUMN IF NOT EXISTS dim2                    INTEGER,
-    ADD COLUMN IF NOT EXISTS dim3                    INTEGER,
-    ADD COLUMN IF NOT EXISTS dim4                    INTEGER,
-    ADD COLUMN IF NOT EXISTS dim5                    INTEGER,
-    ADD COLUMN IF NOT EXISTS confidence              INTEGER,
-    ADD COLUMN IF NOT EXISTS gaming_flag             BOOLEAN,
-    ADD COLUMN IF NOT EXISTS baseline_stats_hash     TEXT,
-    ADD COLUMN IF NOT EXISTS feature_schema_fp       TEXT,
-    ADD COLUMN IF NOT EXISTS scoring_schema_fp       TEXT,
-    ADD COLUMN IF NOT EXISTS aggregated_flags        BIGINT DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS delta_clamped           BOOLEAN DEFAULT FALSE,
-    ADD COLUMN IF NOT EXISTS inserted_at             TIMESTAMPTZ DEFAULT now();
-
-UPDATE agent_scores
-    SET alert_tier = COALESCE(alert_tier, alert),
-        dim1 = COALESCE(dim1, success_rate_score),
-        dim2 = COALESCE(dim2, consistency_score),
-        dim3 = COALESCE(dim3, stability_score),
-        dim4 = COALESCE(dim4, 0),
-        dim5 = COALESCE(dim5, 0),
-        confidence = COALESCE(confidence, 1000),
-        gaming_flag = COALESCE(gaming_flag, FALSE),
-        baseline_stats_hash = COALESCE(baseline_stats_hash, baseline_hash),
-        feature_schema_fp = COALESCE(feature_schema_fp, 'legacy'),
-        scoring_schema_fp = COALESCE(scoring_schema_fp, 'legacy'),
-        aggregated_flags = COALESCE(aggregated_flags, 0),
-        delta_clamped = COALESCE(delta_clamped, guard_rail_applied),
-        inserted_at = COALESCE(inserted_at, computed_at, now())
-    WHERE alert_tier IS NULL
-       OR dim1 IS NULL
-       OR confidence IS NULL
-       OR baseline_stats_hash IS NULL;
-
 -- Alerting / dashboards scan by tier.
 CREATE INDEX IF NOT EXISTS idx_agent_scores_alert
     ON agent_scores (alert_tier, computed_at DESC);

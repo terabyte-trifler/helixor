@@ -38,11 +38,12 @@ curl -s http://api/byzantine/recent | jq '
 curl -s "http://api/byzantine/per_node?epoch=$EPOCH&agent=$AGENT" | jq '
   .reveals[] | {node, score}' | sort
 
-# 3. Are all nodes on the same detection version?
-for i in 0 1 2 3 4; do
-  echo "node-$i:"
-  curl -s "http://oracle-node-$i:9090/version" | jq '.scoring_algo_version'
-done
+# 3. What scoring algorithm version is the cluster pinned to?
+# (The on-chain OracleConfig + each node's env file pin this. The API
+# reports the cluster's effective version; compare to each node's env.)
+curl -s "http://api/version" | jq '{algo: .scoring_algo_version, weights: .scoring_weights_version}'
+# Per-node env (run on each host):
+ssh oracle-node-<i> -- grep SCORING_ helixor.env
 ```
 
 ## Decision tree

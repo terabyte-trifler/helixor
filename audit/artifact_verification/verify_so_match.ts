@@ -25,9 +25,12 @@ import * as path from "path";
 
 
 const PROGRAMS = {
-    "health_oracle":       "HzOraCLE111111111111111111111111111111111",
-    "certificate_issuer":  "CertIssuer1111111111111111111111111111111",
-    "slash_authority":     "SLasH1111111111111111111111111111111111111",
+    // Devnet-deployed program accounts generated under
+    // helixor-programs/target/deploy/*-keypair.json. These are the accounts
+    // the byte-match verifier can actually fetch from the upgradeable loader.
+    "health_oracle":       "Cnn6AWzKD6NjwNZNsJnDYYYTTjt2C9Gow2TZoXzK3U5P",
+    "certificate_issuer":  "3ViKj3cYMo76HwnLYAnbM5BDuMPxmKuKhotXhfPq94gW",
+    "slash_authority":     "2pGoLLvs3XegXDXm7HAZTrFoJZV9dPnNTU1PDEdcUhsN",
 } as const;
 
 const BPF_UPGRADEABLE_LOADER = new PublicKey(
@@ -39,7 +42,7 @@ const BPF_UPGRADEABLE_LOADER = new PublicKey(
 // Args
 // ─────────────────────────────────────────────────────────────────────────────
 
-function parseArgs(): { cluster: string; buildDir: string; report: string } {
+function parseArgs(): { cluster: string; buildDir: string; report: string; localOnly: boolean } {
     const argv = process.argv.slice(2);
     const get = (k: string, dflt: string) => {
         const i = argv.indexOf(`--${k}`);
@@ -49,6 +52,7 @@ function parseArgs(): { cluster: string; buildDir: string; report: string } {
         cluster:  get("cluster", "mainnet-beta"),
         buildDir: get("build-dir", "helixor-programs/target/deploy"),
         report:   get("report", "audit/reports/so_match.json"),
+        localOnly: argv.includes("--local-only"),
     };
 }
 
@@ -86,13 +90,16 @@ async function main(): Promise<number> {
     const clusterUrl = args.cluster.includes("://")
         ? args.cluster
         : `https://api.${args.cluster}.solana.com`;
-    const conn = new Connection(clusterUrl, "confirmed");
+    const conn = args.localOnly ? null : new Connection(clusterUrl, "confirmed");
 
-    const report: Record<string, any> = { cluster: clusterUrl, programs: {} };
+    const report: Record<string, any> = {
+        cluster: args.localOnly ? null : clusterUrl,
+        mode: args.localOnly ? "local_hash_pin" : "deployed_byte_match",
+        programs: {},
+    };
     let failed = false;
 
     for (const [name, idStr] of Object.entries(PROGRAMS)) {
-        const programId = new PublicKey(idStr);
         const localPath = path.join(args.buildDir, `${name}.so`);
 
         if (!fs.existsSync(localPath)) {
@@ -103,21 +110,44 @@ async function main(): Promise<number> {
         }
 
         const localBytes = fs.readFileSync(localPath);
+        const localComparableBytes = trimTrailingZeros(localBytes);
         const localHash = sha256(localBytes);
+        const localComparableHash = sha256(localComparableBytes);
+
+        if (args.localOnly) {
+            console.log(`[${name}] local ${localBytes.length} bytes sha256=${localHash}`);
+            report.programs[name] = {
+                programId: idStr,
+                local_path: localPath,
+                local_size: localBytes.length,
+                local_sha256: localHash,
+                local_comparable_size: localComparableBytes.length,
+                local_comparable_sha256: localComparableHash,
+                match: null,
+                note: "local hash pin only; set HELIXOR_SOLANA_CLUSTER for deployed byte-match",
+            };
+            continue;
+        }
 
         let deployedHash = "";
         let deployedSize = 0;
         try {
-            const deployedBytes = await fetchDeployedBytes(conn, programId);
+            const programId = new PublicKey(idStr);
+            const deployedBytes = await fetchDeployedBytes(conn!, programId);
             // The deployed bytes are zero-padded to the program-data
             // account size; strip trailing zeros for comparison.
             const trimmed = trimTrailingZeros(deployedBytes);
             deployedHash = sha256(trimmed);
             deployedSize = trimmed.length;
 
-            const match = deployedHash === localHash;
+            const match = deployedHash === localComparableHash;
             console.log(`[${name}]`);
             console.log(`  local  ${localBytes.length} bytes  sha256=${localHash}`);
+            if (localComparableBytes.length !== localBytes.length) {
+                console.log(
+                    `  local* ${localComparableBytes.length} bytes  sha256=${localComparableHash} (trimmed trailing zero padding)`,
+                );
+            }
             console.log(`  chain  ${deployedSize} bytes  sha256=${deployedHash}`);
             console.log(`  match: ${match ? "✅" : "❌"}`);
 
@@ -126,6 +156,8 @@ async function main(): Promise<number> {
                 local_path:   localPath,
                 local_size:   localBytes.length,
                 local_sha256: localHash,
+                local_comparable_size: localComparableBytes.length,
+                local_comparable_sha256: localComparableHash,
                 deployed_size:   deployedSize,
                 deployed_sha256: deployedHash,
                 match,
@@ -147,7 +179,11 @@ async function main(): Promise<number> {
         console.log("❌ ARTIFACT VERIFICATION FAILED");
         return 1;
     }
-    console.log("✅ ARTIFACT VERIFICATION CLEAN — deployed = local for all programs");
+    if (args.localOnly) {
+        console.log("✅ ARTIFACT VERIFICATION LOCAL PIN CLEAN — local .so hashes recorded");
+    } else {
+        console.log("✅ ARTIFACT VERIFICATION CLEAN — deployed = local for all programs");
+    }
     return 0;
 }
 

@@ -31,8 +31,8 @@ audit window.
 REQUIRED SCHEMA
 ---------------
 The harness expects the helixor-indexer schema from Day 17:
-  * Hypertable `agent_transactions` (time-bucketed by block_time)
-  * Hypertable `agent_score_history` (time-bucketed by epoch_end)
+  * Hypertable `audit_agent_transactions` (time-bucketed by block_time)
+  * Hypertable `audit_agent_score_history` (time-bucketed by epoch_end)
 The harness creates them with `CREATE TABLE IF NOT EXISTS` so a fresh DB
 works out of the box.
 """
@@ -48,10 +48,10 @@ import time
 from pathlib import Path
 
 
-SCHEMA = """
+TIMESCALE_SCHEMA = """
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 
-CREATE TABLE IF NOT EXISTS agent_transactions (
+CREATE TABLE IF NOT EXISTS audit_agent_transactions (
     block_time      TIMESTAMPTZ NOT NULL,
     agent_wallet    TEXT        NOT NULL,
     signature       TEXT        NOT NULL,
@@ -60,13 +60,13 @@ CREATE TABLE IF NOT EXISTS agent_transactions (
     instruction_idx INT         NOT NULL
 );
 SELECT create_hypertable(
-    'agent_transactions', 'block_time',
+    'audit_agent_transactions', 'block_time',
     if_not_exists => TRUE, chunk_time_interval => INTERVAL '1 day'
 );
 CREATE INDEX IF NOT EXISTS ix_agent_tx_wallet_time
-    ON agent_transactions (agent_wallet, block_time DESC);
+    ON audit_agent_transactions (agent_wallet, block_time DESC);
 
-CREATE TABLE IF NOT EXISTS agent_score_history (
+CREATE TABLE IF NOT EXISTS audit_agent_score_history (
     epoch_end       TIMESTAMPTZ NOT NULL,
     agent_wallet    TEXT        NOT NULL,
     epoch           BIGINT      NOT NULL,
@@ -76,15 +76,68 @@ CREATE TABLE IF NOT EXISTS agent_score_history (
     immediate_red   BOOLEAN     NOT NULL
 );
 SELECT create_hypertable(
-    'agent_score_history', 'epoch_end',
+    'audit_agent_score_history', 'epoch_end',
     if_not_exists => TRUE, chunk_time_interval => INTERVAL '7 days'
 );
 """
 
+PLAIN_POSTGRES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS audit_agent_transactions (
+    block_time      TIMESTAMPTZ NOT NULL,
+    agent_wallet    TEXT        NOT NULL,
+    signature       TEXT        NOT NULL,
+    program_id      TEXT        NOT NULL,
+    amount_lamports BIGINT      NOT NULL,
+    instruction_idx INT         NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_agent_tx_wallet_time
+    ON audit_agent_transactions (agent_wallet, block_time DESC);
+
+CREATE TABLE IF NOT EXISTS audit_agent_score_history (
+    epoch_end       TIMESTAMPTZ NOT NULL,
+    agent_wallet    TEXT        NOT NULL,
+    epoch           BIGINT      NOT NULL,
+    score           SMALLINT    NOT NULL,
+    alert_tier      SMALLINT    NOT NULL,
+    flags           INTEGER     NOT NULL,
+    immediate_red   BOOLEAN     NOT NULL
+);
+"""
+
+COMPAT_ALTERS = """
+ALTER TABLE audit_agent_transactions
+    ADD COLUMN IF NOT EXISTS signature TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS program_id TEXT NOT NULL DEFAULT '11111111111111111111111111111112',
+    ADD COLUMN IF NOT EXISTS amount_lamports BIGINT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS instruction_idx INT NOT NULL DEFAULT 0;
+ALTER TABLE audit_agent_score_history
+    ADD COLUMN IF NOT EXISTS epoch BIGINT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS score SMALLINT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS alert_tier SMALLINT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS flags INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS immediate_red BOOLEAN NOT NULL DEFAULT FALSE;
+"""
+
+
+def timescaledb_available(conn) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXISTS ("
+            "  SELECT 1 FROM pg_available_extensions "
+            "  WHERE name = 'timescaledb'"
+            ")"
+        )
+        return bool(cur.fetchone()[0])
+
 
 def setup(conn) -> None:
     with conn.cursor() as cur:
-        cur.execute(SCHEMA)
+        if timescaledb_available(conn):
+            cur.execute(TIMESCALE_SCHEMA)
+        else:
+            print("⚠️  TimescaleDB extension unavailable; running plain-Postgres DB smoke.")
+            cur.execute(PLAIN_POSTGRES_SCHEMA)
+        cur.execute(COMPAT_ALTERS)
     conn.commit()
 
 
@@ -97,7 +150,7 @@ def insert_batch(conn, rows) -> None:
     buf.seek(0)
     with conn.cursor() as cur:
         cur.copy_expert(
-            "COPY agent_transactions "
+            "COPY audit_agent_transactions "
             "(block_time, agent_wallet, signature, program_id, "
             "amount_lamports, instruction_idx) FROM STDIN",
             buf,
@@ -151,7 +204,7 @@ def run_reads(conn, num_queries: int = 1000) -> dict:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT COUNT(*), SUM(amount_lamports) "
-                "FROM agent_transactions "
+                "FROM audit_agent_transactions "
                 "WHERE agent_wallet = %s "
                 "  AND block_time > NOW() - INTERVAL '7 days'",
                 (wallet,),
@@ -174,6 +227,10 @@ def main(argv=None) -> int:
                    help="rows to insert (default 100K smoke; audit run = 50M)")
     p.add_argument("--report",
                    default="audit/reports/db_stress.json")
+    p.add_argument("--min-throughput", type=float, default=10_000,
+                   help="minimum accepted insert rows/sec")
+    p.add_argument("--max-p95-ms", type=float, default=100,
+                   help="maximum accepted p95 read latency")
     args = p.parse_args(argv)
 
     try:
@@ -182,9 +239,9 @@ def main(argv=None) -> int:
         print("❌ psycopg2 not installed — pip install psycopg2-binary")
         return 2
 
-    db_url = os.environ.get("DATABASE_URL")
+    db_url = os.environ.get("DATABASE_URL") or os.environ.get("HELIXOR_TEST_DATABASE_URL")
     if not db_url:
-        print("❌ DATABASE_URL not set")
+        print("❌ DATABASE_URL or HELIXOR_TEST_DATABASE_URL not set")
         return 2
 
     conn = psycopg2.connect(db_url)
@@ -201,11 +258,11 @@ def main(argv=None) -> int:
 
     # ── Acceptance ──────────────────────────────────────────────────────────
     failed = False
-    if insert_stats["throughput"] < 10_000:
+    if insert_stats["throughput"] < args.min_throughput:
         print(f"❌ insert throughput {insert_stats['throughput']:.0f} "
-              f"rows/sec under 10K target")
+              f"rows/sec under {args.min_throughput:.0f} target")
         failed = True
-    if read_stats["p95_ms"] > 100:
+    if read_stats["p95_ms"] > args.max_p95_ms:
         print(f"❌ read p95 {read_stats['p95_ms']:.1f}ms exceeds 100ms")
         failed = True
     if failed:

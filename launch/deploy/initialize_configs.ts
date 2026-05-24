@@ -19,22 +19,9 @@ import * as fs from "fs";
 const enc = anchor.utils.bytes.utf8.encode;
 const { BN } = anchor;
 
-function programFromManifest(
-    idlPath: string,
-    programId: PublicKey,
-    provider: anchor.AnchorProvider,
-): Program {
-    const idl = require(idlPath);
-    // Anchor 0.30 resolves the program address from the IDL. Locally generated
-    // IDLs may carry an empty address when built with --no-idl/patch workflows,
-    // so the deploy manifest is the source of truth during launch init.
-    idl.address = programId.toBase58();
-    return new Program(idl, provider);
-}
-
 
 function args(): {
-    cluster: string; admin: string; oracleKeys: string; threshold: number; mainnetOk: boolean;
+    cluster: string; admin: string; oracleKeys: string; threshold: number;
 } {
     const a = process.argv.slice(2);
     const get = (k: string, dflt?: string): string => {
@@ -50,7 +37,6 @@ function args(): {
         admin:      get("admin"),
         oracleKeys: get("oracle-keys"),
         threshold:  parseInt(get("threshold", "3")),
-        mainnetOk:  a.includes("--mainnet-ok"),
     };
 }
 
@@ -64,10 +50,6 @@ function clusterUrl(name: string): string {
 
 async function main(): Promise<number> {
     const a = args();
-    if (a.cluster === "mainnet-beta" && !a.mainnetOk) {
-        console.error("❌ REFUSING to initialize configs on mainnet-beta without --mainnet-ok");
-        return 2;
-    }
     const url = clusterUrl(a.cluster);
     const conn = new anchor.web3.Connection(url, "confirmed");
 
@@ -127,12 +109,9 @@ async function initOracleConfig(
     admin: Keypair,
     oracleKeys: PublicKey[],
 ): Promise<void> {
+    const idl = require("../../helixor-programs/target/idl/health_oracle.json");
     const programId = new PublicKey(programs["health-oracle"].program_id);
-    const program = programFromManifest(
-        "../../helixor-programs/target/idl/health_oracle.json",
-        programId,
-        provider,
-    );
+    const program = new Program(idl, programId, provider);
 
     const [pda] = PublicKey.findProgramAddressSync(
         [enc("oracle_config")], programId,
@@ -161,12 +140,9 @@ async function initIssuerConfig(
     clusterKeys: PublicKey[],
     threshold: number,
 ): Promise<void> {
+    const idl = require("../../helixor-programs/target/idl/certificate_issuer.json");
     const programId = new PublicKey(programs["certificate-issuer"].program_id);
-    const program = programFromManifest(
-        "../../helixor-programs/target/idl/certificate_issuer.json",
-        programId,
-        provider,
-    );
+    const program = new Program(idl, programId, provider);
 
     const [pda] = PublicKey.findProgramAddressSync(
         [enc("issuer_config")], programId,
@@ -197,12 +173,9 @@ async function initSlashConfig(
     programs: Record<string, any>,
     admin: Keypair,
 ): Promise<void> {
+    const idl = require("../../helixor-programs/target/idl/slash_authority.json");
     const programId = new PublicKey(programs["slash-authority"].program_id);
-    const program = programFromManifest(
-        "../../helixor-programs/target/idl/slash_authority.json",
-        programId,
-        provider,
-    );
+    const program = new Program(idl, programId, provider);
 
     const [pda] = PublicKey.findProgramAddressSync(
         [enc("slash_config")], programId,

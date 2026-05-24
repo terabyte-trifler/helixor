@@ -92,7 +92,7 @@ fn validate_cluster(cluster_keys: &[Pubkey], threshold: u8) -> Result<()> {
     );
     require!(cluster_keys.len() != 2, CertificateError::InvalidClusterSize);
     for i in 0..cluster_keys.len() {
-        for j in (i + 1)..cluster_keys.len() {
+        for j in (i + 1)..cluster_keys.len() { // audit: i is bounded by MAX_CLUSTER_KEYS (5), so i + 1 cannot overflow.
             require!(cluster_keys[i] != cluster_keys[j], CertificateError::DuplicateClusterKey);
         }
     }

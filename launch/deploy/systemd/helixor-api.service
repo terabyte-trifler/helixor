@@ -1,0 +1,58 @@
+# =============================================================================
+# launch/deploy/systemd/helixor-api.service
+#
+# The Helixor read API. Mirrors the oracle-node hardening profile + the
+# same RestartPreventExitStatus=2 rule for the network guard.
+#
+# Usage:
+#   sudo systemctl enable --now helixor-api.service
+# =============================================================================
+
+[Unit]
+Description=Helixor Read API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=helixor
+Group=helixor
+WorkingDirectory=/opt/helixor
+
+EnvironmentFile=/etc/helixor/api.env
+
+# api.main runs the network guard at import; uvicorn drives the loop.
+ExecStart=/opt/helixor/venv/bin/python -m api.main
+
+Restart=on-failure
+RestartSec=10s
+StartLimitIntervalSec=300s
+StartLimitBurst=5
+# Network-guard refusal exits 2 — DO NOT restart. The operator must
+# fix the env file before the service comes back up.
+RestartPreventExitStatus=2
+
+# Process hardening (mirrors oracle-node@.service).
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+MemoryMax=1G
+CPUQuota=200%
+TasksMax=512
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=helixor-api
+
+[Install]
+WantedBy=multi-user.target

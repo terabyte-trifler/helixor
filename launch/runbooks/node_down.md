@@ -23,7 +23,7 @@ curl -s http://api/health/cluster | jq '.recent_epochs'
 # Look for `submitted_count == agent_count` and verified_nodes >= 4.
 
 # 3. Check for byzantine pattern — has THIS node been flagged?
-curl -s http://api/metrics | grep "helixor_byzantine_flags.*node=\"$NODE\""
+curl -s http://api/byzantine/strikes | jq ".summary[\"$NODE\"]"
 ```
 
 ## Decision tree

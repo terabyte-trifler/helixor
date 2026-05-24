@@ -13,11 +13,9 @@ export {
   AlertTier,
   alertTierFromCode,
   type HealthScore,
-  type TrustScore,
   type EpochScore,
   type HelixorProgramIds,
 } from "./types";
-export * from "./errors";
 export {
   certificatePda,
   baselineStatsPda,

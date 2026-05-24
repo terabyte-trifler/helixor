@@ -48,7 +48,7 @@ case "$CLUSTER" in
     mainnet-beta)
         if [[ "$MAINNET_OK" -ne 1 ]]; then
             echo "❌ REFUSING to deploy to mainnet-beta without --mainnet-ok"
-            echo "   Read launch/runbooks/mainnet_refusal_triggered.md before passing this flag."
+            echo "   Read launch/RUNBOOK.md before passing this flag."
             exit 2
         fi
         echo "⚠️  MAINNET DEPLOY — opt-in acknowledged. Last chance to bail."
@@ -69,8 +69,7 @@ CLUSTER_URL=$(case "$CLUSTER" in
     mainnet-beta)  echo "https://api.mainnet-beta.solana.com" ;;
 esac)
 
-PROGRAM_KEYS=("health-oracle" "certificate-issuer" "slash-authority")
-ANCHOR_NAMES=("health_oracle" "certificate_issuer" "slash_authority")
+PROGRAMS=("health-oracle" "certificate-issuer" "slash-authority")
 MANIFEST="launch/deploy/manifest.json"
 mkdir -p "$(dirname "$MANIFEST")"
 
@@ -84,17 +83,7 @@ echo "── building all 3 programs with anchor build --verifiable ──"
 (cd helixor-programs && anchor build --verifiable)
 
 # ── 2. Deploy each program ───────────────────────────────────────────────────
-sha256_file() {
-    if command -v sha256sum >/dev/null; then
-        sha256sum "$1" | awk '{print $1}'
-    else
-        shasum -a 256 "$1" | awk '{print $1}'
-    fi
-}
-
-for i in "${!PROGRAM_KEYS[@]}"; do
-    prog="${PROGRAM_KEYS[$i]}"
-    anchor_name="${ANCHOR_NAMES[$i]}"
+for prog in "${PROGRAMS[@]}"; do
     echo
     echo "── deploying $prog to $CLUSTER ──"
 
@@ -106,18 +95,18 @@ for i in "${!PROGRAM_KEYS[@]}"; do
         continue
     fi
 
-    so_path="helixor-programs/target/deploy/${anchor_name}.so"
+    so_path="helixor-programs/target/deploy/${prog//-/_}.so"
     if [[ ! -f "$so_path" ]]; then
         echo "❌ build artifact missing: $so_path"
         exit 2
     fi
-    so_sha256=$(sha256_file "$so_path")
+    so_sha256=$(sha256sum "$so_path" | awk '{print $1}')
 
     # The deploy itself. anchor deploy reads Anchor.toml and uses the
     # configured cluster + wallet.
     deploy_out=$(
         cd helixor-programs && \
-        anchor deploy --provider.cluster "$CLUSTER_URL" --program-name "$anchor_name"
+        anchor deploy --provider.cluster "$CLUSTER_URL" --program-name "$prog"
     )
     echo "$deploy_out"
     program_id=$(echo "$deploy_out" | awk '/Program Id:/ {print $3}')
@@ -142,7 +131,7 @@ echo "── verifying deployed .so == local build ──"
 if command -v npx >/dev/null; then
     (
         cd audit/artifact_verification && \
-        npx ts-node verify_so_match.ts --cluster "$CLUSTER_URL" \
+        npx ts-node verify_so_match.ts --cluster "$CLUSTER" \
             --build-dir ../../helixor-programs/target/deploy
     )
 else

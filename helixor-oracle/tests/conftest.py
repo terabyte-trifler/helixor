@@ -26,6 +26,26 @@ os.environ.setdefault("MONITORING_ADMIN_TOKEN",    "test-monitoring-admin-token"
 os.environ.pop("REDIS_URL", None)
 
 
+async def _has_timescaledb(conn: asyncpg.Connection) -> bool:
+    row = await conn.fetchrow(
+        "SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb'"
+    )
+    return row is not None
+
+
+async def _apply_schema_and_migrations(conn: asyncpg.Connection) -> None:
+    root = Path(__file__).parent.parent
+    await conn.execute((root / "db" / "schema.sql").read_text())
+    migrations_dir = root / "db" / "migrations"
+    if not migrations_dir.exists():
+        return
+    timescale_available = await _has_timescaledb(conn)
+    for migration in sorted(migrations_dir.glob("*.sql")):
+        if migration.name == "0009_timescaledb.sql" and not timescale_available:
+            continue
+        await conn.execute(migration.read_text())
+
+
 @pytest.fixture(scope="session")
 def postgres_url():
     """Provide a PostgreSQL URL for the test session.
@@ -41,12 +61,7 @@ def postgres_url():
         async def setup_external():
             conn = await asyncpg.connect(external_url)
             try:
-                root = Path(__file__).parent.parent
-                await conn.execute((root / "db" / "schema.sql").read_text())
-                migrations_dir = root / "db" / "migrations"
-                if migrations_dir.exists():
-                    for migration in sorted(migrations_dir.glob("*.sql")):
-                        await conn.execute(migration.read_text())
+                await _apply_schema_and_migrations(conn)
             finally:
                 await conn.close()
 
@@ -69,12 +84,7 @@ def postgres_url():
         async def setup():
             conn = await asyncpg.connect(url)
             try:
-                root = Path(__file__).parent.parent
-                await conn.execute((root / "db" / "schema.sql").read_text())
-                migrations_dir = root / "db" / "migrations"
-                if migrations_dir.exists():
-                    for migration in sorted(migrations_dir.glob("*.sql")):
-                        await conn.execute(migration.read_text())
+                await _apply_schema_and_migrations(conn)
             finally:
                 await conn.close()
 

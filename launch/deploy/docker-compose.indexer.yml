@@ -93,6 +93,28 @@ services:
     mem_limit: 2g
     cpus: "2.0"
 
+  # ── The read API — what Day 30 monitoring scrapes and runbooks curl ──────
+  api:
+    image: helixor/api:${HELIXOR_VERSION:?HELIXOR_VERSION must be set}
+    restart: unless-stopped
+    depends_on:
+      timescaledb:  { condition: service_healthy }
+      indexer:      { condition: service_started }
+    environment:
+      # Day 30 network guard — refuses mainnet without explicit opt-in.
+      HELIXOR_NETWORK:      "${HELIXOR_NETWORK:-devnet}"
+      HELIXOR_MAINNET_OK:   "${HELIXOR_MAINNET_OK:-}"
+      DATABASE_URL:         "postgres://helixor_indexer:${TIMESCALE_PASSWORD}@timescaledb/helixor"
+      HELIXOR_API_PORT:     "8080"
+      LOG_LEVEL:            "INFO"
+      SCORING_ALGO_VERSION:    "${SCORING_ALGO_VERSION:-}"
+      SCORING_WEIGHTS_VERSION: "${SCORING_WEIGHTS_VERSION:-}"
+    ports:
+      - "8080:8080"         # HTTP (Swagger /docs, /agents/*, /byzantine/*)
+      - "9095:9090"         # Prometheus exposition (avoids 9090 clash)
+    mem_limit: 1g
+    cpus: "2.0"
+
   # ── Prometheus — local scrape so the cluster has metrics from day one ─────
   prometheus:
     image: prom/prometheus:v2.51.2

@@ -14,7 +14,7 @@
 // breaking change to `getScore`.
 // =============================================================================
 
-import type { PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 
 /**
  * The alert tier. Stable wire codes — 0/1/2 — matching the on-chain
@@ -58,27 +58,6 @@ export interface HealthScore {
   flags: number;
   /** Unix seconds the score was issued on chain. */
   issuedAt: number;
-}
-
-/** REST/API trust score shape retained for MVP SDK compatibility. */
-export interface TrustScore {
-  agentWallet: string;
-  score: number;
-  alert: "GREEN" | "YELLOW" | "RED";
-  source: "live" | "provisional" | string;
-  successRate: number;
-  anomalyFlag: boolean;
-  updatedAt: number;
-  isFresh: boolean;
-  breakdown: {
-    successRateScore: number;
-    consistencyScore: number;
-    stabilityScore: number;
-    rawScore: number;
-  } | null;
-  scoringAlgoVersion: number | null;
-  weightsVersion: number | null;
-  baselineHashPrefix: string | null;
 }
 
 /**

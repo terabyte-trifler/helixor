@@ -65,19 +65,19 @@ pub struct AgentRegistration {
 impl Default for AgentRegistration {
     fn default() -> Self {
         Self {
-            agent_wallet:          Pubkey::default(),
-            owner_wallet:          Pubkey::default(),
-            registered_at:         0,
-            active:                false,
-            bump:                  0,
-            baseline_committed:    false,
-            baseline_hash:         [0u8; 32],
+            agent_wallet: Pubkey::default(),
+            owner_wallet: Pubkey::default(),
+            registered_at: 0,
+            active: false,
+            bump: 0,
+            baseline_committed: false,
+            baseline_hash: [0u8; 32],
             baseline_algo_version: 0,
-            baseline_committer:    Pubkey::default(),
+            baseline_committer: Pubkey::default(),
             baseline_committed_at: 0,
-            commit_nonce:          0,
-            layout_version:        0,
-            _reserved:             [0u8; 64],
+            commit_nonce: 0,
+            layout_version: 0,
+            _reserved: [0u8; 64],
         }
     }
 }

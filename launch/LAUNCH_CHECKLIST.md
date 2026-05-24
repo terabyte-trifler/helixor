@@ -4,24 +4,28 @@ The pre-mainnet gate. Every box must be ticked, with the linked artefact,
 **before** an `HELIXOR_MAINNET_OK=1` flag is added to any production env
 file.
 
-## 1 — Audit gates (Day 29)
+## 1 — Audit gates (Day 29-31)
 
-- [ ] `audit/run_all.sh` passes locally (**0 skipped**; local substitutes
-      exercise Trident, API, DB, and `.so` verification gates)
+- [ ] `audit/run_all.sh` passes locally — 14 PASSED, 0 SKIPPED
 - [ ] `audit/hardening_check.py` reports **0 HARD findings**
       → `audit/reports/hardening.json`
+- [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
+      node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain
 - [ ] `cargo audit --deny warnings` clean (no CVEs against pinned deps)
 - [ ] `cargo test --workspace` passes (Rust pure-logic + integration)
 - [ ] **Trident fuzz 10M iterations clean** — zero panics, full handler
       coverage → `audit/reports/fuzz_coverage.json` exists,
       `audit/reports/fuzz_crashes/` empty
-- [ ] **API load 10K req/h sustained for 1h** — p95 < 500ms, error < 0.1%
+- [ ] **API load 10K req/h sustained for 1h** against the deployed API —
+      p95 < 500ms, server_error_rate < 0.1%
       → `audit/reports/api_load.json`
 - [ ] **DB stress 50M rows ingested** — throughput ≥ 10K rows/s,
       read p95 < 100ms → `audit/reports/db_stress.json`
 - [ ] **Cluster chaos test green in CI** — 20 epochs × 50 agents with
       mid-run kill, all certs threshold-signed
+- [ ] **Read API tests green** — `cd helixor-api && pytest` passes,
+      including the Timescale/Postgres-backed repository path
 - [ ] External security audit report received, all findings addressed
 - [ ] Internal review of every `// audit:` annotation in the codebase
 

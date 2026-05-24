@@ -1,5 +1,3 @@
-#![allow(unexpected_cfgs, ambiguous_glob_reexports)]
-
 // =============================================================================
 // programs/slash-authority/src/lib.rs
 //

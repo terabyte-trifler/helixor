@@ -31,8 +31,16 @@ It verifies:
 from __future__ import annotations
 
 import os
+import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
+
+_ORACLE_ROOT = Path(__file__).resolve().parents[2] / "helixor-oracle"
+if str(_ORACLE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ORACLE_ROOT))
+
+from oracle.network_guard import enforce_network_guard
 
 from eventbus import (
     AlertProducer,
@@ -110,6 +118,7 @@ def _agent(i: int) -> str:
 
 
 def main() -> None:
+    enforce_network_guard(service="live-kafka-smoke")
     run_id = str(int(time.time() * 1000))
     config = _kafka_config(run_id)
     bootstrap = config.bootstrap_servers

@@ -61,17 +61,8 @@ fi
 # Drive the TypeScript initializer (Anchor + web3.js) — same library the
 # tests use.
 NODE_BIN="${NODE_BIN:-node}"
-export NODE_PATH="$REPO_ROOT/helixor-programs/node_modules${NODE_PATH:+:$NODE_PATH}"
-export TS_NODE_TRANSPILE_ONLY="${TS_NODE_TRANSPILE_ONLY:-1}"
-export TS_NODE_COMPILER_OPTIONS="${TS_NODE_COMPILER_OPTIONS:-{\"module\":\"CommonJS\",\"moduleResolution\":\"Node\"}}"
-cmd=(
-    helixor-programs/node_modules/.bin/ts-node launch/deploy/initialize_configs.ts
-    --cluster "$CLUSTER"
-    --admin "$ADMIN_KEYPAIR"
-    --oracle-keys "$ORACLE_KEYS_FILE"
+exec npx ts-node launch/deploy/initialize_configs.ts \
+    --cluster "$CLUSTER" \
+    --admin "$ADMIN_KEYPAIR" \
+    --oracle-keys "$ORACLE_KEYS_FILE" \
     --threshold "$THRESHOLD"
-)
-if [[ "$MAINNET_OK" -eq 1 ]]; then
-    cmd+=(--mainnet-ok)
-fi
-exec "${cmd[@]}"

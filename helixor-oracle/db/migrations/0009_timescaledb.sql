@@ -30,15 +30,7 @@ ON CONFLICT (version) DO NOTHING;
 
 -- ── 0. The TimescaleDB extension ─────────────────────────────────────────────
 -- Provided by the TimescaleDB image; CREATE EXTENSION is idempotent.
--- Plain Postgres testcontainers do not have TimescaleDB installed, so this
--- migration degrades gracefully there and leaves a normal table + indexes.
-DO $$
-BEGIN
-    CREATE EXTENSION IF NOT EXISTS timescaledb;
-EXCEPTION
-    WHEN undefined_file OR feature_not_supported THEN
-        RAISE NOTICE 'TimescaleDB extension unavailable; continuing with plain PostgreSQL table';
-END $$;
+CREATE EXTENSION IF NOT EXISTS timescaledb;
 
 
 -- ── 1. agent_transactions — the base table ───────────────────────────────────
@@ -68,29 +60,6 @@ CREATE TABLE IF NOT EXISTS agent_transactions (
     PRIMARY KEY (signature, block_time)
 );
 
--- Existing Day-1 databases have tx_signature/received_at and no
--- priority_fee/compute_units/counterparty columns. Add the Day-15 shape
--- without dropping legacy fields.
-ALTER TABLE agent_transactions
-    ADD COLUMN IF NOT EXISTS signature     TEXT,
-    ADD COLUMN IF NOT EXISTS priority_fee  BIGINT NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS compute_units BIGINT NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS counterparty  TEXT,
-    ADD COLUMN IF NOT EXISTS ingested_at   TIMESTAMPTZ NOT NULL DEFAULT now();
-
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'agent_transactions'
-          AND column_name = 'tx_signature'
-    ) THEN
-        UPDATE agent_transactions
-            SET signature = COALESCE(signature, tx_signature)
-            WHERE signature IS NULL;
-    END IF;
-END $$;
-
 
 -- ── 2. Promote to a hypertable ───────────────────────────────────────────────
 --
@@ -99,18 +68,13 @@ END $$;
 -- planner prunes everything outside the range. Smaller chunks would
 -- multiply planning overhead; larger chunks would scan slack data.
 
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
-        PERFORM create_hypertable(
-            'agent_transactions',
-            'block_time',
-            chunk_time_interval => INTERVAL '1 day',
-            if_not_exists       => TRUE,
-            migrate_data        => TRUE
-        );
-    END IF;
-END $$;
+SELECT create_hypertable(
+    'agent_transactions',
+    'block_time',
+    chunk_time_interval => INTERVAL '1 day',
+    if_not_exists       => TRUE,
+    migrate_data        => TRUE        -- absorb any pre-existing rows
+);
 
 
 -- ── 3. Indexes ───────────────────────────────────────────────────────────────
@@ -135,28 +99,18 @@ CREATE INDEX IF NOT EXISTS idx_agent_tx_signature
 -- contiguous within a compressed chunk, so a per-agent window scan over
 -- compressed data stays a localised read.
 
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
-        ALTER TABLE agent_transactions SET (
-            timescaledb.compress,
-            timescaledb.compress_segmentby = 'agent_wallet',
-            timescaledb.compress_orderby   = 'block_time DESC'
-        );
-    END IF;
-END $$;
+ALTER TABLE agent_transactions SET (
+    timescaledb.compress,
+    timescaledb.compress_segmentby = 'agent_wallet',
+    timescaledb.compress_orderby   = 'block_time DESC'
+);
 
 -- Auto-compress chunks once they age past the 7-day active window.
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
-        PERFORM add_compression_policy(
-            'agent_transactions',
-            INTERVAL '7 days',
-            if_not_exists => TRUE
-        );
-    END IF;
-END $$;
+SELECT add_compression_policy(
+    'agent_transactions',
+    INTERVAL '7 days',
+    if_not_exists => TRUE
+);
 
 
 -- ── 5. Continuous aggregate — daily per-agent rollup ─────────────────────────
@@ -168,59 +122,31 @@ END $$;
 -- and refreshes incrementally — a 30-day series becomes a 30-row read of a
 -- pre-computed view instead of an aggregate over ~thousands of raw rows.
 
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
-        EXECUTE $sql$
-            CREATE MATERIALIZED VIEW IF NOT EXISTS agent_tx_daily
-            WITH (timescaledb.continuous) AS
-            SELECT
-                agent_wallet,
-                time_bucket(INTERVAL '1 day', block_time)        AS day,
-                count(*)                                          AS tx_count,
-                count(*) FILTER (WHERE success)                   AS success_count,
-                avg(CASE WHEN success THEN 1.0 ELSE 0.0 END)      AS success_rate,
-                sum(sol_change)                                   AS net_sol_change,
-                sum(fee + priority_fee)                           AS total_fees,
-                count(DISTINCT counterparty)                      AS distinct_counterparties
-            FROM agent_transactions
-            GROUP BY agent_wallet, day
-            WITH NO DATA
-        $sql$;
-    ELSE
-        EXECUTE $sql$
-            CREATE MATERIALIZED VIEW IF NOT EXISTS agent_tx_daily AS
-            SELECT
-                agent_wallet,
-                date_trunc('day', block_time)                     AS day,
-                count(*)                                          AS tx_count,
-                count(*) FILTER (WHERE success)                   AS success_count,
-                avg(CASE WHEN success THEN 1.0 ELSE 0.0 END)      AS success_rate,
-                sum(sol_change)                                   AS net_sol_change,
-                sum(fee + priority_fee)                           AS total_fees,
-                count(DISTINCT counterparty)                      AS distinct_counterparties
-            FROM agent_transactions
-            GROUP BY agent_wallet, date_trunc('day', block_time)
-            WITH NO DATA
-        $sql$;
-    END IF;
-END $$;
+CREATE MATERIALIZED VIEW IF NOT EXISTS agent_tx_daily
+WITH (timescaledb.continuous) AS
+SELECT
+    agent_wallet,
+    time_bucket(INTERVAL '1 day', block_time)        AS day,
+    count(*)                                          AS tx_count,
+    count(*) FILTER (WHERE success)                   AS success_count,
+    avg(CASE WHEN success THEN 1.0 ELSE 0.0 END)      AS success_rate,
+    sum(sol_change)                                   AS net_sol_change,
+    sum(fee + priority_fee)                           AS total_fees,
+    count(DISTINCT counterparty)                      AS distinct_counterparties
+FROM agent_transactions
+GROUP BY agent_wallet, day
+WITH NO DATA;
 
 -- Refresh policy: keep the materialised rollup current. The most recent
 -- day is left to the real-time aggregation layer (start_offset bounds the
 -- materialised range; rows newer than end_offset are computed on read).
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
-        PERFORM add_continuous_aggregate_policy(
-            'agent_tx_daily',
-            start_offset      => INTERVAL '90 days',
-            end_offset        => INTERVAL '1 hour',
-            schedule_interval => INTERVAL '1 hour',
-            if_not_exists     => TRUE
-        );
-    END IF;
-END $$;
+SELECT add_continuous_aggregate_policy(
+    'agent_tx_daily',
+    start_offset      => INTERVAL '90 days',
+    end_offset        => INTERVAL '1 hour',
+    schedule_interval => INTERVAL '1 hour',
+    if_not_exists     => TRUE
+);
 
 
 -- ── 6. Retention ─────────────────────────────────────────────────────────────
@@ -230,16 +156,11 @@ END $$;
 -- aggregate (which the longer-horizon analytics use) is retained longer
 -- by virtue of being a separate, far smaller hypertable.
 
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN
-        PERFORM add_retention_policy(
-            'agent_transactions',
-            INTERVAL '180 days',
-            if_not_exists => TRUE
-        );
-    END IF;
-END $$;
+SELECT add_retention_policy(
+    'agent_transactions',
+    INTERVAL '180 days',
+    if_not_exists => TRUE
+);
 
 
 COMMENT ON TABLE agent_transactions IS

@@ -26,7 +26,7 @@ fn escrow_vault_size_is_correct() {
 
 #[test]
 fn slash_record_size_is_correct() {
-    // Day-21 lifecycle fields consume the reserved bytes; final layout is 196.
+    //   Day-20 core 140 + Day-21 lifecycle 49 + reserve 7 = 196
     assert_eq!(SlashRecord::SIZE_WITHOUT_DISCRIMINATOR, 196);
     assert_eq!(SlashRecord::SPACE, 204); // + 8 discriminator
 }

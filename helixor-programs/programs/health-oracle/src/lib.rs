@@ -1,5 +1,3 @@
-#![allow(unexpected_cfgs, ambiguous_glob_reexports)]
-
 // =============================================================================
 // programs/health-oracle/src/lib.rs
 //

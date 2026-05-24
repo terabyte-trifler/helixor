@@ -1,5 +1,3 @@
-#![allow(unexpected_cfgs, ambiguous_glob_reexports)]
-
 // =============================================================================
 // programs/certificate-issuer/src/lib.rs
 //
@@ -51,20 +49,6 @@ pub mod certificate_issuer {
         threshold:    u8,
     ) -> Result<()> {
         instructions::initialize_config::handler(
-            ctx, issuer_node, cluster_keys, threshold,
-        )
-    }
-
-    /// Resize and rewrite an existing pre-Day-27 IssuerConfig into the
-    /// threshold-signing layout. Used for devnet upgrades where the singleton
-    /// PDA already exists in the old, smaller account shape.
-    pub fn migrate_issuer_config(
-        ctx:          Context<MigrateIssuerConfig>,
-        issuer_node:  Pubkey,
-        cluster_keys: Vec<Pubkey>,
-        threshold:    u8,
-    ) -> Result<()> {
-        instructions::migrate_issuer_config::handler(
             ctx, issuer_node, cluster_keys, threshold,
         )
     }

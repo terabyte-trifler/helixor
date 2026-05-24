@@ -29,8 +29,6 @@ pub enum CertificateError {
     InconsistentScoreAlert = 6020,
     #[msg("no baseline has been recorded for this agent — record one before issuing")]
     BaselineNotRecorded = 6021,
-    #[msg("issuer config account is malformed or too small for migration")]
-    MalformedIssuerConfig = 6022,
 
     // ── Day 27: 3-of-5 threshold signing ────────────────────────────────────
     #[msg("issuer cluster size invalid — must be 1 (single-key) or 3..=5 (BFT)")]

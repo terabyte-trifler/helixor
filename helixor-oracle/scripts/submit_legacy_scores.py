@@ -19,6 +19,7 @@ from solders.pubkey import Pubkey
 
 from indexer import db
 from indexer.config import settings
+from oracle.network_guard import enforce_network_guard
 from oracle.submit import (
     load_oracle_keypair,
     submit_score_update,
@@ -26,6 +27,7 @@ from oracle.submit import (
 
 
 async def main(limit: int) -> int:
+    enforce_network_guard(service="submit-legacy-scores")
     await db.init_pool()
     pool = await db.get_pool()
     oracle_kp = load_oracle_keypair()
