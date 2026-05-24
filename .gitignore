@@ -24,3 +24,14 @@ keys/
 # macOS noise
 .DS_Store
 **/.DS_Store
+
+# Local runtimes and generated build/test output
+**/.venv/
+**/node_modules/
+**/.next/
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.pytest_cache/
+**/tsconfig.tsbuildinfo
+**/target/

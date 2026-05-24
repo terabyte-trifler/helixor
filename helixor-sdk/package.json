@@ -7,7 +7,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "test": "tsx tests/decode.test.ts && tsx tests/getscore_shape.test.ts"
+    "test": "tsx test/decode.test.ts && tsx test/getscore_shape.test.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.95.0"

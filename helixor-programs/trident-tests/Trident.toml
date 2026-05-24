@@ -1,7 +1,0 @@
-[fuzz.metrics]
-enabled = true
-
-
-[[fuzz.programs]]
-address = "Cert1xor11111111111111111111111111111111111"
-program = "../target/deploy/certificate_issuer.so"

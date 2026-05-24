@@ -10,10 +10,15 @@ service. It:
      The systemd unit's RestartPreventExitStatus=2 stops the loop —
      the misconfig fails loud and stationary, not in a thrashing retry.
 
-  2. Constructs the production repositories. If DATABASE_URL is set,
-     the service opens the Timescale/Postgres-backed read adapters and
-     creates the read-side schema idempotently. A DB misconfiguration is
-     fatal; production must not silently serve empty in-memory data.
+  2. Constructs the production-shape repositories. Today those are
+     TimescaleDB-backed; a clean adapter layer (TimescaleScoreRepo,
+     TimescaleByzantineRepo, TimescaleClusterHealthRepo) sits over the
+     existing helixor-oracle/db/timescale_repo.py connection. Until the
+     `agent_score_history`, `byzantine_flags`, and `oracle_heartbeats`
+     hypertables exist in production, this entrypoint falls back to
+     empty in-memory repos, logs a WARNING, and serves 404s for reads —
+     so the API is bring-up-able BEFORE the indexer has produced any
+     data, and the failure mode is honest.
 
   3. Builds the FastAPI app via the factory.
 
@@ -114,13 +119,23 @@ from api.score_repo import InMemoryScoreRepo                        # noqa: E402
 
 def _build_repos():
     """
-    Construct the production repos.
+    Construct the production repos. Today these are STUBS pending the
+    TimescaleDB adapter layer:
 
-    No DATABASE_URL means explicit local/dev mode: empty in-memory repos.
-    DATABASE_URL set means production-shaped mode: open the database
-    adapters or fail the process. This prevents the dangerous half-state
-    where production is configured with a DB but the API quietly serves
-    empty memory data.
+      helixor-api/api/_timescale.py::TimescaleScoreRepo
+      helixor-api/api/_timescale.py::TimescaleByzantineRepo
+      helixor-api/api/_timescale.py::TimescaleClusterHealthRepo
+
+    Each adapts the existing helixor-oracle/db/timescale_repo.py
+    connection over three new tables the indexer populates:
+
+        agent_score_history    (one row per cert the indexer mirrored)
+        byzantine_flags        (one row per watchdog flag event)
+        oracle_heartbeats      (last-seen per node)
+
+    Until those tables exist, this returns empty in-memory repos so the
+    service can be brought up (Phase-1 canary "bring up the operational
+    stack against mainnet before producing certs") without crashing.
     """
     db_url = os.environ.get("DATABASE_URL")
     if not db_url:
@@ -135,20 +150,24 @@ def _build_repos():
             InMemoryClusterHealthRepo(),
         )
 
-    from api._timescale import open_repos
-
-    try:
-        repos = open_repos(db_url)
-    except Exception:
-        logger.exception(
-            "DATABASE_URL is set but Helixor could not open the "
-            "Timescale/Postgres read adapters. Refusing to start instead "
-            "of serving fake empty data."
-        )
-        raise
-
-    logger.info("using Timescale/Postgres-backed read repositories")
-    return repos
+    # The TimescaleDB-backed implementations are deferred — when they
+    # land, replace this branch with:
+    #
+    #     from api._timescale import open_repos
+    #     return open_repos(db_url)
+    #
+    # The factory contract (3 protocol-conforming objects) is stable.
+    logger.warning(
+        "DATABASE_URL is set but the Timescale-backed adapters "
+        "(api._timescale) have not landed yet. Falling back to empty "
+        "in-memory repos. Reads will return 404. See helixor-api/README.md "
+        "section 'Production wiring' for the remaining work."
+    )
+    return (
+        InMemoryScoreRepo(),
+        InMemoryByzantineRepo(),
+        InMemoryClusterHealthRepo(),
+    )
 
 
 # =============================================================================

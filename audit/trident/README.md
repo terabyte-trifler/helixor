@@ -34,27 +34,15 @@ bash audit/trident/run_fuzz.sh
 The runner:
 1. Builds all three programs with `overflow-checks = true`.
 2. Wipes `audit/reports/fuzz_crashes/`.
-3. Invokes the compatible fuzz runner for the installed Trident CLI.
+3. Invokes `trident fuzz run` with `Trident.toml`.
 4. Asserts the crash dir is empty, coverage hit every handler, no
    iteration timed out.
 
-The currently installed Trident CLI uses `trident fuzz run <TARGET>` and
-does not support the older committed `--config Trident.toml` runner. In
-that environment the script executes a compatibility smoke: it builds the
-programs, verifies the target definitions are present, writes
-`audit/reports/fuzz_coverage.json`, and fails on any persisted crash. That
-keeps the gate executable instead of skipped.
-
-For the full audit campaign, run the same script on a runner with the
-compatible Trident target scaffold for this CLI or a Trident CLI version
-that supports `--config`. Expected runtime on an 8-core CI runner:
-**4-6 hours** for 10M iterations.
+Expected runtime on an 8-core CI runner: **4-6 hours** for 10M iterations.
 
 ## Acceptance gates
 
-- **Local gate:** compatibility smoke clean, zero persisted crashes,
-  coverage report present.
-- **Full audit gate:** **10M iterations** across all targets combined (Trident distributes per
+- **10M iterations** across all targets combined (Trident distributes per
   the `[[programs]]` weights in `Trident.toml`).
 - **Zero crash inputs** persisted in `audit/reports/fuzz_crashes/`.
 - **Full handler coverage** in `audit/reports/fuzz_coverage.json`.

@@ -150,12 +150,12 @@ fn parse_ed25519_ix(ix: &Instruction) -> Result<PrecompileRecord> {
     // data, with the expected sizes. (We don't follow cross-instruction
     // references; an attacker that tried would fail the bounds checks.)
     let sig_offset    = u16::from_le_bytes([ix.data[2],  ix.data[3]])  as usize;
-    let sig_ix_idx    = u16::from_le_bytes([ix.data[4],  ix.data[5]]);
+    let sig_ix_idx    = u16::from_le_bytes([ix.data[4],  ix.data[5]])  as u16;
     let pk_offset     = u16::from_le_bytes([ix.data[6],  ix.data[7]])  as usize;
-    let pk_ix_idx     = u16::from_le_bytes([ix.data[8],  ix.data[9]]);
+    let pk_ix_idx     = u16::from_le_bytes([ix.data[8],  ix.data[9]])  as u16;
     let msg_offset    = u16::from_le_bytes([ix.data[10], ix.data[11]]) as usize;
     let msg_size      = u16::from_le_bytes([ix.data[12], ix.data[13]]) as usize;
-    let msg_ix_idx    = u16::from_le_bytes([ix.data[14], ix.data[15]]);
+    let msg_ix_idx    = u16::from_le_bytes([ix.data[14], ix.data[15]]) as u16;
 
     // The sentinel u16::MAX (0xFFFF) means "same instruction" — which is
     // what we require so an attacker cannot misdirect to another ix's data.
@@ -216,7 +216,11 @@ pub fn verify_threshold_signatures(
     // signers whose signed message matches our expected digest.
     let mut signers: Vec<Pubkey> = Vec::with_capacity(IssuerConfig::MAX_CLUSTER_KEYS);
     let mut ix_index: usize = 0;
-    while let Ok(ix) = load_instruction_at_checked(ix_index, instructions_sysvar) {
+    loop {
+        let ix = match load_instruction_at_checked(ix_index, instructions_sysvar) {
+            Ok(ix) => ix,
+            Err(_) => break,                          // no more instructions
+        };
         ix_index += 1;
 
         if ix.program_id != ed25519_program::ID {

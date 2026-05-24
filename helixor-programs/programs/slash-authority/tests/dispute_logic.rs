@@ -20,7 +20,7 @@ use slash_authority::instructions::appeal_slash::APPEAL_COOLDOWN_SECONDS;
 
 #[test]
 fn slash_record_grew_for_the_lifecycle_fields() {
-    // Day 20: 182. Day 21 spends the 32-byte reserve + adds 14 -> 196.
+    // Day 20: 172. Day 21 spends the 32-byte reserve + adds 24 -> 196.
     assert_eq!(SlashRecord::SIZE_WITHOUT_DISCRIMINATOR, 196);
     assert_eq!(SlashRecord::SPACE, 204);
 }

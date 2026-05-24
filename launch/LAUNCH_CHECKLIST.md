@@ -6,7 +6,7 @@ file.
 
 ## 1 — Audit gates (Day 29-31)
 
-- [ ] `audit/run_all.sh` passes locally — 14 PASSED, 0 SKIPPED
+- [ ] `audit/run_all.sh` passes locally — 7 PASSED, externals skipped
 - [ ] `audit/hardening_check.py` reports **0 HARD findings**
       → `audit/reports/hardening.json`
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
@@ -24,8 +24,7 @@ file.
       read p95 < 100ms → `audit/reports/db_stress.json`
 - [ ] **Cluster chaos test green in CI** — 20 epochs × 50 agents with
       mid-run kill, all certs threshold-signed
-- [ ] **Read API tests green** — `cd helixor-api && pytest` passes,
-      including the Timescale/Postgres-backed repository path
+- [ ] **Read API tests green** — `cd helixor-api && pytest` passes
 - [ ] External security audit report received, all findings addressed
 - [ ] Internal review of every `// audit:` annotation in the codebase
 

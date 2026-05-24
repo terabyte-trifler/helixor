@@ -31,6 +31,7 @@
 // =============================================================================
 
 use anchor_lang::prelude::*;
+use solana_program::pubkey;
 
 #[account]
 #[derive(Default, Debug)]
@@ -58,7 +59,5 @@ impl SlashConfig {
     /// (economically destroyed; the address has no private key).
     /// This is the canonical, well-known incinerator pubkey.
     pub const INCINERATOR: Pubkey =
-        anchor_lang::solana_program::pubkey!(
-            "1nc1nerator11111111111111111111111111111111"
-        );
+        pubkey!("1nc1nerator11111111111111111111111111111111");
 }

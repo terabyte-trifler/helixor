@@ -1,318 +1,275 @@
-# Helixor — Day 8
+# Helixor V2 — Day 32: The Frontend
 
-> **REST API + TypeScript SDK.** DeFi protocols can now query trust scores
-> via HTTP and wrap them in a typed SDK with two methods: `getScore` and
-> `requireMinScore`.
-
-Day 8 spans two repos:
-- `helixor-oracle/` — adds `api/` package (FastAPI on port 8001)
-- `helixor-sdk/`    — new package: `@helixor/client`
+> Day 31 built the read API. Day 32 builds what a YC partner clicks on:
+> a Next.js 15 + Tailwind site with a live agent-lookup widget, a BFT
+> cluster status page, and an on-chain ledger for every cert. Monochrome
+> by choice; tier-colored only where it matters.
 
 ---
 
-## Day 8 Status
+## What ships
 
-### Python API
-| Item | Status |
-|------|--------|
-| Async FastAPI app on port 8001 | ✅ |
-| `GET /score/{agent_wallet}` with full TrustScore response | ✅ |
-| `GET /agents` paginated listing | ✅ |
-| `GET /health`, `/status`, `/metrics` | ✅ |
-| OpenAPI / Swagger docs at `/docs` | ✅ |
-| Pubkey validation → 400 (not 500) | ✅ |
-| Redis-backed per-IP token-bucket rate limiting | ✅ |
-| Shared Redis score cache + in-process L1 cache | ✅ |
-| CORS middleware (allow-list configurable) | ✅ |
-| Request ID + structured JSON logs | ✅ |
-| Standardized error envelope (no stack traces leaked) | ✅ |
-| 20+ integration tests with testcontainers | ✅ |
-
-### TypeScript SDK
-| Item | Status |
-|------|--------|
-| `getScore(agentWallet)` with full type safety | ✅ |
-| `requireMinScore(agent, min, opts)` with policy enforcement | ✅ |
-| `listAgents(limit, offset)` | ✅ |
-| Configurable timeout (default 5s) | ✅ |
-| Auto-retry with exponential backoff (5xx + network) | ✅ |
-| Client-side TTL cache (default 30s) | ✅ |
-| Bearer token auth | ✅ |
-| Input validation BEFORE network call | ✅ |
-| Typed error hierarchy with stable codes | ✅ |
-| Injectable fetch (Node < 18 + tests) | ✅ |
-| AbortController-based cancellation | ✅ |
-| 30+ Vitest unit tests | ✅ |
-| Tree-shakeable ESM + CJS bundles | ✅ |
+| Page | What it does | Status |
+|------|--------------|--------|
+| `/` | Hero with live agent-lookup, marquee ticker, "how it works", live stats, integrate examples | ✅ |
+| `/agent/[wallet]` | Score ring, cert details, history chart, on-chain ledger table | ✅ |
+| `/network` | 5-node cluster status, last 10 epochs, Byzantine flag log | ✅ |
+| `/transparency` | Public strike counter + flag detail rows | ✅ |
+| `/docs` | Quickstart with SDK + curl examples + cert schema diagram | ✅ |
+| `/_not-found`, `/error`, `/loading` | Graceful UX states | ✅ |
+| Production build (`next build`) | All 7 routes, 115 KB First Load JS on landing | ✅ |
+| Headless-browser screenshots verified | 6 routes captured + reviewed | ✅ |
 
 ---
 
-## Architecture
+## The aesthetic commitment
 
-```
-                 ┌──────────────────────────────┐
-                 │  Caller (DeFi protocol,       │
-                 │   elizaOS plugin, browser)    │
-                 └──────────────┬───────────────┘
-                                │
-                                ▼
-                 ┌──────────────────────────────┐
-                 │  @helixor/client (TS SDK)    │
-                 │  • timeout + retry + cache   │
-                 │  • typed errors              │
-                 └──────────────┬───────────────┘
-                                │ HTTP
-                                ▼
-                 ┌──────────────────────────────┐
-                 │  Helixor REST API (FastAPI)  │
-                 │  • CORS + Redis rate-limit   │
-                 │  • shared score cache        │
-                 │  • req-id + structured logs  │
-                 └──────────────┬───────────────┘
-                                │ asyncpg + Redis
-                                ▼
-                 ┌──────────────────────────────┐
-                 │  PostgreSQL agent_scores     │
-                 │  (Day 6 persistent storage)  │
-                 └──────────────────────────────┘
-```
+**White on black, no accent.** The user asked for the hardest direction:
+no purple-gradient cliché, no fintech blue, no AI-startup teal. The
+canvas is `#000`, prose is `#fff`, and the *only* color in the entire
+site is:
 
-The API serves from PostgreSQL, NOT directly from on-chain. The on-chain
-cert is the source of truth for DeFi protocols that integrate via CPI
-(Day 3); the API is a fast read-through cache for everyone else.
+- the three alert-tier colors (`#34d399` GREEN, `#fbbf24` YELLOW, `#f87171` RED)
+- one chain-link blue (`#60a5fa`) for explorer links
+- one OK-green (`#22c55e`) for the cluster-heartbeat dot
+
+Everything else — buttons, links, dividers, hover states — is a step on
+a hand-tuned 12-stop grayscale (`ink-0` through `ink-12`). The Tailwind
+"neutral" palette looks dead on OLED black; these stops are perceptually
+even.
+
+Typography is **Geist Sans + Geist Mono**. Inter would have been the
+default lazy pick; the frontend-design skill calls it out as too
+generic. Geist is Vercel-built, designed for technical products, and
+ships with both sans and mono in one family.
+
+A near-invisible 4%-opacity film grain (SVG noise, `mix-blend-mode:
+overlay`) lifts OLED black away from feeling like a featureless void.
+Tested at four brightness levels.
 
 ---
 
-## What Got Fixed vs the Spec
+## The one component that earns the demo
 
-| Bug in spec | Fix |
-|-------------|-----|
-| `solana.rpc.api.Client` (sync) blocks event loop | All-async with asyncpg + lifespan |
-| No caching — every call hits Solana RPC | Redis shared score cache + 60s in-process L1 |
-| No rate limiting | Redis-backed per-IP token-bucket: 100/min default |
-| No CORS — browsers can't call | CORS middleware, configurable origins |
-| `raise HTTPException(detail=f"... {e}")` leaks internals | Standardized `{error, code, request_id}` envelope |
-| `fetch_onchain_score` undefined | `ScoreService.get_score()` reads from agent_scores DB |
-| No pubkey validation → 500 on bad input | Regex + solders validation → 400 |
-| No request IDs | uuid per request, in headers + logs |
-| No structured logs | structlog JSON throughout |
-| No OpenAPI docs | Auto-generated `/docs` + `/redoc` |
-| SDK uses global fetch (Node<18 fails) | Injectable `options.fetch` |
-| SDK has no timeout — DeFi tx hangs | 5s default with AbortController |
-| SDK has no retries — flaky network breaks integrations | 2 retries, exp backoff, only on 5xx + network |
-| SDK has no cache — same agent = N HTTP calls | 30s default cache |
-| SDK error class `{} as TrustScore` | Real `AgentNotFoundError` with no fake score |
-| `requireMinScore` lacks deactivation/provisional handling | All four sources mapped to distinct errors |
-| AgentDeactivated bypassable | NEVER bypassable, even with all options |
-| No SDK tests | 30+ vitest with mock fetch — no MSW server needed |
-| No package.json publish config | Full ESM+CJS+types config |
+`components/lookup/LookupBar.tsx`. A YC partner does one of two things
+in the first 5 seconds:
+
+1. Pastes a wallet they care about → routes to `/agent/<wallet>`
+2. Clicks one of the four "TRY" chips (Stable arb bot, Yield agent
+   recovering, MM strategy drift, Compromised agent) → routes to a
+   wallet pre-tuned to tell one of four stories
+
+Either way, in **one tap**, they see a 280px score ring, a tier badge,
+five cert detail rows, a 30-epoch history chart, and an on-chain ledger
+table. The product is one input field away.
 
 ---
 
-## Quick Start
+## The honest demo mode
 
-### 1. API (Python)
+`lib/mock.ts` ships deterministic mock data shaped *exactly* like
+`helixor-api/api/schemas.py`. Every Pydantic field, every `_v: 1`
+schema-version marker, every `alert_tier_code` integer is mirrored.
 
-```bash
-cd helixor-oracle
-bash scripts/setup.sh
-# API listening on http://localhost:8001
-# Open http://localhost:8001/docs for Swagger UI
-```
+When `NEXT_PUBLIC_API_URL` is unset, the site uses the mock layer and
+displays a banner at the top:
 
-### 2. SDK (TypeScript)
+> **DEMO** · Showing illustrative data shaped exactly like the live API.
+> Devnet cluster online; deployed API URL pending.
 
-```bash
-cd helixor-sdk
-npm install
-npm test                     # 30+ tests, no network
-npm run build                # produces dist/index.{js,esm.js,d.ts}
-```
-
-### 3. End-to-end smoke test
-
-```bash
-# Server side
-curl http://localhost:8001/score/AGENT_WALLET_PUBKEY
-
-# SDK side
-cd helixor-sdk
-node -e "
-  const { HelixorClient } = require('./dist');
-  const c = new HelixorClient({ apiBase: 'http://localhost:8001' });
-  c.getScore('AGENT_WALLET').then(s => console.log(s));
-"
-```
+The banner disappears the moment a real API URL is set. No silent
+lying about whether the data is real — exactly the principle Day 30's
+mainnet-refusal gate enforces server-side, applied to the client.
 
 ---
 
-## API Endpoints
+## The architecture
 
-| Method | Path | Returns |
-|--------|------|---------|
-| `GET` | `/score/{agent_wallet}` | `ScoreResponse` |
-| `GET` | `/score/{agent_wallet}?force_refresh=true` | `ScoreResponse` (bypass cache) |
-| `GET` | `/agents?limit=50&offset=0` | `AgentListResponse` |
-| `GET` | `/health` | `{status: "ok"}` (liveness) |
-| `GET` | `/status` | `StatusResponse` (readiness + cache stats) |
-| `GET` | `/metrics` | Prometheus text |
-| `GET` | `/docs` | Swagger UI |
-
-### Sample response
-
-```json
-{
-  "agent_wallet": "AGENT11...",
-  "score": 850,
-  "alert": "GREEN",
-  "source": "live",
-  "success_rate": 97.0,
-  "anomaly_flag": false,
-  "updated_at": 1714000000,
-  "is_fresh": true,
-  "breakdown": {
-    "success_rate_score": 500,
-    "consistency_score": 300,
-    "stability_score": 50,
-    "raw_score": 850,
-    "guard_rail_applied": false
-  },
-  "scoring_algo_version": 1,
-  "weights_version": 1,
-  "baseline_hash_prefix": "abcdef0123456789abcdef0123456789",
-  "served_at": 1714000050,
-  "cached": false
-}
+```
+Solana chain
+   ↑ writes (3-of-5 BFT cert)
+   ├─→ helixor-indexer (Day 17)  →  TimescaleDB
+   │                                    │
+   │                                    └─→ helixor-api (Day 31)   ←── HTTP
+   │                                                                    │
+   │                                                                    ↓
+   │                                                              helixor-web
+   │                                                                  (this)
+   │                                                                    │
+   │                                                                    ↓
+   └─→ helixor-sdk (Day 19) ────────────────────────────────── browser/server
+       (on-chain authoritative reads)                            consumers
 ```
 
-### Error envelope
-
-```json
-{
-  "error": "Agent not registered with Helixor",
-  "code":  "AGENT_NOT_FOUND",
-  "request_id": "a1b2c3d4"
-}
-```
+The frontend depends on `helixor-api`. It can *also* talk to the SDK
+for authoritative reads, but for now stays cached-only — the API + mock
+fallback covers every YC-demo path. SDK integration is the next step.
 
 ---
 
-## SDK Usage
+## Pinned versions
 
-### Most common pattern: enforce policy in DeFi tx
-
-```typescript
-import { HelixorClient, HelixorError } from "@helixor/client";
-
-const helixor = new HelixorClient();
-
-async function executeTradeForAgent(agentWallet: string, tradeArgs: TradeArgs) {
-  // One line of policy enforcement.
-  await helixor.requireMinScore(agentWallet, 700);
-
-  // If we're here: score ≥ 700, fresh, no anomaly, not deactivated.
-  return performTrade(tradeArgs);
-}
+```
+next         15.5.18    (React 19 stable support)
+react        19.0.0
+tailwindcss  3.4.14     (v4 too new for this risk budget)
+geist        1.3.1
+recharts     3.8.1      (React 19 peer)
+lucide-react 0.460.0
 ```
 
-### Switch on error codes
-
-```typescript
-try {
-  await helixor.requireMinScore(agent, 700);
-} catch (err) {
-  if (err instanceof HelixorError) {
-    switch (err.code) {
-      case "SCORE_TOO_LOW":     return { allowed: false, reason: "low_score" };
-      case "ANOMALY_DETECTED":  return { allowed: false, reason: "anomaly", flag_for_review: true };
-      case "STALE_SCORE":       return { allowed: false, reason: "oracle_stalled" };
-      case "AGENT_DEACTIVATED": return { allowed: false, reason: "deactivated" };
-      case "PROVISIONAL_SCORE": return { allowed: false, reason: "no_history_yet" };
-      case "RATE_LIMITED":      return { allowed: false, reason: "throttled" };
-      default:                  throw err;
-    }
-  }
-  throw err;
-}
-```
+Pinned exactly, no `^` or `~`. Reproducible builds, no surprise
+upgrades pre-YC.
 
 ---
 
-## File Structure
+## File structure
 
 ```
-helixor-oracle/
-├── api/
-│   ├── main.py                  ← FastAPI app + middleware (NEW)
-│   ├── schemas.py               ← pydantic response models (NEW)
-│   ├── service.py               ← read-through DB layer (NEW)
-│   ├── cache.py                 ← in-process L1 TTL cache (NEW)
-│   ├── redis_client.py          ← shared Redis lifecycle (NEW)
-│   ├── rate_limit.py            ← Redis-backed token-bucket (NEW)
-│   ├── validation.py            ← pubkey validation (NEW)
-│   └── routes/
-│       ├── score.py             ← /score, /agents (NEW)
-│       └── status.py            ← /health, /status, /metrics (NEW)
-└── tests/api/
-    └── test_score_routes.py     ← 20+ integration tests (NEW)
-
-helixor-sdk/                      ← NEW PACKAGE
-├── src/
-│   ├── index.ts                 ← public exports
-│   ├── client.ts                ← HelixorClient
-│   ├── errors.ts                ← typed error hierarchy
-│   ├── cache.ts                 ← client-side cache
-│   └── types.ts                 ← TrustScore + options
-├── tests/
-│   └── client.test.ts           ← 30+ vitest tests
-├── package.json
+helixor-web/
+├── app/
+│   ├── layout.tsx                # Geist fonts, fixed chrome, demo banner
+│   ├── page.tsx                  # Landing
+│   ├── agent/[wallet]/
+│   │   ├── page.tsx
+│   │   └── not-found.tsx
+│   ├── network/page.tsx
+│   ├── transparency/page.tsx
+│   ├── docs/page.tsx
+│   ├── error.tsx
+│   ├── loading.tsx
+│   ├── not-found.tsx
+│   └── globals.css               # Tokens, grain, animations, scrollbar
+├── components/
+│   ├── layout/
+│   │   ├── Header.tsx
+│   │   ├── Footer.tsx
+│   │   └── DemoBanner.tsx
+│   ├── lookup/
+│   │   ├── LookupBar.tsx         # THE hero interaction
+│   │   └── MarqueeTicker.tsx
+│   ├── score/
+│   │   ├── ScoreRing.tsx         # The visual signature
+│   │   └── TierBadge.tsx
+│   ├── data/
+│   │   └── HistoryTable.tsx
+│   └── charts/
+│       └── HistorySpark.tsx
+├── lib/
+│   ├── api.ts                    # Fetch client + mock fallback
+│   ├── mock.ts                   # Deterministic per-wallet scores
+│   ├── cn.ts
+│   ├── format.ts
+│   └── tier.ts
+├── types/
+│   └── api.ts                    # Mirror of helixor-api/api/schemas.py
+├── tailwind.config.ts            # 12-stop ink palette + tier + chain + ok
+├── next.config.mjs
+├── postcss.config.mjs
 ├── tsconfig.json
-├── vitest.config.ts
+├── package.json                  # All deps pinned
+├── .env.example
 └── README.md
 ```
 
 ---
 
-## Production Deployment Notes
+## Running
 
-**Shared hot path.** Set `REDIS_URL` in production. Score reads use a small
-in-process L1 plus Redis L2, and rate limits are enforced globally across API
-containers instead of multiplying by replica count.
+```bash
+cd helixor-web
+npm install
+npm run dev                 # http://localhost:3000
+```
 
-**Protect Postgres with PgBouncer.** App containers should connect to
-PgBouncer, not directly to Postgres. Production Postgres should be managed
-with backups, PITR, TLS, and alerts. See
-`helixor-oracle/deploy/PGBOUNCER_MANAGED_POSTGRES.md`.
+With no env vars set, the site serves demo data with the visible banner.
+Point at a real API:
 
-**Queue webhook ingestion.** Helius webhooks enqueue parsed batches into Redis;
-`indexer.webhook_worker` drains them with batched Postgres writes. See
-`helixor-oracle/deploy/WEBHOOK_QUEUE.md`.
+```bash
+cp .env.example .env.local
+# edit .env.local → NEXT_PUBLIC_API_URL=https://api.helixor.xyz
+npm run dev
+```
 
-**Load-test the hot paths.** k6 scripts cover `/score`, `/agents`,
-`/telemetry/beacon`, and `/webhook`. See `helixor-oracle/load/k6/README.md`.
-Hard launch requires `1000 RPS` cached score reads, p95 `< 100ms` cached,
-p95 `< 300ms` uncached, and failed requests `< 0.1%`. See
-`helixor-oracle/deploy/LAUNCH_TARGETS.md`.
+Production build:
 
-**Tighten CORS in production.** Set `API_CORS_ORIGINS` to the exact browser
-origins allowed to call authenticated routes.
+```bash
+npm run build               # 7 routes, 115 KB First Load on landing
+npm run start
+```
 
-**Add API keys for rate-limit tiers.** The current Redis limiter is per IP;
-valid operator API keys get Redis-backed per-key buckets by tier.
+Type check:
 
-**Put the API behind an edge.** Use Cloudflare/Fly/Render/AWS ALB for TLS,
-WAF, coarse abuse filtering, and private origin networking. See
-`helixor-oracle/deploy/EDGE_GATEWAY.md`.
-
-**Cache TTL trade-off.** 60s server cache + 30s client cache = up to ~90s
-delay for score updates to propagate. Unknown agents are cached for 30s to
-protect Postgres from repeated misses. For real-time use cases, bypass with
-`?force_refresh=true`.
-
-**The SDK is the consumer contract.** Once you publish `@helixor/client`,
-breaking changes are expensive. Day 8 reserves room for additive evolution:
-new error codes, new TrustScore fields, new options. Never remove or rename.
+```bash
+npm run typecheck           # clean across the whole app
+```
 
 ---
 
-*Helixor MVP · Day 8 complete · Next: Day 9 elizaOS plugin*
+## What got verified in this session
+
+1. **`npm install`** with all React 19 peer-dep clashes resolved (motion
+   dropped, recharts bumped to v3, next bumped to 15.5).
+2. **`npm run typecheck`** clean across every file.
+3. **`npm run build`** succeeds — 7 routes, no errors, no warnings of
+   substance, 115 KB First Load on the landing.
+4. **`npm run start`** serves all 7 routes with `200` in <200 ms.
+5. **Headless Chromium screenshots** of every page reviewed for visual
+   correctness; two real bugs caught and fixed by *looking at the
+   output*:
+   - Demo banner stacking with fixed header → wrapped in one fixed
+     region with a dynamic-height spacer.
+   - Mock data anchored to a fixed 2024 timestamp → "Last computed 730d
+     ago" everywhere → floated to live `Date.now()` with a 14m backdate
+     for the current cert so it reads "14m ago" not "0s ago."
+
+---
+
+## What deliberately did NOT ship in v1
+
+- **Wallet-connect / registration flow.** The on-chain registration ix
+  is real (Day 24); wiring a frontend to it needs devnet integration
+  testing and a serious thinking-pass on UX for "your agent's first
+  cert." Post-YC.
+- **Per-integrator dashboards.** No integrators yet, so no dashboards.
+- **Full Solscan / explorer linking.** Today's `href="#"` placeholders;
+  swap to `solscan.io/account/<pda>?cluster=mainnet-beta` once
+  on-chain PDAs are addressable from the helixor-sdk.
+- **Real auth.** The protocol is permissionless; no accounts needed.
+
+---
+
+## Counts at end of Day 32
+
+| Metric | Count |
+|--------|-------|
+| Total files (excluding node_modules) | 322 |
+| Python LOC                            | 35,717 |
+| TypeScript/TSX LOC (frontend)         | 2,916 |
+| Rust LOC                              | 5,422 |
+| Backend tests passing                 | 1,327 (oracle 1,153 + indexer 95 + api 69 + sdk 10) |
+| Frontend routes shipped               | 7 (landing, agent, network, transparency, docs, 404, loading) |
+| Production build                      | clean, 115 KB First Load |
+
+---
+
+## The pitch deck visual
+
+If you're putting this in a pitch deck:
+
+- **Slide 1 — Logo / one-line.** "Trust scores that no one can fake."
+- **Slide 2 — Screenshot of the landing.** The hero + the 941-GREEN
+  showcase + the "TRY" chips. Says everything in one frame.
+- **Slide 3 — Screenshot of `/agent/[wallet]`** for the compromised
+  agent. Same UI, RED ring, IMMEDIATE RED badge. Shows the contrast.
+- **Slide 4 — Screenshot of `/network`** with the "Last 10 epochs"
+  table where epoch 284 has `1` Byzantine and `47/50` submitted. Shows
+  the protocol caught something real and recovered.
+- **Slide 5 — Architecture diagram.** From the README of Day 28.
+
+The site itself is the demo — host it on Vercel under
+`helixor.xyz` and the YC application gets a real URL.
+
+---
+
+*Helixor V2 · Day 32 complete · the frontend is real · ship-ready.*

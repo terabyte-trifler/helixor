@@ -207,7 +207,7 @@ pub fn validate_score_alert(
 
     let consistent = match tier {
         AlertTier::Green  => score >= GREEN_THRESHOLD,
-        AlertTier::Yellow => (YELLOW_THRESHOLD..GREEN_THRESHOLD).contains(&score),
+        AlertTier::Yellow => score >= YELLOW_THRESHOLD && score < GREEN_THRESHOLD,
         AlertTier::Red    => score < YELLOW_THRESHOLD,
     };
     require!(consistent, CertificateError::InconsistentScoreAlert);

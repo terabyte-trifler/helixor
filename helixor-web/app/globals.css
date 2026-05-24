@@ -1,0 +1,170 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+ * Helixor — global styles
+ *
+ * Black canvas, white text, JetBrains-Mono-for-data discipline. The only
+ * texture in the site is a near-invisible film-grain noise layer that
+ * keeps OLED black from looking dead. Everything else is solid color and
+ * crisp type.
+ * ========================================================================== */
+
+:root {
+  color-scheme: dark;
+}
+
+html, body {
+  background: #000;
+  color: #ffffff;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv11";  /* Geist's stylistic alternates */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Selection — single chromatic moment in chrome: a quiet white wash */
+::selection {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+/* Focus ring — visible but restrained, white at 60% opacity */
+*:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.6);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ----------------------------------------------------------------------------
+ * The film grain.
+ *
+ * A 2KB SVG noise pattern, fixed-position, blend-mode soft-light at 3%
+ * opacity. Invisible if you're looking for it; the page feels wrong
+ * without it. Stops OLED black from being a featureless void.
+ * -------------------------------------------------------------------------- */
+.grain::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='1'/></svg>");
+  background-size: 200px 200px;
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+  z-index: 1;
+}
+
+/* ----------------------------------------------------------------------------
+ * The hairline rule. Used to divide sections without imposing weight.
+ * Tailwind's `border-*` defaults are too heavy at 1px; we want a *hairline*.
+ * 0.5px in CSS = 1 physical px on Retina, looks like a single hair on standard.
+ * -------------------------------------------------------------------------- */
+.hairline {
+  background: #1a1a1a;
+  height: 1px;
+  width: 100%;
+}
+
+.hairline-y {
+  background: #1a1a1a;
+  width: 1px;
+}
+
+/* ----------------------------------------------------------------------------
+ * Mono numerals — used wherever a number is data, not prose.
+ * Tabular figures so columns of numbers line up.
+ * -------------------------------------------------------------------------- */
+.mono {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "ss03";
+}
+
+/* ----------------------------------------------------------------------------
+ * Section eyebrow — the small all-caps label above every section heading.
+ * Stripe / Linear use this pattern; it gives editorial rhythm.
+ * -------------------------------------------------------------------------- */
+.eyebrow {
+  font-size: 0.6875rem;          /* 11px */
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #808080;
+}
+
+/* ----------------------------------------------------------------------------
+ * The marquee — used for the "what's been scored" live ticker at the
+ * bottom of the landing page. Pure CSS, no JS.
+ * -------------------------------------------------------------------------- */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+.marquee-track {
+  animation: marquee 45s linear infinite;
+  will-change: transform;
+}
+
+/* ----------------------------------------------------------------------------
+ * Score gauge — the ring that surrounds the score number on the hero.
+ * The fill animation runs once on first paint. CSS variables let TypeScript
+ * pass in the target offset.
+ * -------------------------------------------------------------------------- */
+.score-ring {
+  transform: rotate(-90deg);
+}
+
+.score-ring__fill {
+  stroke-dasharray: var(--circ);
+  stroke-dashoffset: var(--circ);
+  animation: score-fill 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.15s forwards;
+}
+
+@keyframes score-fill {
+  to { stroke-dashoffset: var(--target); }
+}
+
+/* ----------------------------------------------------------------------------
+ * Reveal animation — used by the hero text + landing sections. Each child
+ * gets a slightly later delay via `style={{ '--d': '...' }}`.
+ * -------------------------------------------------------------------------- */
+.reveal {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: reveal 0.7s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0s) forwards;
+}
+
+@keyframes reveal {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ----------------------------------------------------------------------------
+ * Scrollbar — restrained, near-invisible, dark-mode native.
+ * -------------------------------------------------------------------------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #262626; border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: #333333; }
+
+/* ----------------------------------------------------------------------------
+ * Shake — for invalid input feedback on the LookupBar.
+ * -------------------------------------------------------------------------- */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+
+/* ----------------------------------------------------------------------------
+ * No emoji rendering as system fallback — even if a stray character slips
+ * through, ensure consistent monospace fallback.
+ * -------------------------------------------------------------------------- */
+input, button, textarea, select {
+  font-family: inherit;
+}

@@ -39,21 +39,6 @@ SEARCH_ROOTS = [
     REPO_ROOT / "helixor-api",
 ]
 
-SKIP_DIR_NAMES = {
-    ".git",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".venv",
-    "__pycache__",
-    "build",
-    "dist",
-    "node_modules",
-    "site-packages",
-    "target",
-    "vendor",
-}
-
 # Allow-listed entrypoint paths — the guard does not need to fire here.
 # Each entry is justified inline.
 ALLOWLIST = {
@@ -107,8 +92,6 @@ def main() -> int:
         if not root.exists():
             continue
         for path in root.rglob("*.py"):
-            if any(part in SKIP_DIR_NAMES for part in path.parts):
-                continue
             text = path.read_text()
             if not looks_like_entrypoint(text):
                 continue
