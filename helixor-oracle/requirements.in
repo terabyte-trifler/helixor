@@ -1,0 +1,56 @@
+# =============================================================================
+# helixor-oracle/requirements.in — direct, pinned production dependencies.
+#
+# VULN-25 SUPPLY CHAIN
+# --------------------
+# This file is the SOURCE OF TRUTH for the oracle node's direct (not
+# transitive) Python dependencies. Every line is an EXACT version pin
+# (`pkg==X.Y.Z`) — never a range, never a bare name. A range here
+# means tomorrow's `pip install` resolves a different version than
+# what was audited yesterday; an attacker who registers a malicious
+# release inside that range gets code execution on the oracle node.
+#
+# Workflow:
+#   1. Edit THIS file when adding/upgrading a direct dep.
+#   2. Re-run `bash scripts/regen_requirements.sh` (root of repo).
+#      That calls `pip-compile --generate-hashes` and emits
+#      `helixor-oracle/requirements.txt` with --hash=sha256:... lines
+#      for the direct deps AND every transitive dep pip resolves.
+#   3. Commit BOTH this `.in` and the regenerated `.txt`.
+#   4. Production deploys MUST run
+#         pip install --require-hashes -r helixor-oracle/requirements.txt
+#      so a hash drift (compromised mirror, MITM, registered ghost
+#      version) trips before the bytes are imported.
+#
+# Why direct-only here: the `.txt` mirrors the full closure (direct +
+# transitive) and that's what `pip install` consumes. The `.in` is the
+# editable surface — humans read & maintain THIS file.
+# =============================================================================
+
+# Ed25519 signing — the SINGLE most security-critical dependency. A
+# compromise here exfiltrates the cluster signing key on first sign().
+# Mirror Solana's signature scheme; pin EXACTLY.
+cryptography==48.0.0
+
+# Solana RPC client (transactions, account reads, commitment management).
+solana==0.36.12
+
+# Rust-backed Solana primitives (Pubkey, Keypair, MessageV0, etc.).
+# Compiled extension — pin EXACTLY; an attacker who bumps the patch
+# version ships native code that runs on import.
+solders==0.27.1
+
+# Structured logging.
+structlog==25.5.0
+
+# Inter-node gRPC transport for cluster pipeline.
+grpcio==1.80.0
+protobuf==7.35.0
+
+# TimescaleDB driver — used only at production-deploy time (tests use
+# in-memory repos). The optional-dep label is in the systemd env
+# layer; keeping it here so the audit-locked closure includes it.
+asyncpg==0.30.0
+
+# Prometheus exposition for metrics.
+prometheus_client==0.21.0

@@ -55,6 +55,30 @@ file.
       `apply_delta_guard_rail` clamp AND a consumer-side velocity check
       because cert-account storage cannot carry `previous_score` without
       a backwards-incompatible migration.
+- [ ] **VULN-25 supply-chain sweep clean** —
+      `python3 audit/supply_chain_check.py --json audit/reports/supply_chain.json`
+      reports **0 HARD findings**. Before mainnet:
+        1. Run `bash scripts/regen_requirements.sh` to produce
+           `helixor-{oracle,api,indexer}/requirements.txt` with full
+           SHA256 hash closures via `pip-compile --generate-hashes`.
+           Commit BOTH `.in` and `.txt` files.
+        2. Verify `helixor-programs/Cargo.lock` is committed (it
+           already is — Rust transitives are pinned).
+        3. Confirm `oracle/cluster/signer.py` exports the `Signer`
+           Protocol with `InProcessSigner` (default) and `HSMSigner`
+           (production swap-in). `HSMSigner.sign` MUST raise
+           `NotImplementedError` on the base class so a misconfigured
+           production deploy that forgot the HSM subclass fails
+           LOUDLY rather than silently falling back.
+        4. Confirm `launch/deploy/systemd/oracle-node@.service`
+           still carries the supply-chain hardening directives:
+           `ReadOnlyPaths=/opt/helixor`, `SystemCallFilter=@system-service`,
+           `CapabilityBoundingSet=` (empty), `MemoryDenyWriteExecute=true`,
+           `ProtectSystem=strict`.
+      Production install command (in the deploy script):
+      `/opt/helixor/venv/bin/pip install --require-hashes --no-deps -r helixor-oracle/requirements.txt`.
+      A hash drift (compromised mirror, MITM, registered ghost
+      version) trips here BEFORE the bytes ever import.
 - [ ] **VULN-24 adversarial-ML sweep clean** —
       `python3 audit/adversarial_ml_check.py --json audit/reports/adversarial_ml.json`
       reports **0 HARD findings**. All four mitigations against
@@ -204,6 +228,17 @@ the entry gate.
       `GET /agents/{wallet}/safe_score` or the SDK's `SafeCertReader`
       over the raw `getScore()` path; raw `getScore()` is for telemetry
       only, never for gating value transfer.
+- [ ] **VULN-25 supply chain locked at runtime.** On each oracle host:
+      `sudo systemctl show oracle-node@0 | grep -E '^(ReadOnlyPaths|SystemCallFilter|CapabilityBoundingSet|MemoryDenyWriteExecute)='`
+      reports the exact directives from the committed unit file.
+      `sudo systemd-analyze security oracle-node@0.service` reports
+      an overall exposure score < 2.0 (SAFE). The deploy script's
+      pip step used `--require-hashes` (grep the install log for
+      the literal flag). `pip check` returns no inconsistencies.
+      The per-host firewall (iptables/nftables — see
+      `launch/runbooks/supply_chain.md`) drops all egress from the
+      `helixor` UID except the documented RPC + indexer + peer-RPC
+      destinations.
 - [ ] **VULN-24 flag obfuscation live.** From an external host,
       `curl -s $HELIXOR_API_URL/agents/<wallet>/health | jq .` returns
       a body that contains `flag_set_token` (a 16-hex-char string) and

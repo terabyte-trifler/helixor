@@ -69,6 +69,11 @@ run "adversarial ml sweep"  python3 audit/adversarial_ml_check.py \
     --json audit/reports/adversarial_ml.json
 
 
+# ── 1g. VULN-25 supply-chain sweep ──────────────────────────────────────────
+run "supply chain sweep"  python3 audit/supply_chain_check.py \
+    --json audit/reports/supply_chain.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

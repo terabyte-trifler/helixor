@@ -128,6 +128,14 @@ def sign_cert_digest(
     """
     Have `keypair` sign the cert digest. Returns the ClusterSignature
     record other nodes can aggregate.
+
+    VULN-25 note: `keypair` only needs to satisfy
+    `oracle.cluster.signer.Signer` (`.public_key` + `.sign`). A
+    production deployment can wrap a `NodeKeypair` in
+    `InProcessSigner`, or — preferably — pass an HSM-backed signer
+    whose private key never lives in this process. The type hint
+    remains `NodeKeypair` because every current caller passes one;
+    duck-typing here is the swap point.
     """
     if len(digest) != 32:
         raise ValueError("digest must be 32 bytes")

@@ -64,6 +64,33 @@ RestrictSUIDSGID=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 
+# ── VULN-25 supply-chain hardening ──────────────────────────────────────────
+# Read-only root + tightly-scoped writable paths. The venv at
+# /opt/helixor is read-only — a compromised dependency cannot
+# silently rewrite its own bytes on disk to survive a restart.
+# Writable state is confined to /var/lib/helixor (db cache, baseline
+# snapshots) and /var/log/helixor (rotated journals).
+ReadOnlyPaths=/opt/helixor
+ReadWritePaths=/var/lib/helixor /var/log/helixor
+ProtectKernelLogs=true
+ProtectHostname=true
+ProtectClock=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictRealtime=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @debug @reboot
+SystemCallArchitectures=native
+# Drop every capability — the node never needs to listen on a
+# privileged port or open a raw socket.
+CapabilityBoundingSet=
+AmbientCapabilities=
+# Network egress: production deploys layer an iptables/nftables
+# allowlist in front (see launch/runbooks/supply_chain.md). Systemd
+# itself cannot enforce a DNS-based allowlist — IPAddressAllow takes
+# IP/CIDR only, set in the env file per-cluster.
+
 # Bound resource use — keeps a runaway node from starving the host.
 MemoryMax=2G
 CPUQuota=200%
