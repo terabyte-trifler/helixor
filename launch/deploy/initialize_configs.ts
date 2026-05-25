@@ -101,7 +101,14 @@ async function main(): Promise<number> {
     await initOracleConfig(provider, programs, adminKp, oracleKeys);
 
     // ── 2. certificate-issuer: IssuerConfig ─────────────────────────────────
-    await initIssuerConfig(provider, programs, adminKp, oracleKeys, a.threshold);
+    // VULN-16: pin the canonical health-oracle program ID into IssuerConfig.
+    // `issue_certificate`'s cpi_guard then refuses any CPI from a program
+    // other than this one (and direct top-level calls remain accepted).
+    const healthOracleProgramId = new PublicKey(programs["health-oracle"].program_id);
+    await initIssuerConfig(
+        provider, programs, adminKp, oracleKeys, a.threshold,
+        healthOracleProgramId,
+    );
 
     // ── 3. slash-authority: SlashConfig ─────────────────────────────────────
     // VULN-04: admin pays rent and becomes the update authority. The
@@ -154,11 +161,15 @@ async function initOracleConfig(
 
 
 async function initIssuerConfig(
-    provider: anchor.AnchorProvider,
-    programs: Record<string, any>,
-    admin: Keypair,
-    clusterKeys: PublicKey[],
-    threshold: number,
+    provider:               anchor.AnchorProvider,
+    programs:               Record<string, any>,
+    admin:                  Keypair,
+    clusterKeys:            PublicKey[],
+    threshold:              number,
+    // VULN-16: the canonical health-oracle program ID. The cpi_guard in
+    // issue_certificate uses this as the sole accepted CPI caller; any
+    // other program that tries to CPI in is rejected with UntrustedCpiCaller.
+    healthOracleProgramId:  PublicKey,
 ): Promise<void> {
     const idl = require("../../helixor-programs/target/idl/certificate_issuer.json");
     const programId = new PublicKey(programs["certificate-issuer"].program_id);
@@ -177,6 +188,7 @@ async function initIssuerConfig(
             admin.publicKey,                            // issuer_node (rent payer)
             clusterKeys,
             threshold,
+            healthOracleProgramId,                      // VULN-16 CPI allow-list
         )
         .accounts({
             issuerConfig:  pda,
@@ -184,7 +196,8 @@ async function initIssuerConfig(
             systemProgram: SystemProgram.programId,
         })
         .rpc();
-    console.log(`✅ certificate-issuer.IssuerConfig init  tx=${sig}`);
+    console.log(`✅ certificate-issuer.IssuerConfig init  tx=${sig}  ` +
+                `(cpi-allow-list = health-oracle ${healthOracleProgramId.toBase58()})`);
 }
 
 

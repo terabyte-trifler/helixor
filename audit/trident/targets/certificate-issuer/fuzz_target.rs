@@ -36,10 +36,14 @@ pub enum FuzzInstruction {
 
 #[derive(Arbitrary, Debug)]
 pub struct InitConfigArgs {
-    pub issuer_node:   Pubkey,
-    pub cluster_keys:  Vec<Pubkey>,    // bounded 0..=8 by Trident; covers
-                                       // reject (2, 6+) and accept (1,3,4,5)
-    pub threshold:     u8,             // u8 — covers 0, all valid, overflow
+    pub issuer_node:              Pubkey,
+    pub cluster_keys:             Vec<Pubkey>,    // bounded 0..=8 by Trident; covers
+                                                  // reject (2, 6+) and accept (1,3,4,5)
+    pub threshold:                u8,             // u8 — covers 0, all valid, overflow
+    // VULN-16: the canonical health-oracle program ID. Arbitrary Pubkey
+    // (including Pubkey::default() = "CPI allow-list disabled") so the
+    // fuzzer explores both enabled and disabled allow-list configurations.
+    pub health_oracle_program_id: Pubkey,
 }
 
 #[derive(Arbitrary, Debug)]
@@ -87,6 +91,7 @@ fn fuzz_iteration(fuzz_data: FuzzData, client: &mut impl FuzzClient) {
         FuzzInstruction::InitializeConfig(args) => {
             ci_ix::initialize_config(
                 client, args.issuer_node, args.cluster_keys, args.threshold,
+                args.health_oracle_program_id,
             )
         }
         FuzzInstruction::RecordBaseline(args) => {

@@ -129,6 +129,12 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
         submitter.publicKey,                     // issuer_node (rent payer)
         clusterPubkeys,
         3,                                       // threshold
+        // VULN-16: this test exercises DIRECT (top-level) issueCertificate
+        // calls only — no CPI path. Pubkey.default() disables the CPI
+        // allow-list, which is the strictest setting (every CPI refused);
+        // direct calls still work because the guard accepts caller_pid ==
+        // certificate_issuer.programId regardless of allow-list state.
+        PublicKey.default,                       // health_oracle_program_id
       )
       .accounts({
         issuerConfig: issuerConfigPda(),

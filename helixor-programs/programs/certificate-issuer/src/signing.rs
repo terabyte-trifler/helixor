@@ -298,6 +298,10 @@ mod tests {
             cluster_keys,
             threshold,
             bump: 255,
+            // VULN-16: signature-verification tests don't exercise the
+            // CPI path; a zero allow-list keeps the helper purely about
+            // signatures.
+            health_oracle_program_id: Pubkey::default(),
         }
     }
 

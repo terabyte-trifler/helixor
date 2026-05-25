@@ -27,6 +27,7 @@
 
 use anchor_lang::prelude::*;
 
+pub mod cpi_guard;
 pub mod errors;
 pub mod events;
 pub mod instructions;
@@ -47,14 +48,21 @@ pub mod certificate_issuer {
     /// keys and the threshold required for cert writes. `issuer_node` is
     /// retained for backward compatibility (single-key deployment / rent
     /// payer); `cluster_keys` + `threshold` are the Phase-4 BFT authority.
+    ///
+    /// VULN-16 (HIGH): the config also carries
+    /// `health_oracle_program_id` — the canonical health-oracle program
+    /// permitted to CPI into `issue_certificate`. Pass `Pubkey::default()`
+    /// to refuse every CPI caller (safe for cluster-direct-only
+    /// deployments). The check is enforced inside `issue_certificate`.
     pub fn initialize_config(
-        ctx:          Context<InitializeConfig>,
-        issuer_node:  Pubkey,
-        cluster_keys: Vec<Pubkey>,
-        threshold:    u8,
+        ctx:                       Context<InitializeConfig>,
+        issuer_node:               Pubkey,
+        cluster_keys:              Vec<Pubkey>,
+        threshold:                 u8,
+        health_oracle_program_id:  Pubkey,
     ) -> Result<()> {
         instructions::initialize_config::handler(
-            ctx, issuer_node, cluster_keys, threshold,
+            ctx, issuer_node, cluster_keys, threshold, health_oracle_program_id,
         )
     }
 

@@ -94,9 +94,11 @@ fn digest_changes_with_agent() {
 
 #[test]
 fn issuer_config_space_reserves_room_for_the_max_cluster() {
-    // 8 disc + 32 authority + 32 issuer_node + 4 Vec prefix
-    // + 32 * MAX_CLUSTER_KEYS (5) + 1 threshold + 1 bump = 238
-    assert_eq!(IssuerConfig::SPACE, 238);
+    //   8 disc + 32 authority + 32 issuer_node + 4 Vec prefix
+    // + 32 * MAX_CLUSTER_KEYS (5) + 1 threshold + 1 bump      = 238
+    // + 32 health_oracle_program_id              (VULN-16)    =  32
+    // = 270
+    assert_eq!(IssuerConfig::SPACE, 270);
     assert_eq!(IssuerConfig::MAX_CLUSTER_KEYS, 5);
 }
 
@@ -116,6 +118,7 @@ fn is_cluster_key_recognises_members() {
         cluster_keys: vec![k0, k1, k2],
         threshold: 2,
         bump: 0,
+        health_oracle_program_id: Pubkey::default(),
     };
     assert!(config.is_cluster_key(&k0));
     assert!(config.is_cluster_key(&k1));

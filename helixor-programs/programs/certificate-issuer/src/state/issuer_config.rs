@@ -48,6 +48,16 @@ pub struct IssuerConfig {
     pub threshold:     u8,
     /// Canonical PDA bump.
     pub bump:          u8,
+    /// VULN-16: the canonical health-oracle program ID — the only OTHER
+    /// program allowed to CPI into `issue_certificate`. A direct
+    /// (top-level) call to `issue_certificate` is also accepted (the
+    /// Phase-4 cluster-direct path, gated by the threshold signatures);
+    /// a CPI from any other program is rejected with
+    /// `UntrustedCpiCaller`. Setting `Pubkey::default()` (all-zero)
+    /// DISABLES the CPI allow-list — appropriate only for a deployment
+    /// that never uses the CPI path, since the threshold sigs are still
+    /// the primary gate.
+    pub health_oracle_program_id: Pubkey,
 }
 
 impl IssuerConfig {
@@ -64,8 +74,9 @@ impl IssuerConfig {
     /// + 32 * MAX_CLUSTER_KEYS   (reserved element slots)
     /// + 1  threshold
     /// + 1  bump
+    /// + 32 health_oracle_program_id           (VULN-16)
     pub const SPACE: usize =
-        8 + 32 + 32 + 4 + (32 * Self::MAX_CLUSTER_KEYS) + 1 + 1;
+        8 + 32 + 32 + 4 + (32 * Self::MAX_CLUSTER_KEYS) + 1 + 1 + 32;
 
     /// The PDA seed.
     pub const SEED: &'static [u8] = b"issuer_config";
@@ -73,5 +84,15 @@ impl IssuerConfig {
     /// True iff `key` is one of the cluster's signing keys.
     pub fn is_cluster_key(&self, key: &Pubkey) -> bool {
         self.cluster_keys.contains(key)
+    }
+
+    /// VULN-16: True iff the CPI allow-list is enabled (i.e. the operator
+    /// configured a non-zero canonical health-oracle program ID). A
+    /// disabled (zero) allow-list means CPI invocations from any program
+    /// are refused unless the top-level call is `certificate_issuer`
+    /// itself — the safe default for a deployment that does not use the
+    /// CPI path at all.
+    pub fn has_health_oracle_program(&self) -> bool {
+        self.health_oracle_program_id != Pubkey::default()
     }
 }

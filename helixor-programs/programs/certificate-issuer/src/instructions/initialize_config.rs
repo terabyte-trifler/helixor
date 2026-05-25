@@ -33,10 +33,16 @@ pub struct InitializeConfig<'info> {
 }
 
 pub fn handler(
-    ctx:          Context<InitializeConfig>,
-    issuer_node:  Pubkey,
-    cluster_keys: Vec<Pubkey>,
-    threshold:    u8,
+    ctx:                       Context<InitializeConfig>,
+    issuer_node:               Pubkey,
+    cluster_keys:              Vec<Pubkey>,
+    threshold:                 u8,
+    // VULN-16: the canonical health-oracle program ID — the only OTHER
+    // program permitted to CPI into `issue_certificate`. Pass
+    // `Pubkey::default()` only if the deployment never uses the CPI
+    // submit-score path (the safe default refuses every CPI from any
+    // program other than ourselves).
+    health_oracle_program_id:  Pubkey,
 ) -> Result<()> {
     // ── Validate the cluster ────────────────────────────────────────────────
     require!(
@@ -75,15 +81,24 @@ pub fn handler(
     }
 
     let config = &mut ctx.accounts.issuer_config;
-    config.authority    = ctx.accounts.admin.key();
-    config.issuer_node  = issuer_node;
-    config.cluster_keys = cluster_keys;
-    config.threshold    = threshold;
-    config.bump         = ctx.bumps.issuer_config;
+    config.authority                = ctx.accounts.admin.key();
+    config.issuer_node              = issuer_node;
+    config.cluster_keys             = cluster_keys;
+    config.threshold                = threshold;
+    config.bump                     = ctx.bumps.issuer_config;
+    config.health_oracle_program_id = health_oracle_program_id;
 
     msg!(
-        "certificate-issuer config initialised: {}-key cluster, threshold {}-of-{}",
-        config.cluster_keys.len(), config.threshold, config.cluster_keys.len(),
+        "certificate-issuer config initialised: {}-key cluster, threshold {}-of-{}, \
+         CPI allow-list {}",
+        config.cluster_keys.len(),
+        config.threshold,
+        config.cluster_keys.len(),
+        if config.has_health_oracle_program() {
+            "enabled"
+        } else {
+            "DISABLED (no CPI caller permitted)"
+        },
     );
     Ok(())
 }

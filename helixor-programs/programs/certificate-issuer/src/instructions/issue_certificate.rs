@@ -102,6 +102,17 @@ pub fn handler(
     flags:         u32,
     immediate_red: bool,
 ) -> Result<()> {
+    // ── VULN-16: refuse a CPI from anything but the canonical health-oracle ─
+    // BEFORE we touch the inputs, before we hit the threshold-sig check,
+    // before we mutate the account. The check is a few cheap sysvar reads
+    // and refuses the call early — an attacker-deployed program that
+    // CPI-invokes us never reaches the signature path.
+    crate::cpi_guard::assert_trusted_caller(
+        &ctx.accounts.instructions_sysvar.to_account_info(),
+        &ctx.accounts.issuer_config,
+        &crate::ID,
+    )?;
+
     // ── Validate the inputs ─────────────────────────────────────────────────
     require!(epoch > 0, CertificateError::ZeroEpoch);
     require!(

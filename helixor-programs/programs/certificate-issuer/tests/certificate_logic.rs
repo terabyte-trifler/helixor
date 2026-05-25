@@ -43,11 +43,16 @@ fn baseline_stats_size_constants_are_correct() {
 
 #[test]
 fn issuer_config_size_is_correct() {
-    // Day 27 extends IssuerConfig with cluster_keys + threshold:
+    // Day 27 extends IssuerConfig with cluster_keys + threshold.
+    // VULN-16 extends it further with health_oracle_program_id:
     //   8 disc + 32 authority + 32 issuer_node
-    // + 4 Vec prefix + 32*5 reserved key slots + 1 threshold + 1 bump = 238
-    assert_eq!(IssuerConfig::SPACE, 8 + 32 + 32 + 4 + (32 * 5) + 1 + 1);
-    assert_eq!(IssuerConfig::SPACE, 238);
+    // + 4 Vec prefix + 32*5 reserved key slots + 1 threshold + 1 bump
+    // + 32 health_oracle_program_id                                  = 270
+    assert_eq!(
+        IssuerConfig::SPACE,
+        8 + 32 + 32 + 4 + (32 * 5) + 1 + 1 + 32,
+    );
+    assert_eq!(IssuerConfig::SPACE, 270);
 }
 
 #[test]
@@ -151,11 +156,14 @@ fn threshold_boundaries_are_exact() {
 
 fn cfg_with(cluster_keys: Vec<Pubkey>) -> IssuerConfig {
     IssuerConfig {
-        authority:    Pubkey::new_unique(),
-        issuer_node:  Pubkey::new_unique(),
+        authority:                Pubkey::new_unique(),
+        issuer_node:              Pubkey::new_unique(),
         cluster_keys,
-        threshold:    3,
-        bump:         255,
+        threshold:                3,
+        bump:                     255,
+        // VULN-16: tests for VULN-06 baseline-writer logic do not touch
+        // the CPI path, so a zero allow-list is the right default.
+        health_oracle_program_id: Pubkey::default(),
     }
 }
 

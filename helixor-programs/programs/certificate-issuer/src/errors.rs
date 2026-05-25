@@ -58,4 +58,14 @@ pub enum CertificateError {
     #[msg("baseline epoch is not strictly greater than the previously recorded \
            epoch — baseline records are appendable only and monotonic")]
     BaselineEpochNotMonotonic = 6042,
+
+    // ── VULN-16: CPI caller allow-list ──────────────────────────────────────
+    #[msg("issue_certificate was CPI-invoked by an unrecognised program — \
+           only a direct top-level call or a CPI from the configured \
+           health_oracle program is permitted")]
+    UntrustedCpiCaller = 6050,
+    #[msg("issue_certificate could not read the top-level instruction from \
+           the Instructions sysvar — refusing to issue a cert without \
+           caller attribution")]
+    CallerIntrospectionFailed = 6051,
 }
