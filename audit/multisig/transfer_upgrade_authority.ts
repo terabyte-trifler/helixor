@@ -22,13 +22,28 @@
 //
 //   squads-cli multisig create --members <5 pubkeys> --threshold 3
 //
-// USAGE
-// -----
+// USAGE (batch, all 3 programs)
+// -----------------------------
 //   npx ts-node audit/multisig/transfer_upgrade_authority.ts \\
 //     --vault       <SquadsVaultPDA> \\
 //     --keypair     ~/.config/solana/deployer.json \\
 //     --cluster     mainnet-beta \\
 //     --execute
+//
+// USAGE (per-program — VULN-19 atomic flow from deploy_programs.sh)
+// -----------------------------------------------------------------
+//   npx ts-node audit/multisig/transfer_upgrade_authority.ts \\
+//     --program     health-oracle \\
+//     --program-id  <JustDeployedProgramId> \\
+//     --vault       <SquadsVaultPDA> \\
+//     --keypair     ~/.config/solana/deployer.json \\
+//     --cluster     mainnet-beta \\
+//     --execute
+//
+// `--program X --program-id Y` restricts the transfer to a single program
+// and overrides the hard-coded PROGRAMS map. This is what
+// launch/deploy/deploy_programs.sh calls IMMEDIATELY after each
+// `anchor deploy`, closing the window between deploy and transfer.
 //
 // Without --execute, the script is DRY-RUN: it builds, prints, and
 // SIMULATES the txs but does not send. The audit operator reviews the
@@ -62,7 +77,12 @@ const BPF_UPGRADEABLE_LOADER = new PublicKey(
 // ─────────────────────────────────────────────────────────────────────────────
 
 function parseArgs(): {
-    vault: string; keypair: string; cluster: string; execute: boolean;
+    vault: string;
+    keypair: string;
+    cluster: string;
+    execute: boolean;
+    onlyProgram: string | null;
+    onlyProgramId: string | null;
 } {
     const argv = process.argv.slice(2);
     const get = (k: string, fallback?: string): string => {
@@ -73,11 +93,17 @@ function parseArgs(): {
         }
         return argv[i + 1];
     };
+    const has = (k: string): boolean => argv.indexOf(`--${k}`) >= 0;
     return {
         vault:   get("vault"),
         keypair: get("keypair"),
         cluster: get("cluster", "devnet"),
         execute: argv.includes("--execute"),
+        // VULN-19: --program restricts to a single program; --program-id
+        // overrides the hard-coded PROGRAMS map with the just-deployed
+        // address. Both must be supplied together when used.
+        onlyProgram:   has("program")    ? get("program")    : null,
+        onlyProgramId: has("program-id") ? get("program-id") : null,
     };
 }
 
@@ -171,9 +197,39 @@ async function main(): Promise<number> {
     console.log(`Cluster:            ${clusterUrl}`);
     console.log(`Mode:               ${args.execute ? "EXECUTE" : "DRY-RUN"}\n`);
 
+    // VULN-19: build the program map to iterate. In per-program mode
+    // (--program X --program-id Y) we substitute the just-deployed id
+    // for the hard-coded placeholder; in batch mode we use PROGRAMS as-is.
+    let programMap: Record<string, string>;
+    if (args.onlyProgram !== null || args.onlyProgramId !== null) {
+        if (args.onlyProgram === null || args.onlyProgramId === null) {
+            console.error(
+                "--program and --program-id must be supplied together " +
+                "(per-program atomic mode driven by deploy_programs.sh)",
+            );
+            return 2;
+        }
+        if (!(args.onlyProgram in PROGRAMS)) {
+            console.error(
+                `--program ${args.onlyProgram} is not in the known set ` +
+                `${JSON.stringify(Object.keys(PROGRAMS))}`,
+            );
+            return 2;
+        }
+        // Validate program-id parses before we go further.
+        try { new PublicKey(args.onlyProgramId); }
+        catch {
+            console.error(`--program-id ${args.onlyProgramId} is not a valid pubkey`);
+            return 2;
+        }
+        programMap = { [args.onlyProgram]: args.onlyProgramId };
+    } else {
+        programMap = PROGRAMS as unknown as Record<string, string>;
+    }
+
     const report: Record<string, string> = {};
 
-    for (const [name, idStr] of Object.entries(PROGRAMS)) {
+    for (const [name, idStr] of Object.entries(programMap)) {
         const programId = new PublicKey(idStr);
         const dataPda = programDataPda(programId);
 
@@ -229,8 +285,14 @@ async function main(): Promise<number> {
         report[name] = `transferred: tx=${sig}`;
     }
 
-    // Persist a JSON report for the audit log.
-    const out = path.join(__dirname, "..", "reports", "multisig_transfer.json");
+    // Persist a JSON report for the audit log. In per-program mode the
+    // filename is qualified with the program name so the deploy script
+    // can drive three sequential invocations without overwriting each
+    // other's report.
+    const reportFile = args.onlyProgram === null
+        ? "multisig_transfer.json"
+        : `multisig_transfer.${args.onlyProgram}.json`;
+    const out = path.join(__dirname, "..", "reports", reportFile);
     fs.mkdirSync(path.dirname(out), { recursive: true });
     fs.writeFileSync(out, JSON.stringify({
         mode: args.execute ? "execute" : "dry-run",

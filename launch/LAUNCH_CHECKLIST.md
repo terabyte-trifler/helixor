@@ -62,17 +62,28 @@ file.
 See `launch/CANARY_ROLLOUT.md` for the phased plan. The checklist here is
 the entry gate.
 
-- [ ] `bash launch/deploy/deploy_programs.sh --cluster mainnet-beta --mainnet-ok`
-      runs with no errors
-- [ ] `launch/deploy/manifest.json` records all 3 program IDs and SHA256s
+- [ ] **VULN-19 atomic deploy + transfer.** Run
+      `bash launch/deploy/deploy_programs.sh --cluster mainnet-beta
+      --mainnet-ok --squads-vault <pda> --squads-owner <pid,...>
+      --deployer-keypair <path>` in a SINGLE command. The script:
+      (1) pre-flights the Squads vault (writes
+      `audit/reports/squads_vault_preflight.json`),
+      (2) builds verifiably,
+      (3) for each of the 3 programs: deploys → IMMEDIATELY transfers
+      upgrade authority to the Squads vault → verifies on-chain, and
+      (4) emits `audit/reports/deploy_verified.json` only when all 3
+      programs' authorities equal the vault. The deployer hot key
+      MUST NOT be the upgrade authority for any program at the end of
+      this step.
+- [ ] `launch/deploy/manifest.json` records all 3 program IDs and SHA256s,
+      AND each entry's `upgrade_authority` field equals the Squads vault
 - [ ] `audit/artifact_verification/verify_so_match.ts` confirms
       deployed `.so` matches local build, all 3 programs
 - [ ] `bash launch/deploy/initialize_configs.sh --cluster mainnet-beta
       --mainnet-ok ...` initialises all 3 configs
-- [ ] **Upgrade authority transferred to the Squads vault** —
-      `audit/multisig/transfer_upgrade_authority.ts --execute` clean,
-      `audit/reports/multisig_transfer.json` records all 3 transfers,
-      `verify_so_match.ts` confirms the new authority on-chain
+- [ ] `audit/reports/deploy_verified.json` exists — the safe-to-publish
+      marker. Program IDs MUST NOT be announced publicly before this
+      file is on disk.
 - [ ] First mainnet node brought up with `HELIXOR_MAINNET_OK=1` in
       `/etc/helixor/oracle-node-0.env`, journalctl shows the
       `network_guard: ... PRODUCTION network ... explicit
