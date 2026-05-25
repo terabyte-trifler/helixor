@@ -79,3 +79,24 @@ pub struct HealthRead {
     pub immediate_red: bool,
     pub issued_at:     i64,
 }
+
+/// Emitted when the liveness-fallback path triggers an epoch advance.
+/// Emitted IN ADDITION TO `EpochAdvanced` so consumers can distinguish
+/// normal oracle advances from fallback-cluster advances.
+#[event]
+pub struct EpochAdvancedByFallback {
+    pub from_epoch:  u64,
+    pub to_epoch:    u64,
+    pub advanced_at: i64,
+    /// The cluster key that triggered the fallback advance.
+    pub cluster_key: Pubkey,
+}
+
+/// Emitted when the admin rotates the advance_authority key.
+#[event]
+pub struct AdvanceAuthorityRotated {
+    pub old_authority: Pubkey,
+    pub new_authority: Pubkey,
+    pub rotated_by:    Pubkey,
+    pub rotated_at:    i64,
+}

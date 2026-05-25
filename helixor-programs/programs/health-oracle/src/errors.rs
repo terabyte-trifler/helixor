@@ -55,4 +55,14 @@ pub enum HelixorError {
     #[msg("epoch counter overflow — protocol has been running long enough \
            to exceed u64; recreate the epoch state")]
     EpochCounterOverflow = 6053,
+    #[msg("signer is not the advance authority, and the liveness-fallback \
+           window (2× epoch duration) has not elapsed or the signer is not \
+           a cluster member")]
+    NotAuthorisedAdvancer = 6054,
+    #[msg("new_authority is the zero pubkey — rotation to the default key is \
+           not permitted")]
+    ZeroAdvanceAuthority = 6055,
+    #[msg("new_authority equals the current advance_authority — no-op rotation \
+           is not permitted")]
+    SameAdvanceAuthority = 6056,
 }

@@ -66,8 +66,25 @@ pub mod health_oracle {
 
     /// Day-19 NEW: tick the epoch counter at the end of a 24h cycle.
     /// Guarded — the epoch duration must have elapsed.
+    ///
+    /// VULN-02 FIX: accepts either the configured advance_authority (normal
+    /// path) or any cluster oracle key once the liveness-fallback window
+    /// (2× epoch_duration_seconds) has elapsed. See advance_epoch.rs for
+    /// the full two-tier authority design.
     pub fn advance_epoch(ctx: Context<AdvanceEpoch>) -> Result<()> {
         instructions::advance_epoch::handler(ctx)
+    }
+
+    /// Rotate the advance_authority key to a new pubkey.
+    ///
+    /// VULN-02 FIX: allows recovery from a lost or compromised advance key
+    /// without a program redeploy. Gated on oracle_config.authority (the
+    /// admin / Squads multisig in production).
+    pub fn rotate_advance_authority(
+        ctx:           Context<RotateAdvanceAuthority>,
+        new_authority: Pubkey,
+    ) -> Result<()> {
+        instructions::rotate_advance_authority::handler(ctx, new_authority)
     }
 
     /// Day-19 NEW: the oracle submits an agent's epoch score. Writes the

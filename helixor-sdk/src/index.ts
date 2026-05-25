@@ -5,8 +5,18 @@
 // source. Everything else (epoch history) is additive.
 // =============================================================================
 
+// HTTP REST client (used by the ElizaOS plugin and off-chain consumers)
 export {
   HelixorClient,
+  HelixorError,
+  AgentNotFoundError,
+  type TrustScore,
+  type RequireMinScoreOptions,
+} from "./http_client";
+
+// On-chain Solana client (reads certificates directly from the chain)
+export {
+  HelixorChainClient,
   CertificateNotFoundError,
 } from "./client";
 export {

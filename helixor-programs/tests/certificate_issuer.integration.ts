@@ -14,8 +14,11 @@
 //      issue_certificate -> SUCCEEDS,
 //   5. attempts the same for a second agent with only 2 signatures
 //      attached -> REJECTED with InsufficientSignatures,
-//   6. attempts with 3 signatures but over a TAMPERED digest (one signer
-//      signed a different score) -> REJECTED (those bad sigs don't count).
+//   6. attempts with 3 legitimate signatures over a HISTORICAL / mismatched
+//      digest while issuing a different cert payload -> REJECTED. This pins
+//      the critical replay guard: the on-chain verifier must bind every
+//      counted Ed25519 precompile message to the current issue_certificate
+//      payload digest, not merely count "3 valid cluster signatures."
 // =============================================================================
 
 import * as anchor from "@coral-xyz/anchor";
@@ -94,9 +97,10 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
     (kp) => new PublicKey(kp.publicKey),
   );
 
-  // Two synthetic agents — one for the success path, one for the failure.
+  // Synthetic agents for the success path and each independent failure path.
   const agentOk = Keypair.generate().publicKey;
   const agentBad = Keypair.generate().publicKey;
+  const agentReplay = Keypair.generate().publicKey;
   const baselineHash = Buffer.alloc(32, 7);
 
   // ── PDA helpers ──────────────────────────────────────────────────────────
@@ -134,7 +138,7 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
 
   // ── 2. record baselines (cert preconditions) ─────────────────────────────
   it("records baselines for the agents", async () => {
-    for (const agent of [agentOk, agentBad]) {
+    for (const agent of [agentOk, agentBad, agentReplay]) {
       await program.methods
         .recordBaseline(agent, [...baselineHash], 3, new BN(1))
         .accounts({
@@ -269,6 +273,65 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
     try {
       await provider.sendAndConfirm(tx);
       assert.fail("expected InsufficientSignatures — outsider does not count");
+    } catch (err: any) {
+      const msg = (err.logs ?? []).join("\n") + (err.message ?? "");
+      assert.ok(
+        /InsufficientSignatures|6033/.test(msg),
+        `expected InsufficientSignatures, got: ${msg}`,
+      );
+    }
+  });
+
+  // ── VULN-01 regression — old/historical signatures cannot be replayed ────
+  it("REJECTS 3 valid cluster signatures over a historical/mismatched digest", async () => {
+    const epoch = 1, score = 916, alertTier = 0, flags = 0, immediateRed = false;
+
+    // This is the digest the issue_certificate instruction will recompute
+    // from its current accounts + args.
+    const expectedDigest = certPayloadDigest(
+      agentReplay, epoch, score, alertTier, flags, baselineHash, immediateRed,
+    );
+
+    // This is what the attacker tries to replay: three real cluster-key
+    // signatures, but over a different payload. The signatures are valid
+    // Ed25519 precompile inputs, yet they MUST NOT count toward this cert.
+    const historicalDigest = certPayloadDigest(
+      agentReplay,
+      epoch + 8,        // old / different epoch
+      999,              // different score
+      alertTier,
+      flags,
+      baselineHash,
+      immediateRed,
+    );
+    assert.notDeepEqual(
+      [...historicalDigest],
+      [...expectedDigest],
+      "test setup must use a genuinely different digest",
+    );
+
+    const ed25519Ixs = clusterKps.slice(0, 3).map((kp) => ed25519VerifyIx(
+      kp.publicKey,
+      nacl.sign.detached(historicalDigest, kp.secretKey),
+      historicalDigest,
+    ));
+
+    const issueIx = await program.methods
+      .issueCertificate(new BN(epoch), score, alertTier, flags, immediateRed)
+      .accounts({
+        certificate: certPda(agentReplay, epoch),
+        baselineStats: baselinePda(agentReplay),
+        issuerConfig: issuerConfigPda(),
+        issuer: submitter.publicKey,
+        instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction();
+
+    const tx = new anchor.web3.Transaction().add(...ed25519Ixs, issueIx);
+    try {
+      await provider.sendAndConfirm(tx);
+      assert.fail("expected InsufficientSignatures — historical digest must not count");
     } catch (err: any) {
       const msg = (err.logs ?? []).join("\n") + (err.message ?? "");
       assert.ok(

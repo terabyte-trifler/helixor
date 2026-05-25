@@ -19,8 +19,8 @@ use certificate_issuer::state::{AlertTier, BaselineStats, HealthCertificate, Iss
 
 #[test]
 fn health_certificate_size_constants_are_correct() {
-    //   32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 = 122
-    // + 48 reserved                                   =  48
+    //   32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1 = 123  (signer_count added v2)
+    // + 47 reserved                                       =  47
     // = 170
     assert_eq!(HealthCertificate::SIZE_WITHOUT_DISCRIMINATOR, 170);
     assert_eq!(HealthCertificate::SPACE, 178);          // + 8 discriminator
@@ -45,8 +45,9 @@ fn issuer_config_size_is_correct() {
 }
 
 #[test]
-fn layout_versions_start_at_one() {
-    assert_eq!(HealthCertificate::CURRENT_LAYOUT_VERSION, 1);
+fn layout_versions_are_current() {
+    // v2: signer_count added to HealthCertificate (1 byte from reserved).
+    assert_eq!(HealthCertificate::CURRENT_LAYOUT_VERSION, 2);
     assert_eq!(BaselineStats::CURRENT_LAYOUT_VERSION, 1);
 }
 

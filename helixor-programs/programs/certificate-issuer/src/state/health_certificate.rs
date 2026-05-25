@@ -26,7 +26,8 @@
 //   immediate_red            1   (bool  — was the IMMEDIATE_RED fast-path tripped)
 //   bump                     1   (u8)
 //   layout_version           1   (u8)
-//   _reserved               48   (zeroed cushion for future fields)
+//   signer_count             1   (u8    — how many cluster keys signed this cert)
+//   _reserved               47   (zeroed cushion for future fields)
 //   TOTAL (without discriminator): 170 bytes
 //
 // A certificate is WRITE-ONCE: once issued for (agent, epoch) the account
@@ -90,23 +91,29 @@ pub struct HealthCertificate {
     pub bump:           u8,
     /// Account-layout version, for future migrations.
     pub layout_version: u8,
+    /// How many distinct cluster keys signed the cert digest when this
+    /// certificate was issued. Stored on-chain for post-issuance audits:
+    /// consumers can verify the signing quorum without replaying the tx.
+    pub signer_count:   u8,
     /// Zero-padded reserve for small future fields without a realloc.
-    pub _reserved:      [u8; 48],
+    pub _reserved:      [u8; 47],
 }
 
 impl HealthCertificate {
     /// The current layout version.
-    pub const CURRENT_LAYOUT_VERSION: u8 = 1;
+    /// v2: added signer_count field (consumes 1 byte of previously reserved space;
+    /// total account size is unchanged at 170 bytes + 8-byte discriminator).
+    pub const CURRENT_LAYOUT_VERSION: u8 = 2;
 
     /// The highest valid composite score. Mirrors the off-chain 0..1000 range.
     pub const MAX_SCORE: u16 = 1000;
 
     /// Data size in bytes, WITHOUT the 8-byte Anchor discriminator.
-    ///   32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1  = 122
-    /// + 48 reserved                                    =  48
+    ///   32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1  = 123
+    /// + 47 reserved                                         =  47
     ///   = 170
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
-        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 48;
+        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1 + 47;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;

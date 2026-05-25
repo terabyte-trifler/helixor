@@ -44,7 +44,7 @@ export class CertificateNotFoundError extends Error {
   }
 }
 
-export class HelixorClient {
+export class HelixorChainClient {
   constructor(
     private readonly connection: Connection,
     private readonly programs: HelixorProgramIds

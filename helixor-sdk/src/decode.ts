@@ -34,6 +34,8 @@ export interface DecodedHealthCertificate {
   immediateRed: boolean;
   bump: number;
   layoutVersion: number;
+  /** How many distinct cluster keys signed this certificate (v2+). */
+  signerCount: number;
 }
 
 /**
@@ -43,7 +45,12 @@ export interface DecodedHealthCertificate {
  *   agent_wallet    32   epoch          8   score          2
  *   alert_tier       1   flags          4   issued_at      8
  *   issuer          32   baseline_hash 32   immediate_red  1
- *   bump             1   layout_version 1   _reserved     48
+ *   bump             1   layout_version 1   signer_count   1   _reserved 47
+ *
+ * v2 note: signer_count was added at layout_version 2. It occupies what was
+ * the first byte of _reserved, so total account size is unchanged (178 bytes).
+ * Reading signer_count from a v1 account returns 0 (the byte was zeroed
+ * reserved padding), which is a safe sentinel meaning "pre-v2 cert".
  */
 export function decodeHealthCertificate(
   data: Buffer | Uint8Array
@@ -62,7 +69,8 @@ export function decodeHealthCertificate(
   const immediateRed = buf.readUInt8(o) !== 0; o += 1;
   const bump = buf.readUInt8(o); o += 1;
   const layoutVersion = buf.readUInt8(o); o += 1;
-  // _reserved [48] follows — not decoded.
+  const signerCount = buf.readUInt8(o); o += 1;
+  // _reserved [47] follows — not decoded.
 
   return {
     agentWallet,
@@ -76,6 +84,7 @@ export function decodeHealthCertificate(
     immediateRed,
     bump,
     layoutVersion,
+    signerCount,
   };
 }
 

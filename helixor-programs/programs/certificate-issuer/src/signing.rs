@@ -183,6 +183,55 @@ fn parse_ed25519_ix(ix: &Instruction) -> Result<PrecompileRecord> {
     Ok(PrecompileRecord { pubkey, message })
 }
 
+fn maybe_tally_ed25519_ix(
+    ix:              &Instruction,
+    expected_digest: &[u8; 32],
+    config:          &IssuerConfig,
+    signers:         &mut Vec<Pubkey>,
+) -> Result<()> {
+    if ix.program_id != ed25519_program::id() {
+        return Ok(());                              // not a precompile ix
+    }
+
+    // Gracefully skip precompile instructions we cannot parse (e.g. a
+    // multi-signature packed precompile, or wrong digest length). The
+    // runtime already validated whatever the precompile says; our only
+    // job is to count signers that meet OUR criteria. Unrecognised
+    // formats simply produce no tally contribution. The threshold check
+    // at the end of verify_threshold_signatures catches any deficit.
+    let record = match parse_ed25519_ix(ix) {
+        Ok(r)  => r,
+        Err(_) => return Ok(()),
+    };
+
+    // SECURITY: This is the binding that closes the threshold-bypass attack.
+    // The Ed25519 precompile has already cryptographically proven (sig, pubkey)
+    // over `record.message`. We now require that `record.message` equals the
+    // digest we computed from THIS instruction's exact (agent, epoch, score,
+    // alert_tier, flags, baseline_hash, immediate_red) payload. Without this
+    // check the threshold degenerates to "did N cluster keys sign anything",
+    // enabling replay of any past oracle signature over any historical cert.
+    // Every Ed25519 instruction whose message does not match our payload is
+    // silently discarded and contributes nothing to the signer count.
+    if record.message != *expected_digest {
+        return Ok(());
+    }
+
+    let signer = Pubkey::new_from_array(record.pubkey);
+
+    // Must be a cluster key.
+    if !config.is_cluster_key(&signer) {
+        return Ok(());
+    }
+
+    // Distinct only -- a node signing twice counts once.
+    if signers.contains(&signer) {
+        return Ok(());
+    }
+    signers.push(signer);
+    Ok(())
+}
+
 // -----------------------------------------------------------------------------
 // The threshold check
 // -----------------------------------------------------------------------------
@@ -222,28 +271,7 @@ pub fn verify_threshold_signatures(
             continue;                                 // not a precompile ix
         }
 
-        let record = parse_ed25519_ix(&ix)?;
-
-        // The signed MESSAGE must be exactly our expected cert digest.
-        // The precompile already verified the signature is valid for this
-        // (pubkey, message); our job is to bind the message to OUR payload
-        // — a signer signing a DIFFERENT message gets counted out here.
-        if record.message != *expected_digest {
-            continue;
-        }
-
-        let signer = Pubkey::new_from_array(record.pubkey);
-
-        // Must be a cluster key.
-        if !config.is_cluster_key(&signer) {
-            continue;
-        }
-
-        // Distinct only -- a node signing twice counts once.
-        if signers.contains(&signer) {
-            continue;
-        }
-        signers.push(signer);
+        maybe_tally_ed25519_ix(&ix, expected_digest, config, &mut signers)?;
     }
 
     let count = signers.len() as u8;
@@ -257,4 +285,232 @@ pub fn verify_threshold_signatures(
         count, config.cluster_keys.len(), config.threshold,
     );
     Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_with_keys(cluster_keys: Vec<Pubkey>, threshold: u8) -> IssuerConfig {
+        IssuerConfig {
+            authority: Pubkey::new_unique(),
+            issuer_node: Pubkey::new_unique(),
+            cluster_keys,
+            threshold,
+            bump: 255,
+        }
+    }
+
+    fn ed25519_ix(pubkey: Pubkey, message: [u8; 32]) -> Instruction {
+        let mut data = Vec::with_capacity(
+            ED25519_HEADER_LEN + ED25519_PUBKEY_LEN + ED25519_SIGNATURE_LEN + ED25519_MESSAGE_LEN,
+        );
+
+        let pk_offset: u16 = ED25519_HEADER_LEN as u16;
+        let sig_offset: u16 = pk_offset + ED25519_PUBKEY_LEN as u16;
+        let msg_offset: u16 = sig_offset + ED25519_SIGNATURE_LEN as u16;
+        let this_ix = u16::MAX.to_le_bytes();
+
+        data.push(1);                                // num signatures
+        data.push(0);                                // padding
+        data.extend_from_slice(&sig_offset.to_le_bytes());
+        data.extend_from_slice(&this_ix);
+        data.extend_from_slice(&pk_offset.to_le_bytes());
+        data.extend_from_slice(&this_ix);
+        data.extend_from_slice(&msg_offset.to_le_bytes());
+        data.extend_from_slice(&(ED25519_MESSAGE_LEN as u16).to_le_bytes());
+        data.extend_from_slice(&this_ix);
+        data.extend_from_slice(pubkey.as_ref());
+        data.extend_from_slice(&[9u8; ED25519_SIGNATURE_LEN]);
+        data.extend_from_slice(&message);
+
+        Instruction {
+            program_id: ed25519_program::id(),
+            accounts: Vec::new(),
+            data,
+        }
+    }
+
+    // ── Happy-path coverage ──────────────────────────────────────────────────
+
+    #[test]
+    fn correct_signatures_over_current_digest_are_counted() {
+        let keys: Vec<Pubkey> = (0..5).map(|_| Pubkey::new_unique()).collect();
+        let config = config_with_keys(keys.clone(), 3);
+        let digest = [1u8; 32];
+        let mut signers = Vec::new();
+
+        for key in keys.iter().take(3) {
+            let ix = ed25519_ix(*key, digest);
+            maybe_tally_ed25519_ix(&ix, &digest, &config, &mut signers).unwrap();
+        }
+
+        assert_eq!(
+            signers.len(), 3,
+            "three cluster keys signing the correct digest must all be counted",
+        );
+    }
+
+    #[test]
+    fn all_five_signers_counted_when_present() {
+        let keys: Vec<Pubkey> = (0..5).map(|_| Pubkey::new_unique()).collect();
+        let config = config_with_keys(keys.clone(), 3);
+        let digest = [0xABu8; 32];
+        let mut signers = Vec::new();
+
+        for key in &keys {
+            let ix = ed25519_ix(*key, digest);
+            maybe_tally_ed25519_ix(&ix, &digest, &config, &mut signers).unwrap();
+        }
+
+        assert_eq!(signers.len(), 5, "all five cluster keys must be counted");
+    }
+
+    // ── Duplicate-signer deduplication ──────────────────────────────────────
+
+    #[test]
+    fn duplicate_signer_is_counted_once_not_twice() {
+        let keys: Vec<Pubkey> = (0..5).map(|_| Pubkey::new_unique()).collect();
+        let config = config_with_keys(keys.clone(), 3);
+        let digest = [2u8; 32];
+        let mut signers = Vec::new();
+
+        // Same key submitted in two separate precompile instructions.
+        let ix = ed25519_ix(keys[0], digest);
+        maybe_tally_ed25519_ix(&ix, &digest, &config, &mut signers).unwrap();
+        maybe_tally_ed25519_ix(&ix, &digest, &config, &mut signers).unwrap();
+
+        assert_eq!(
+            signers.len(), 1,
+            "a cluster key that appears twice must be counted exactly once",
+        );
+    }
+
+    // ── Non-cluster-key filtering ────────────────────────────────────────────
+
+    #[test]
+    fn non_cluster_key_is_not_counted() {
+        let keys: Vec<Pubkey> = (0..5).map(|_| Pubkey::new_unique()).collect();
+        let config = config_with_keys(keys.clone(), 3);
+        let digest = [3u8; 32];
+        let mut signers = Vec::new();
+
+        // A foreign key that is NOT in the cluster.
+        let foreign_key = Pubkey::new_unique();
+        let ix = ed25519_ix(foreign_key, digest);
+        maybe_tally_ed25519_ix(&ix, &digest, &config, &mut signers).unwrap();
+
+        assert!(
+            signers.is_empty(),
+            "a key not in the cluster must not contribute to the signer count",
+        );
+    }
+
+    // ── Replay / historical-digest attack ────────────────────────────────────
+
+    #[test]
+    fn historical_digest_signatures_do_not_count_toward_threshold() {
+        let keys = vec![
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        ];
+        let config = config_with_keys(keys.clone(), 3);
+        let expected_digest = [1u8; 32];
+        let historical_digest = [2u8; 32];
+        let mut signers = Vec::new();
+
+        for key in keys.iter().take(3) {
+            let ix = ed25519_ix(*key, historical_digest);
+            maybe_tally_ed25519_ix(&ix, &expected_digest, &config, &mut signers).unwrap();
+        }
+
+        assert!(
+            signers.is_empty(),
+            "valid cluster signatures over the wrong digest must be filtered out",
+        );
+    }
+
+    // ── VULN-01 attack simulation ────────────────────────────────────────────
+    // An attacker collects N valid oracle signatures from past epochs and
+    // submits them in a transaction for a DIFFERENT (agent, epoch, score).
+    // The precompile accepts those signatures as valid (they are — just for
+    // another payload). verify_threshold_signatures must reject them because
+    // record.message != expected_digest. These tests confirm that gate holds.
+
+    #[test]
+    fn threshold_bypass_attack_with_three_historical_sigs_yields_zero_count() {
+        let keys: Vec<Pubkey> = (0..5).map(|_| Pubkey::new_unique()).collect();
+        let config = config_with_keys(keys.clone(), 3);
+        // The attacker knows the digest for epoch 9, score 999, agent X.
+        let historical_digest = [0xDDu8; 32];
+        // The current instruction is for epoch 10, score 999, agent ATTACKER.
+        let current_digest    = [0xEEu8; 32];
+        let mut signers = Vec::new();
+
+        // Attacker replays 3 legitimate oracle signatures from epoch 9.
+        for key in keys.iter().take(3) {
+            let ix = ed25519_ix(*key, historical_digest);
+            maybe_tally_ed25519_ix(&ix, &current_digest, &config, &mut signers).unwrap();
+        }
+
+        assert!(
+            signers.is_empty(),
+            "replayed historical-epoch oracle signatures must not satisfy the current threshold",
+        );
+    }
+
+    #[test]
+    fn partial_bypass_attack_historical_plus_current_stays_below_threshold() {
+        let keys: Vec<Pubkey> = (0..5).map(|_| Pubkey::new_unique()).collect();
+        let config = config_with_keys(keys.clone(), 3);
+        let historical_digest = [0xDDu8; 32];
+        let current_digest    = [0xEEu8; 32];
+        let mut signers = Vec::new();
+
+        // Attacker has 2 legitimate current sigs but pads with 1 historical sig
+        // hoping to reach the threshold of 3.
+        let ix_current_0 = ed25519_ix(keys[0], current_digest);
+        let ix_current_1 = ed25519_ix(keys[1], current_digest);
+        let ix_hist_2    = ed25519_ix(keys[2], historical_digest);
+
+        maybe_tally_ed25519_ix(&ix_current_0, &current_digest, &config, &mut signers).unwrap();
+        maybe_tally_ed25519_ix(&ix_current_1, &current_digest, &config, &mut signers).unwrap();
+        maybe_tally_ed25519_ix(&ix_hist_2,    &current_digest, &config, &mut signers).unwrap();
+
+        assert_eq!(
+            signers.len(), 2,
+            "two current-digest sigs + one historical-digest sig must not reach the threshold of 3",
+        );
+    }
+
+    #[test]
+    fn only_current_payload_digest_counts_toward_threshold() {
+        let keys = vec![
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        ];
+        let config = config_with_keys(keys.clone(), 3);
+        let expected_digest = [1u8; 32];
+        let historical_digest = [2u8; 32];
+        let mut signers = Vec::new();
+
+        for key in keys.iter().take(2) {
+            let ix = ed25519_ix(*key, expected_digest);
+            maybe_tally_ed25519_ix(&ix, &expected_digest, &config, &mut signers).unwrap();
+        }
+        let replay_ix = ed25519_ix(keys[2], historical_digest);
+        maybe_tally_ed25519_ix(&replay_ix, &expected_digest, &config, &mut signers).unwrap();
+
+        assert_eq!(
+            signers.len(),
+            2,
+            "two correct signatures plus one replayed digest must remain below threshold",
+        );
+    }
 }

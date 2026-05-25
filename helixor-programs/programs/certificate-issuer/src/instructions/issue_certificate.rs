@@ -161,6 +161,7 @@ pub fn handler(
     cert.immediate_red  = immediate_red;
     cert.bump           = ctx.bumps.certificate;
     cert.layout_version = HealthCertificate::CURRENT_LAYOUT_VERSION;
+    cert.signer_count   = valid_signers;
 
     emit!(CertificateIssued {
         agent_wallet:  cert.agent_wallet,

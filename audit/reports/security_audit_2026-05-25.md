@@ -45,6 +45,18 @@ Fix:
 - Production (`mainnet-beta` with explicit opt-in) refuses to start unless TLS cert, key, and CA cert paths are configured.
 - Added a network guard test for production plaintext refusal.
 
+### 4. VULN-01 replay guard for threshold certificate signatures
+
+Risk reviewed: an attacker could try to replay three legitimate historical Ed25519 precompile instructions, signed by cluster keys over an old certificate digest, while calling `issue_certificate` for a different agent/epoch/score payload.
+
+Resolution:
+
+- Confirmed the on-chain verifier recomputes the canonical digest from the current `issue_certificate` accounts and arguments.
+- Confirmed every counted Ed25519 precompile must have `record.message == expected_digest`; valid signatures over any other digest are filtered out.
+- Confirmed cross-instruction references are rejected through the `0xFFFF` same-instruction sentinel checks.
+- Refactored the tally logic into a pure helper and added cargo-runnable regression tests for historical-digest replay and mixed correct/replayed signatures.
+- Added an Anchor integration regression that constructs the exact bad transaction shape: 3 valid cluster signatures over a historical/mismatched digest plus an `issue_certificate` for a different payload. Expected result: `InsufficientSignatures`.
+
 ## Dependency Fixes Applied
 
 - `helixor-programs`: upgraded on-chain dependencies from `anchor-lang 0.30.1` / `solana-program 1.18.26` to `anchor-lang 1.0.2` / `solana-program 3.0.0`; this removes `curve25519-dalek 3.2.1` and resolves `RUSTSEC-2024-0344`.

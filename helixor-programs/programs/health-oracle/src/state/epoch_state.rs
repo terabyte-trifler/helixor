@@ -71,4 +71,18 @@ impl EpochState {
     pub fn may_advance(&self, now: i64) -> bool {
         now.saturating_sub(self.last_advanced_at) >= self.epoch_duration_seconds
     }
+
+    /// Whether the liveness-fallback window is open.
+    ///
+    /// The fallback allows ANY cluster oracle key to advance the epoch when
+    /// `advance_authority` has been unavailable for at least 2× the epoch
+    /// duration. This prevents a single lost or compromised key from
+    /// permanently halting epoch progression and cert issuance.
+    ///
+    /// Invariant: `liveness_fallback_elapsed` ⟹ `may_advance`.
+    /// (Two durations elapsed always implies one duration elapsed.)
+    pub fn liveness_fallback_elapsed(&self, now: i64) -> bool {
+        let double = self.epoch_duration_seconds.saturating_mul(2);
+        now.saturating_sub(self.last_advanced_at) >= double
+    }
 }
