@@ -12,7 +12,10 @@
 //   - the SlashRecord is still Pending (an Appealed slash must be resolved
 //     first; an Overturned/Settled slash is terminal),
 //   - the appeal window has CLOSED — `now >= appeal_deadline`. A slash can
-//     never be settled while the agent could still appeal it.
+//     never be settled while the agent could still appeal it,
+//   - VULN-04: the post-uphold settlement timelock has elapsed,
+//   - VULN-08: the minimum execute->settle gap (48h) has elapsed, AND
+//     the post-appeal-window grace period (1h) has elapsed.
 //
 // HOW LAMPORTS LEAVE THE VAULT — same direct-mutation pattern as Day 20:
 // the vault is program-owned, so we cannot System-transfer out of it; we
@@ -22,16 +25,88 @@
 //
 // A Compromise settlement also DEACTIVATES the vault — the terminal step
 // Day 20 did inline, now deferred here so an appeal could have rescued it.
+//
+// VULN-08 — TIMING-ATTACK HARDENING
+// ---------------------------------
+// The audit raised three attack patterns that, while not directly
+// realisable against the prior Day-21/VULN-04 design (settle_slash was
+// already signer-gated to the executor and appeal-window-gated), needed
+// stronger defence in depth:
+//
+//   1. MEV front-running an appeal — a bot races settle_slash against
+//      an appeal landing in the same block as the deadline. Mitigation:
+//      SETTLE_GRACE_PERIOD_SECONDS — refuse to settle until 1h AFTER
+//      the appeal window closes, so an appeal that *almost* landed has
+//      time to actually land.
+//
+//   2. Same-block griefing — an executor whose role key is compromised
+//      executes + settles in the same tx, before any human notices.
+//      Mitigation: MIN_EXECUTE_TO_SETTLE_SECONDS — refuse to settle
+//      until 48h after execute_slash, REGARDLESS of appeal status. A
+//      SECOND, independent timer on top of the appeal window (which is
+//      72h, so this floor never blocks a normal flow).
+//
+//   3. Invisible spray attacks — repeated settle_slash attempts can
+//      probe an appeal's mempool timing. Mitigation: emit
+//      SettleSlashAttempted on EVERY call, BEFORE the gates run, so the
+//      off-chain monitor sees rejected attempts and can alert on
+//      patterns clustering around an appeal.
+//
+// All three of these are pure-defensive additions: a clean,
+// well-spaced-out slash lifecycle passes through them with no behavioural
+// change.
 // =============================================================================
 
 use anchor_lang::prelude::*;
 
 use crate::errors::SlashError;
-use crate::events::SlashSettled;
+use crate::events::{SettleSlashAttempted, SlashSettled};
 use crate::state::{
     EscrowVault, OffenseTier, SlashConfig, SlashDestination, SlashRecord,
     SlashStatus,
 };
+
+/// VULN-08: minimum delay between execute_slash and settle_slash,
+/// regardless of appeal lifecycle. 48h. The appeal window (72h) is the
+/// primary gate; this floor is a SECOND, independent timer so even a
+/// bug that bypassed `appeal_deadline` cannot enable same-block
+/// settlement griefing.
+pub const MIN_EXECUTE_TO_SETTLE_SECONDS: i64 = 48 * 3_600;
+
+/// VULN-08: grace period after `appeal_deadline` closes, before
+/// settlement may proceed. 1h. Protects an appeal transaction that
+/// landed in the same slot as the deadline against an MEV bot racing
+/// settle_slash in the same block.
+pub const SETTLE_GRACE_PERIOD_SECONDS: i64 = 60 * 60;
+
+/// Pure VULN-08 timing check — extracted so it is unit-testable without
+/// a runtime. Both gates must be satisfied; the order they are checked
+/// is fixed for stable error attribution.
+pub fn check_settle_timing(
+    executed_at:     i64,
+    appeal_deadline: i64,
+    now:             i64,
+) -> Result<()> {
+    // Gate A: the 48h execute->settle floor.
+    let min_settle_at = executed_at
+        .checked_add(MIN_EXECUTE_TO_SETTLE_SECONDS)
+        .ok_or(SlashError::MathOverflow)?;
+    require!(
+        now >= min_settle_at,
+        SlashError::ExecuteToSettleGapTooShort,
+    );
+
+    // Gate B: the appeal-window grace period (1h after the deadline).
+    let earliest_settle = appeal_deadline
+        .checked_add(SETTLE_GRACE_PERIOD_SECONDS)
+        .ok_or(SlashError::MathOverflow)?;
+    require!(
+        now >= earliest_settle,
+        SlashError::AppealGraceWindowActive,
+    );
+
+    Ok(())
+}
 
 #[derive(Accounts)]
 pub struct SettleSlash<'info> {
@@ -82,6 +157,23 @@ pub struct SettleSlash<'info> {
 
 pub fn handler(ctx: Context<SettleSlash>) -> Result<()> {
     let clock = Clock::get()?;
+    let now   = clock.unix_timestamp;
+
+    // VULN-08 #3: emit the attempt event FIRST, before any gate fires, so
+    // even rejected attempts surface on-chain. The off-chain monitor
+    // alerts on suspicious patterns (e.g. attempts clustering around an
+    // appeal's mempool window, or very-short seconds_since_execute).
+    let executed_at     = ctx.accounts.slash_record.executed_at;
+    let appeal_deadline = ctx.accounts.slash_record.appeal_deadline;
+    emit!(SettleSlashAttempted {
+        agent_wallet:          ctx.accounts.slash_record.agent_wallet,
+        index:                 ctx.accounts.slash_record.index,
+        executor:              ctx.accounts.slash_executor.key(),
+        executed_at,
+        appeal_deadline,
+        attempted_at:          now,
+        seconds_since_execute: now.saturating_sub(executed_at),
+    });
 
     // ── Refuse while paused (VULN-04 kill switch) ───────────────────────────
     require!(
@@ -98,16 +190,20 @@ pub fn handler(ctx: Context<SettleSlash>) -> Result<()> {
     );
     // The appeal window must have CLOSED.
     require!(
-        !ctx.accounts.slash_record.appeal_window_open(clock.unix_timestamp),
+        !ctx.accounts.slash_record.appeal_window_open(now),
         SlashError::AppealWindowStillOpen,
     );
     // VULN-04: the post-uphold settlement timelock must have ELAPSED. For
     // slashes that were never appealed `settlement_unlock_at` is zero and
     // this passes immediately — only an upheld appeal sets the timelock.
     require!(
-        ctx.accounts.slash_record.settlement_timelock_elapsed(clock.unix_timestamp),
+        ctx.accounts.slash_record.settlement_timelock_elapsed(now),
         SlashError::SettlementTimelockNotElapsed,
     );
+
+    // VULN-08 #1 + #2: the two independent timing gates. Defence in depth
+    // on top of the appeal-window + post-uphold-timelock checks above.
+    check_settle_timing(executed_at, appeal_deadline, now)?;
 
     let tier = OffenseTier::from_u8(ctx.accounts.slash_record.offense_tier)
         .ok_or(SlashError::InvalidOffenseTier)?;
@@ -174,7 +270,8 @@ pub fn handler(ctx: Context<SettleSlash>) -> Result<()> {
         settled_lamports: amount,
         destination:     required_destination.as_u8(),
         terminal:        tier.is_terminal(),
-        settled_at:      clock.unix_timestamp,
+        settled_at:      now,
+        executed_at,
     });
 
     msg!(

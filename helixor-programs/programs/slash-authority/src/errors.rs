@@ -77,6 +77,14 @@ pub enum SlashError {
     #[msg("settlement timelock is shorter than the protocol minimum (72h)")]
     SettlementTimelockTooShort = 6064,
 
+    // ── VULN-08: settle_slash timing gates ──────────────────────────────────
+    #[msg("minimum execute to settle gap (48h) has not elapsed — defence in \
+           depth against immediate settlement griefing")]
+    ExecuteToSettleGapTooShort = 6070,
+    #[msg("post-appeal-window grace period has not elapsed — protects an \
+           appeal that landed in the same slot as the deadline")]
+    AppealGraceWindowActive = 6071,
+
     // ── Day 21: oracle challenges ───────────────────────────────────────────
     #[msg("challenge proof hash is all zeros — a challenge must cite evidence")]
     ZeroProof = 6050,

@@ -70,6 +70,39 @@ pub struct SlashSettled {
     pub destination:      u8,
     pub terminal:         bool,
     pub settled_at:       i64,
+    /// VULN-08 observability: unix seconds the slash was originally
+    /// executed. Lets the off-chain monitor compute `settled_at -
+    /// executed_at` to flag suspicious same-block / short-gap settlements.
+    pub executed_at:      i64,
+}
+
+// ── VULN-08: settle observability ───────────────────────────────────────────
+
+/// Emitted EVERY time someone calls settle_slash — emitted BEFORE the
+/// timing/state gates run, so even REJECTED attempts surface on-chain.
+///
+/// Why a separate "attempted" event? VULN-08 names MEV front-running and
+/// griefing patterns where a bot races settle_slash against an appeal.
+/// `SlashSettled` only fires on success; an attacker spraying failed
+/// settle attempts to time an appeal is invisible to it. This event makes
+/// the spray observable: the off-chain monitor alerts on attempts whose
+/// `seconds_since_execute` is suspiciously small or that cluster around
+/// an appeal's mempool window.
+#[event]
+pub struct SettleSlashAttempted {
+    pub agent_wallet:           Pubkey,
+    pub index:                  u64,
+    /// Who attempted — the slash_executor signer for this call.
+    pub executor:               Pubkey,
+    /// Original execute_slash timestamp.
+    pub executed_at:            i64,
+    /// The appeal window's close time (the gate the audit highlighted).
+    pub appeal_deadline:        i64,
+    /// Unix seconds the attempt landed.
+    pub attempted_at:           i64,
+    /// `attempted_at - executed_at` — the off-chain monitor's anomaly
+    /// signal. Same-block (~0s) attempts are the smoking gun.
+    pub seconds_since_execute:  i64,
 }
 
 // ── VULN-04 events: role separation + pause kill switch ────────────────────
