@@ -35,6 +35,47 @@ pub enum CommitterKind {
     Owner,
 }
 
+// =============================================================================
+// VULN-10: BaselineRotated — fired on every NON-FIRST commit so an agent
+// owner's off-chain monitor can page on a rotation.
+//
+// `BaselineCommitted` is the canonical commit event; `BaselineRotated` is
+// the SUPERSET-of-info event tailored to "the baseline that the network
+// has been using just changed". It carries the FULL previous state so
+// the monitor can show a diff without joining the indexer log.
+//
+// The owner detects an unexpected rotation (e.g. a compromised oracle
+// node rotating to a stale-favorable hash) within seconds of the event
+// landing, and uses the owner-override path on commit_baseline to
+// re-rotate to the correct hash immediately (the owner path bypasses
+// the oracle cooldown).
+// =============================================================================
+
+#[event]
+pub struct BaselineRotated {
+    pub agent_wallet:                 Pubkey,
+    pub committer:                    Pubkey,
+    pub committer_kind:               CommitterKind,
+    /// The hash AFTER this commit.
+    pub new_baseline_hash:            [u8; 32],
+    /// The hash this rotation REPLACED.
+    pub previous_baseline_hash:       [u8; 32],
+    /// Who wrote the previous baseline.
+    pub previous_committer:           Pubkey,
+    /// Unix seconds the previous baseline was committed.
+    pub previous_committed_at:        i64,
+    /// The previous commit_nonce — pairs with the new one in this event.
+    pub previous_commit_nonce:        u64,
+    /// The new commit_nonce.
+    pub new_commit_nonce:             u64,
+    /// Seconds between the previous and current commit. The owner's
+    /// monitor uses this to spot a too-fast rotation (a real rotation
+    /// is typically 30 days; one a few seconds after the last is the
+    /// smoking gun).
+    pub seconds_since_previous:       i64,
+    pub rotated_at:                   i64,
+}
+
 #[event]
 pub struct RegistrationMigrated {
     pub agent_wallet:    Pubkey,

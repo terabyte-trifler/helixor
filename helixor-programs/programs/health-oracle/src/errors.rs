@@ -30,6 +30,11 @@ pub enum HelixorError {
     ZeroHash = 6021,
     #[msg("baseline_algo_version is zero — refusing to commit an unversioned hash")]
     ZeroAlgoVersion = 6022,
+    #[msg("oracle baseline rotation is in cooldown — wait at least one epoch \
+           since the previous commit, or use the owner override path")]
+    OracleCommitCooldownActive = 6023,
+    #[msg("baseline timestamp arithmetic overflow")]
+    BaselineTimestampOverflow = 6024,
 
     // ── Migration ───────────────────────────────────────────────────────────
     #[msg("registration is already at the current layout version")]
