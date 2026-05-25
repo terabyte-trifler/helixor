@@ -17,11 +17,59 @@ Public API:
     YellowstoneStreamSource, YellowstoneConfig   the live gRPC edge
     GeyserTransactionUpdate, GeyserAccountChange,
         IngestedTransaction, IngestionSource     the types
+
+    VULN-11 — stream authentication & defence in depth:
+        canonical_update_bytes, commitment,
+        SignedGeyserUpdate, sign_update,
+        TrustedGeyserSource, TrustedGeyserSourceSet,
+        verify_signed_update, VerifyingStreamSource,
+        GeyserAuthError, UntrustedSource         envelope auth (mit. #1)
+        CrossVerificationFailed,
+        RpcSignatureStatus, RpcSignatureVerifier,
+        SamplingCrossVerifier, cross_check       RPC cross-check (mit. #2)
+        ConflictReport, ConsensusStream          multi-endpoint (mit. #3)
+        PluginPin, PluginPinManifest,
+        TrustedReleaseSigner, TrustedReleaseSignerSet,
+        compute_binary_sha256, verify_plugin_binary,
+        manifest_from_json, manifest_to_json,
+        PluginPinError, UntrustedReleaseSigner   plugin pinning (mit. #4)
 """
 
 from __future__ import annotations
 
+from indexer.auth import (
+    GeyserAuthError,
+    SignedGeyserUpdate,
+    TrustedGeyserSource,
+    TrustedGeyserSourceSet,
+    UntrustedSource,
+    VerifyingStreamSource,
+    canonical_update_bytes,
+    commitment,
+    sign_update,
+    verify_signed_update,
+)
+from indexer.consensus import ConflictReport, ConsensusStream
+from indexer.cross_verify import (
+    CrossVerificationFailed,
+    RpcSignatureStatus,
+    RpcSignatureVerifier,
+    SamplingCrossVerifier,
+    cross_check,
+)
 from indexer.decoder import DecodeError, decode_transaction
+from indexer.plugin_pin import (
+    PluginPin,
+    PluginPinError,
+    PluginPinManifest,
+    TrustedReleaseSigner,
+    TrustedReleaseSignerSet,
+    UntrustedReleaseSigner,
+    compute_binary_sha256,
+    manifest_from_json,
+    manifest_to_json,
+    verify_plugin_binary,
+)
 from indexer.reconciler import (
     DivergenceSeverity,
     ReconciliationReport,
@@ -60,4 +108,19 @@ __all__ = [
     "YellowstoneStreamSource", "YellowstoneConfig", "map_subscribe_update",
     "GeyserTransactionUpdate", "GeyserAccountChange",
     "IngestedTransaction", "IngestionSource",
+    # VULN-11
+    "canonical_update_bytes", "commitment",
+    "SignedGeyserUpdate", "sign_update",
+    "TrustedGeyserSource", "TrustedGeyserSourceSet",
+    "verify_signed_update", "VerifyingStreamSource",
+    "GeyserAuthError", "UntrustedSource",
+    "CrossVerificationFailed",
+    "RpcSignatureStatus", "RpcSignatureVerifier",
+    "SamplingCrossVerifier", "cross_check",
+    "ConflictReport", "ConsensusStream",
+    "PluginPin", "PluginPinManifest",
+    "TrustedReleaseSigner", "TrustedReleaseSignerSet",
+    "compute_binary_sha256", "verify_plugin_binary",
+    "manifest_from_json", "manifest_to_json",
+    "PluginPinError", "UntrustedReleaseSigner",
 ]
