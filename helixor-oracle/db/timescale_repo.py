@@ -40,6 +40,49 @@ from features.types import Transaction
 
 
 # =============================================================================
+# VULN-20 defense-in-depth — base58 wallet guard
+# =============================================================================
+#
+# The %s-parameterised queries below are already proof against SQLi: the
+# psycopg driver never splices the parameter into the SQL string. This
+# guard exists for a SECOND failure mode — a future refactor that
+# constructs SQL with f-strings or `.format()`. If `agent_wallet` is
+# already known to be base58, that refactor cannot exfiltrate data even
+# if it accidentally splices the value, because no SQL metacharacter can
+# survive the alphabet check.
+#
+# Kept module-local rather than imported from helixor-api so the oracle
+# package has zero cross-package dependencies.
+
+_BASE58_ALPHABET = frozenset(
+    "123456789"
+    "ABCDEFGHJKLMNPQRSTUVWXYZ"
+    "abcdefghijkmnopqrstuvwxyz"
+)
+_MIN_WALLET_LEN = 32
+_MAX_WALLET_LEN = 44
+
+
+class WalletValidationError(ValueError):
+    """Raised when a wallet handed to the repo is not base58-shaped."""
+
+
+def _ensure_wallet_safe(wallet: str) -> None:
+    if not isinstance(wallet, str):
+        raise WalletValidationError("wallet must be a string")
+    n = len(wallet)
+    if n < _MIN_WALLET_LEN or n > _MAX_WALLET_LEN:
+        raise WalletValidationError(
+            f"wallet length {n} outside {_MIN_WALLET_LEN}..{_MAX_WALLET_LEN}"
+        )
+    for c in wallet:
+        if c not in _BASE58_ALPHABET:
+            raise WalletValidationError(
+                f"wallet contains non-base58 character {c!r}"
+            )
+
+
+# =============================================================================
 # DBConnection — the minimal driver-independent interface
 # =============================================================================
 
@@ -157,6 +200,8 @@ class TimescaleTransactionRepo:
         All of one agent's transactions in [window_start, window_end),
         chronological. A bounded index range scan over the pruned chunks.
         """
+        # VULN-20 — defense in depth (see top of file).
+        _ensure_wallet_safe(query.agent_wallet)
         rows = self._conn.execute(
             _FETCH_WINDOW_SQL,
             [query.agent_wallet, query.window_start, query.window_end],
@@ -184,6 +229,8 @@ class TimescaleTransactionRepo:
         Days with no activity are simply absent (not zero-filled) — the
         same convention as `daily_success_rate_series`.
         """
+        # VULN-20 — defense in depth.
+        _ensure_wallet_safe(agent_wallet)
         rows = self._conn.execute(
             _DAILY_ROLLUP_SQL, [agent_wallet, window_start, window_end],
         )
@@ -206,6 +253,8 @@ class TimescaleTransactionRepo:
         self, agent_wallet: str, transaction: Transaction,
     ) -> None:
         """Idempotent insert of one transaction (ON CONFLICT DO NOTHING)."""
+        # VULN-20 — defense in depth.
+        _ensure_wallet_safe(agent_wallet)
         self._conn.execute(_INSERT_SQL, [
             agent_wallet,
             transaction.signature,

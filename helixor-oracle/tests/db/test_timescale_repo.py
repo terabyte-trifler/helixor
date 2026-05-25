@@ -24,6 +24,10 @@ from features.types import Transaction
 
 REF_END = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
 
+# VULN-20: the repo now enforces a base58 wallet shape (32..44 chars,
+# Bitcoin alphabet). The test wallet is a synthetic-but-valid placeholder.
+AGENT_X = "X9" * 22
+
 
 # =============================================================================
 # A fake DBConnection
@@ -54,7 +58,7 @@ class FakeConnection:
 def _tx_row(i: int) -> tuple:
     """A row in agent_transactions SELECT-column order."""
     return (
-        "agentX",                                          # agent_wallet
+        AGENT_X,                                          # agent_wallet
         f"sig{i:08d}".ljust(64, "x"),                      # signature
         100_000_000 + i,                                   # slot
         REF_END - timedelta(hours=i),                      # block_time
@@ -94,7 +98,7 @@ class TestFetchTransactions:
                           [_tx_row(0), _tx_row(1), _tx_row(2)])
         repo = TimescaleTransactionRepo(conn)
         q = TransactionQuery(
-            agent_wallet="agentX",
+            agent_wallet=AGENT_X,
             window_start=REF_END - timedelta(days=1),
             window_end=REF_END,
         )
@@ -107,7 +111,7 @@ class TestFetchTransactions:
         conn.set_response("FROM agent_transactions", [_tx_row(7)])
         repo = TimescaleTransactionRepo(conn)
         q = TransactionQuery(
-            agent_wallet="agentX",
+            agent_wallet=AGENT_X,
             window_start=REF_END - timedelta(days=1),
             window_end=REF_END,
         )
@@ -123,18 +127,18 @@ class TestFetchTransactions:
         repo = TimescaleTransactionRepo(conn)
         start = REF_END - timedelta(days=30)
         q = TransactionQuery(
-            agent_wallet="agentX", window_start=start, window_end=REF_END,
+            agent_wallet=AGENT_X, window_start=start, window_end=REF_END,
         )
         repo.fetch_transactions(q)
         # The window bounds + agent went into the parameter list.
         sql, params = conn.calls[0]
-        assert params == ["agentX", start, REF_END]
+        assert params == [AGENT_X, start, REF_END]
 
     def test_empty_result(self):
         conn = FakeConnection()           # no canned rows
         repo = TimescaleTransactionRepo(conn)
         q = TransactionQuery(
-            agent_wallet="agentX",
+            agent_wallet=AGENT_X,
             window_start=REF_END - timedelta(days=1),
             window_end=REF_END,
         )
@@ -147,7 +151,7 @@ class TestFetchTransactions:
         conn.set_response("FROM agent_transactions", [tuple(row)])
         repo = TimescaleTransactionRepo(conn)
         q = TransactionQuery(
-            agent_wallet="agentX",
+            agent_wallet=AGENT_X,
             window_start=REF_END - timedelta(days=1),
             window_end=REF_END,
         )
@@ -182,7 +186,7 @@ class TestDailyRollup:
         ])
         repo = TimescaleTransactionRepo(conn)
         rollup = repo.fetch_daily_rollup(
-            "agentX", REF_END - timedelta(days=30), REF_END,
+            AGENT_X, REF_END - timedelta(days=30), REF_END,
         )
         assert len(rollup) == 1
         assert rollup[0]["tx_count"] == 25
@@ -192,7 +196,7 @@ class TestDailyRollup:
     def test_rollup_hits_continuous_aggregate(self):
         conn = FakeConnection()
         repo = TimescaleTransactionRepo(conn)
-        repo.fetch_daily_rollup("agentX", REF_END - timedelta(days=30), REF_END)
+        repo.fetch_daily_rollup(AGENT_X, REF_END - timedelta(days=30), REF_END)
         # The query targets the continuous aggregate, not the raw table.
         sql, _ = conn.calls[0]
         assert "agent_tx_daily" in sql
@@ -217,10 +221,10 @@ class TestInsertTransaction:
             fee=5000, priority_fee=100, compute_units=200_000,
             counterparty="cpX",
         )
-        repo.insert_transaction("agentX", tx)
+        repo.insert_transaction(AGENT_X, tx)
         sql, params = conn.calls[0]
         assert "INSERT INTO agent_transactions" in sql
-        assert params[0] == "agentX"
+        assert params[0] == AGENT_X
         assert params[1] == tx.signature
         # program_ids passed as a list (TEXT[]).
         assert params[5] == ["progA", "progB"]
@@ -234,7 +238,7 @@ class TestInsertTransaction:
             success=True, program_ids=(), sol_change=0, fee=0,
             priority_fee=0, compute_units=0, counterparty=None,
         )
-        repo.insert_transaction("agentX", tx)
+        repo.insert_transaction(AGENT_X, tx)
         sql, _ = conn.calls[0]
         assert "ON CONFLICT" in sql
         assert "DO NOTHING" in sql

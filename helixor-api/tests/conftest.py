@@ -47,6 +47,29 @@ REF_TS = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
 
 
 # =============================================================================
+# Synthetic but well-shaped wallet placeholders (VULN-20)
+# =============================================================================
+#
+# Every wallet/node string handed to the API after VULN-20 must be a
+# valid base58 string of length 32..44 (Solana's Ed25519 pubkey shape).
+# We pin a small set of deterministic constants here so tests stay
+# readable: a test asks for `WALLET_A` and an alert message that says
+# "agent A" still maps to a real-shaped value.
+#
+# All characters below are in the Bitcoin base58 alphabet (no 0/O/I/l).
+
+WALLET_A          = "A1" * 22                    # "A1A1...A1" 44 chars
+WALLET_B          = "B2" * 22
+WALLET_UNKNOWN    = "Zz" * 22                    # an agent the repo never sees
+NODE_0            = "N1" * 22
+NODE_1            = "N2" * 22
+NODE_2            = "N3" * 22                    # the Byzantine node
+NODE_3            = "N4" * 22
+NODE_4            = "N5" * 22
+NODE_IDS          = (NODE_0, NODE_1, NODE_2, NODE_3, NODE_4)
+
+
+# =============================================================================
 # Per-test repo fixtures — populated with a small, predictable dataset
 # =============================================================================
 
@@ -54,11 +77,11 @@ REF_TS = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
 def score_repo() -> InMemoryScoreRepo:
     repo = InMemoryScoreRepo()
     # Agent A: a YELLOW past, a GREEN now.
-    repo.add(ScoreRecord("agentA", 27, 700, 1, 0x02, False, 3, REF_TS))
-    repo.add(ScoreRecord("agentA", 28, 851, 1, 0x42, False, 3, REF_TS))
-    repo.add(ScoreRecord("agentA", 29, 920, 0, 0x00, False, 4, REF_TS))
+    repo.add(ScoreRecord(WALLET_A, 27, 700, 1, 0x02, False, 3, REF_TS))
+    repo.add(ScoreRecord(WALLET_A, 28, 851, 1, 0x42, False, 3, REF_TS))
+    repo.add(ScoreRecord(WALLET_A, 29, 920, 0, 0x00, False, 4, REF_TS))
     # Agent B: one cert, RED with immediate_red set.
-    repo.add(ScoreRecord("agentB", 29, 220, 2, 0xff, True,  5, REF_TS))
+    repo.add(ScoreRecord(WALLET_B, 29, 220, 2, 0xff, True,  5, REF_TS))
     return repo
 
 
@@ -66,30 +89,30 @@ def score_repo() -> InMemoryScoreRepo:
 def byzantine_repo() -> InMemoryByzantineRepo:
     repo = InMemoryByzantineRepo()
     repo.add_flag(ByzantineFlagRecord(
-        node_id="oracle-node-2", epoch=28,
-        subject_agent="agentA", accused_score=40,
+        node_id=NODE_2, epoch=28,
+        subject_agent=WALLET_A, accused_score=40,
         cluster_median=851, deviation=0.95,
     ))
     repo.add_flag(ByzantineFlagRecord(
-        node_id="oracle-node-2", epoch=29,
-        subject_agent="agentB", accused_score=900,
+        node_id=NODE_2, epoch=29,
+        subject_agent=WALLET_B, accused_score=900,
         cluster_median=220, deviation=3.09,
     ))
     repo.set_strikes(StrikeSummary(
-        node_id="oracle-node-2", strikes=2,
+        node_id=NODE_2, strikes=2,
         flagged_epochs=(28, 29), challenged=False,
     ))
-    repo.add_reveal(NodeRevealRecord("oracle-node-0", 28, "agentA", 851))
-    repo.add_reveal(NodeRevealRecord("oracle-node-1", 28, "agentA", 850))
-    repo.add_reveal(NodeRevealRecord("oracle-node-2", 28, "agentA",  40))
-    repo.add_reveal(NodeRevealRecord("oracle-node-3", 28, "agentA", 853))
-    repo.add_reveal(NodeRevealRecord("oracle-node-4", 28, "agentA", 851))
+    repo.add_reveal(NodeRevealRecord(NODE_0, 28, WALLET_A, 851))
+    repo.add_reveal(NodeRevealRecord(NODE_1, 28, WALLET_A, 850))
+    repo.add_reveal(NodeRevealRecord(NODE_2, 28, WALLET_A,  40))
+    repo.add_reveal(NodeRevealRecord(NODE_3, 28, WALLET_A, 853))
+    repo.add_reveal(NodeRevealRecord(NODE_4, 28, WALLET_A, 851))
     repo.add_challenge(ChallengeRecord(
         challenge_index=0,
-        accused_node="oracle-node-2",
+        accused_node=NODE_2,
         proof_type=0,
         subject_epoch=28,
-        subject_agent="agentA",
+        subject_agent=WALLET_A,
         accused_score=40,
         cluster_median=851,
         evidence_hash="b" * 64,
@@ -102,27 +125,25 @@ def byzantine_repo() -> InMemoryByzantineRepo:
 @pytest.fixture
 def cluster_repo() -> InMemoryClusterHealthRepo:
     repo = InMemoryClusterHealthRepo()
-    for i in range(5):
+    for node_id in NODE_IDS:
         repo.add_heartbeat(NodeHeartbeat(
-            node_id=f"oracle-node-{i}",
+            node_id=node_id,
             last_seen_unix=1_750_000_000,
             epoch=29,
         ))
     repo.add_epoch(EpochSummary(
         epoch=28, submitted_count=2, agent_count=2,
-        verified_nodes=("oracle-node-0", "oracle-node-1", "oracle-node-2",
-                        "oracle-node-3", "oracle-node-4"),
-        byzantine_nodes=("oracle-node-2",),
+        verified_nodes=NODE_IDS,
+        byzantine_nodes=(NODE_2,),
         unreachable_nodes=(),
         elapsed_seconds=6.3,
         computed_at=REF_TS,
     ))
     repo.add_epoch(EpochSummary(
         epoch=29, submitted_count=2, agent_count=2,
-        verified_nodes=("oracle-node-0", "oracle-node-1", "oracle-node-3",
-                        "oracle-node-4"),
+        verified_nodes=(NODE_0, NODE_1, NODE_3, NODE_4),
         byzantine_nodes=(),
-        unreachable_nodes=("oracle-node-2",),
+        unreachable_nodes=(NODE_2,),
         elapsed_seconds=5.8,
         computed_at=REF_TS,
     ))

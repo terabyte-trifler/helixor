@@ -44,6 +44,11 @@ run "hardening sweep"  python3 audit/hardening_check.py
 run "entrypoint guard audit"  python3 audit/entrypoint_guard_audit.py
 
 
+# ── 1b. VULN-20 SQLi sweep ──────────────────────────────────────────────────
+run "sql injection sweep"  python3 audit/sql_injection_check.py \
+    --json audit/reports/sql_injection.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

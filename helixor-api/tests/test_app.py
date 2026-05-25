@@ -10,6 +10,10 @@ from __future__ import annotations
 
 import pytest
 
+from tests.conftest import (
+    NODE_0, NODE_2, NODE_IDS, WALLET_A, WALLET_B, WALLET_UNKNOWN,
+)
+
 
 # =============================================================================
 # /agents/{wallet}/health  — current score
@@ -18,10 +22,10 @@ import pytest
 class TestAgentHealthCurrent:
 
     def test_returns_latest_epoch(self, client):
-        r = client.get("/agents/agentA/health")
+        r = client.get(f"/agents/{WALLET_A}/health")
         assert r.status_code == 200
         body = r.json()
-        assert body["agent_wallet"] == "agentA"
+        assert body["agent_wallet"] == WALLET_A
         assert body["epoch"] == 29                  # latest, not 27 or 28
         assert body["score"] == 920
         assert body["alert_tier"] == "GREEN"
@@ -29,21 +33,21 @@ class TestAgentHealthCurrent:
         assert body["signer_count"] == 4
 
     def test_schema_version_field_present(self, client):
-        body = client.get("/agents/agentA/health").json()
+        body = client.get(f"/agents/{WALLET_A}/health").json()
         assert body["_v"] == 1                      # SCHEMA_VERSION
 
     def test_immediate_red_propagates(self, client):
-        body = client.get("/agents/agentB/health").json()
+        body = client.get(f"/agents/{WALLET_B}/health").json()
         assert body["alert_tier"] == "RED"
         assert body["alert_tier_code"] == 2
         assert body["immediate_red"] is True
 
     def test_unknown_agent_returns_404_with_structured_error(self, client):
-        r = client.get("/agents/agentNeverSeen/health")
+        r = client.get(f"/agents/{WALLET_UNKNOWN}/health")
         assert r.status_code == 404
         body = r.json()
         assert body["error"] == "not_found"
-        assert "agentNeverSeen" in body["detail"]
+        assert WALLET_UNKNOWN in body["detail"]
 
 
 # =============================================================================
@@ -53,7 +57,7 @@ class TestAgentHealthCurrent:
 class TestAgentHealthAtEpoch:
 
     def test_returns_specific_epoch(self, client):
-        r = client.get("/agents/agentA/health/28")
+        r = client.get(f"/agents/{WALLET_A}/health/28")
         assert r.status_code == 200
         body = r.json()
         assert body["epoch"] == 28
@@ -61,11 +65,11 @@ class TestAgentHealthAtEpoch:
         assert body["alert_tier"] == "YELLOW"
 
     def test_missing_epoch_404(self, client):
-        r = client.get("/agents/agentA/health/99")
+        r = client.get(f"/agents/{WALLET_A}/health/99")
         assert r.status_code == 404
 
     def test_epoch_below_one_rejected(self, client):
-        r = client.get("/agents/agentA/health/0")
+        r = client.get(f"/agents/{WALLET_A}/health/0")
         assert r.status_code == 400
         assert "epoch" in r.json()["detail"]
 
@@ -77,43 +81,49 @@ class TestAgentHealthAtEpoch:
 class TestAgentHistory:
 
     def test_returns_all_epochs_newest_first(self, client):
-        body = client.get("/agents/agentA/history").json()
+        body = client.get(f"/agents/{WALLET_A}/history").json()
         epochs = [e["epoch"] for e in body["entries"]]
         assert epochs == [29, 28, 27]               # newest first
 
     def test_from_epoch_filter(self, client):
-        body = client.get("/agents/agentA/history?from_epoch=28").json()
+        body = client.get(
+            f"/agents/{WALLET_A}/history?from_epoch=28",
+        ).json()
         assert [e["epoch"] for e in body["entries"]] == [29, 28]
 
     def test_to_epoch_filter(self, client):
-        body = client.get("/agents/agentA/history?to_epoch=28").json()
+        body = client.get(
+            f"/agents/{WALLET_A}/history?to_epoch=28",
+        ).json()
         assert [e["epoch"] for e in body["entries"]] == [28, 27]
 
     def test_both_filters_combine(self, client):
         body = client.get(
-            "/agents/agentA/history?from_epoch=28&to_epoch=28",
+            f"/agents/{WALLET_A}/history?from_epoch=28&to_epoch=28",
         ).json()
         assert [e["epoch"] for e in body["entries"]] == [28]
 
     def test_limit_caps_entries(self, client):
-        body = client.get("/agents/agentA/history?limit=1").json()
+        body = client.get(f"/agents/{WALLET_A}/history?limit=1").json()
         assert len(body["entries"]) == 1
         assert body["entries"][0]["epoch"] == 29
         assert body["limit"] == 1
 
     @pytest.mark.parametrize("bad_limit", [0, -1, 1001])
     def test_limit_out_of_bounds_400(self, client, bad_limit):
-        r = client.get(f"/agents/agentA/history?limit={bad_limit}")
+        r = client.get(f"/agents/{WALLET_A}/history?limit={bad_limit}")
         assert r.status_code == 400
 
     def test_inverted_range_400(self, client):
-        r = client.get("/agents/agentA/history?from_epoch=30&to_epoch=28")
+        r = client.get(
+            f"/agents/{WALLET_A}/history?from_epoch=30&to_epoch=28",
+        )
         assert r.status_code == 400
 
     def test_unknown_agent_returns_empty_list_not_404(self, client):
         # The history endpoint is a LIST endpoint — an unknown agent is
         # a valid query with zero results, not an error.
-        body = client.get("/agents/agentNeverSeen/history").json()
+        body = client.get(f"/agents/{WALLET_UNKNOWN}/history").json()
         assert body["entries"] == []
 
 
@@ -131,7 +141,7 @@ class TestByzantineRecent:
         assert body["flags"][1]["epoch"] == 28
         # Each flag carries the runbook-relevant fields.
         f = body["flags"][0]
-        assert f["node"] == "oracle-node-2"
+        assert f["node"] == NODE_2
         assert "accused_score" in f
         assert "cluster_median" in f
         assert "deviation" in f
@@ -151,8 +161,8 @@ class TestByzantineStrikes:
     def test_returns_per_node_strike_summary(self, client):
         body = client.get("/byzantine/strikes").json()
         # node_id -> StrikeEntry, exactly what byzantine_flag.md greps.
-        assert "oracle-node-2" in body["summary"]
-        s = body["summary"]["oracle-node-2"]
+        assert NODE_2 in body["summary"]
+        s = body["summary"][NODE_2]
         assert s["strikes"] == 2
         assert s["flagged_epochs"] == [28, 29]
         assert s["challenged"] is False
@@ -166,26 +176,26 @@ class TestByzantinePerNode:
 
     def test_returns_one_row_per_node(self, client):
         body = client.get(
-            "/byzantine/per_node?epoch=28&agent=agentA",
+            f"/byzantine/per_node?epoch=28&agent={WALLET_A}",
         ).json()
         nodes = [r["node"] for r in body["reveals"]]
         # All 5 nodes have a row.
-        assert nodes == [f"oracle-node-{i}" for i in range(5)]
+        assert nodes == list(NODE_IDS)
         # The Byzantine node's score is the odd-one-out.
         scores = {r["node"]: r["score"] for r in body["reveals"]}
-        assert scores["oracle-node-2"] == 40
+        assert scores[NODE_2] == 40
         # Honest nodes cluster around 851.
         assert all(abs(scores[n] - 851) < 5
-                   for n in scores if n != "oracle-node-2")
+                   for n in scores if n != NODE_2)
 
     def test_missing_epoch_param_400(self, client):
         # epoch is REQUIRED — FastAPI returns 422 for missing query params
         # by default; we want a stable 422 for that, not 500.
-        r = client.get("/byzantine/per_node?agent=agentA")
+        r = client.get(f"/byzantine/per_node?agent={WALLET_A}")
         assert r.status_code == 422       # FastAPI's default for missing required
 
     def test_epoch_below_one_400(self, client):
-        r = client.get("/byzantine/per_node?epoch=0&agent=agentA")
+        r = client.get(f"/byzantine/per_node?epoch=0&agent={WALLET_A}")
         assert r.status_code == 400
 
 
@@ -196,8 +206,8 @@ class TestByzantinePerNode:
 class TestChallenges:
 
     def test_lists_challenges_for_accused_node(self, client):
-        body = client.get("/challenges?node=oracle-node-2").json()
-        assert body["accused_node"] == "oracle-node-2"
+        body = client.get(f"/challenges?node={NODE_2}").json()
+        assert body["accused_node"] == NODE_2
         assert len(body["challenges"]) == 1
         c = body["challenges"][0]
         assert c["proof_type"] == 0           # Day 21: ConflictingScores
@@ -206,7 +216,7 @@ class TestChallenges:
         assert c["status"] == "pending"
 
     def test_node_with_no_challenges_returns_empty(self, client):
-        body = client.get("/challenges?node=oracle-node-0").json()
+        body = client.get(f"/challenges?node={NODE_0}").json()
         assert body["challenges"] == []
 
 
@@ -220,14 +230,12 @@ class TestClusterHealth:
         body = client.get("/health/cluster").json()
         # 5 heartbeats.
         assert len(body["heartbeats"]) == 5
-        assert {h["node"] for h in body["heartbeats"]} == {
-            f"oracle-node-{i}" for i in range(5)
-        }
+        assert {h["node"] for h in body["heartbeats"]} == set(NODE_IDS)
         # Recent epochs newest first.
         assert [e["epoch"] for e in body["recent_epochs"]] == [29, 28]
         # Epoch 29 shows the unreachable node.
         e29 = body["recent_epochs"][0]
-        assert e29["unreachable_nodes"] == ["oracle-node-2"]
+        assert e29["unreachable_nodes"] == [NODE_2]
         assert e29["submitted_count"] == e29["agent_count"]
 
     def test_limit_param(self, client):
@@ -256,7 +264,7 @@ class TestMetaEndpoints:
 
     def test_metrics_endpoint_returns_prometheus_text(self, client):
         # Hit a route first so there's something to observe.
-        client.get("/agents/agentA/health")
+        client.get(f"/agents/{WALLET_A}/health")
         r = client.get("/metrics")
         assert r.status_code == 200
         assert r.headers["content-type"].startswith("text/plain")
@@ -271,13 +279,14 @@ class TestMetaEndpoints:
         # Critical: per-agent cardinality would blow up the metric. The
         # label must be the template `/agents/{wallet}/health`, never
         # the literal wallet.
-        for wallet in ["alice", "bob", "carol", "dave"]:
+        wallets = [c * 44 for c in ("A", "B", "C", "D")]
+        for wallet in wallets:
             client.get(f"/agents/{wallet}/health")
         body = client.get("/metrics").text
         # The template appears.
         assert '/agents/{wallet}/health' in body
         # Literal wallets DO NOT appear in metric labels.
-        for wallet in ["alice", "bob", "carol", "dave"]:
+        for wallet in wallets:
             assert f'/agents/{wallet}/health"' not in body
 
 

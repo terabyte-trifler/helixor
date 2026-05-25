@@ -9,6 +9,12 @@ file.
 - [ ] `audit/run_all.sh` passes locally — 7 PASSED, externals skipped
 - [ ] `audit/hardening_check.py` reports **0 HARD findings**
       → `audit/reports/hardening.json`
+- [ ] **VULN-20 SQLi sweep clean** —
+      `python3 audit/sql_injection_check.py --json audit/reports/sql_injection.json`
+      reports **0 HARD findings**. Every `.execute(...)` in
+      `helixor-oracle/db/`, `helixor-oracle/baseline/`, `helixor-api/api/`,
+      and `helixor-indexer/` uses parameterised binding (`%s` + params
+      sequence); no f-strings, no `.format()`, no `+` concatenation.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain
@@ -107,6 +113,11 @@ the entry gate.
       `audit/reports/scoring_determinism_optin.md`. No node has
       `numpy`/`scipy`/`pandas`/`sklearn` in `sys.modules` at startup
       (the guard scans on every entrypoint).
+- [ ] **VULN-20 wallet validation on the live API.** From an external
+      host, `curl -i $HELIXOR_API_URL/agents/'%27%3B%20DROP%20TABLE%20agent_transactions%3B%20--'/health`
+      returns `400 bad_request` (NOT 404, NOT 500). Confirms the
+      base58 boundary check is in the deployed binary, not just the
+      tests.
 - [ ] **The first epoch on mainnet completes** end-to-end, on-chain
       cert visible via explorer
 

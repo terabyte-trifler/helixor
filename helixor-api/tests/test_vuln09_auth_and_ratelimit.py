@@ -46,6 +46,7 @@ from api.rate_limit import (
     load_public_limit_from_env,
     load_trust_proxy_from_env,
 )
+from tests.conftest import NODE_2, WALLET_A
 
 
 # =============================================================================
@@ -114,8 +115,8 @@ OPERATIONAL_PATHS_REQUIRING_KEY = [
     "/health/cluster",
     "/byzantine/recent",
     "/byzantine/strikes",
-    "/byzantine/per_node?epoch=28&agent=agentA",
-    "/challenges?node=oracle-node-2",
+    f"/byzantine/per_node?epoch=28&agent={WALLET_A}",
+    f"/challenges?node={NODE_2}",
 ]
 
 
@@ -187,7 +188,7 @@ class TestOperationalAuthGate:
             cluster_repo=cluster_repo,
         )
         c = TestClient(app)
-        r = c.get("/agents/agentA/health")
+        r = c.get(f"/agents/{WALLET_A}/health")
         assert r.status_code == 200
 
 
@@ -205,7 +206,7 @@ class TestCacheControl:
             cluster_repo=cluster_repo,
         )
         c = TestClient(app)
-        r = c.get("/agents/agentA/health")
+        r = c.get(f"/agents/{WALLET_A}/health")
         assert r.status_code == 200
         cc = r.headers.get("cache-control", "")
         # Audit asked for 5-minute CDN TTL.
@@ -220,7 +221,7 @@ class TestCacheControl:
             cluster_repo=cluster_repo,
         )
         c = TestClient(app)
-        r = c.get("/agents/agentA/history")
+        r = c.get(f"/agents/{WALLET_A}/history")
         cc = r.headers.get("cache-control", "")
         assert "max-age=300" in cc
 
@@ -258,9 +259,9 @@ class TestPublicRateLimit:
         c = TestClient(app)
         # 5 should pass, the 6th should be a 429.
         for i in range(5):
-            r = c.get("/agents/agentA/health")
+            r = c.get(f"/agents/{WALLET_A}/health")
             assert r.status_code == 200, f"hit {i} unexpectedly rejected"
-        r = c.get("/agents/agentA/health")
+        r = c.get(f"/agents/{WALLET_A}/health")
         assert r.status_code == 429
         body = r.json()
         assert body["error"] == "too_many_requests"
@@ -296,8 +297,8 @@ class TestPublicRateLimit:
             public_cap=1,
         )
         c = TestClient(app)
-        c.get("/agents/agentA/health")
-        c.get("/agents/agentA/health")  # 429
+        c.get(f"/agents/{WALLET_A}/health")
+        c.get(f"/agents/{WALLET_A}/health")  # 429
         body = c.get("/metrics").text
         # The metric labels the bucket type that fired ("ip" here).
         assert "helixor_api_rate_limit_rejections_total" in body
@@ -323,7 +324,7 @@ class TestAuthenticatedRateLimit:
         c = TestClient(app)
         c.headers["X-API-Key"] = VALID_SECRET
         for i in range(10):
-            r = c.get("/agents/agentA/health")
+            r = c.get(f"/agents/{WALLET_A}/health")
             assert r.status_code == 200, f"auth hit {i} rejected: {r.text}"
 
     def test_per_key_cap_is_independent_of_per_ip_cap(
@@ -341,11 +342,11 @@ class TestAuthenticatedRateLimit:
         auth.headers["X-API-Key"] = VALID_SECRET
 
         # Burn the per-IP bucket.
-        assert unauth.get("/agents/agentA/health").status_code == 200
-        assert unauth.get("/agents/agentA/health").status_code == 429
+        assert unauth.get(f"/agents/{WALLET_A}/health").status_code == 200
+        assert unauth.get(f"/agents/{WALLET_A}/health").status_code == 429
         # The authed client still serves cleanly.
         for _ in range(5):
-            assert auth.get("/agents/agentA/health").status_code == 200
+            assert auth.get(f"/agents/{WALLET_A}/health").status_code == 200
 
     def test_per_key_429_labels_key_bucket(
         self, score_repo, byzantine_repo, cluster_repo,
@@ -357,9 +358,9 @@ class TestAuthenticatedRateLimit:
         )
         c = TestClient(app)
         c.headers["X-API-Key"] = VALID_SECRET
-        c.get("/agents/agentA/health")
-        c.get("/agents/agentA/health")
-        r = c.get("/agents/agentA/health")
+        c.get(f"/agents/{WALLET_A}/health")
+        c.get(f"/agents/{WALLET_A}/health")
+        r = c.get(f"/agents/{WALLET_A}/health")
         assert r.status_code == 429
         body = c.get("/metrics").text
         assert 'bucket_type="key"' in body

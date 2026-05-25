@@ -61,6 +61,7 @@ from api.schemas import (
     VersionResponse,
 )
 from api.score_repo import ScoreRecord, ScoreRepository
+from api.validation import validate_wallet
 
 
 # =============================================================================
@@ -291,6 +292,7 @@ def create_app(
 
     @app.get("/agents/{wallet}/health", response_model=HealthResponse)
     def agent_health(wallet: str, response: Response) -> HealthResponse:
+        wallet = validate_wallet(wallet)
         rec = score_repo.latest_score(wallet)
         if rec is None:
             raise HTTPException(404, f"no score recorded for {wallet}")
@@ -301,6 +303,7 @@ def create_app(
     def agent_health_at_epoch(
         wallet: str, epoch: int, response: Response,
     ) -> HealthResponse:
+        wallet = validate_wallet(wallet)
         if epoch < 1:
             raise HTTPException(400, "epoch must be >= 1")
         rec = score_repo.score_at_epoch(wallet, epoch)
@@ -317,6 +320,7 @@ def create_app(
         to_epoch:   int | None = None,
         limit:      int = 100,
     ) -> HistoryResponse:
+        wallet = validate_wallet(wallet)
         if limit < 1 or limit > 1000:
             raise HTTPException(400, "limit must be 1..1000")
         if from_epoch is not None and from_epoch < 1:
@@ -388,6 +392,7 @@ def create_app(
     def byzantine_per_node(
         epoch: int, agent: str, response: Response,
     ) -> PerNodeRevealsResponse:
+        agent = validate_wallet(agent)
         if epoch < 1:
             raise HTTPException(400, "epoch must be >= 1")
         reveals = byzantine_repo.per_node_reveals(epoch=epoch, agent_wallet=agent)
@@ -405,6 +410,7 @@ def create_app(
         dependencies=[Depends(require_key)],
     )
     def challenges(node: str, response: Response) -> ChallengesResponse:
+        node = validate_wallet(node)
         rows = byzantine_repo.challenges_for(node)
         response.headers["Cache-Control"] = OPERATIONAL_CACHE_CONTROL
         return ChallengesResponse(
