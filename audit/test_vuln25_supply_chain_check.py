@@ -97,23 +97,31 @@ class TestSourceDiscipline:
 class TestCli:
 
     def test_cli_emits_json_to_path(self, tmp_path):
-        # CLI exits non-zero when the generated .txt files are missing,
-        # but the JSON report is still written.
+        # Default mode tolerates the expected `txt-missing` rules — they're
+        # produced by the network-bound `pip-compile --generate-hashes`
+        # at release time, gated separately in LAUNCH_CHECKLIST.
         out = tmp_path / "report.json"
         rc = main(["--json", str(out)])
         assert out.exists()
         blob = json.loads(out.read_text())
-        # Either rc==0 (txt files committed) OR rc==1 with only the
-        # expected `txt-missing` rule firing.
-        if rc != 0:
-            unexpected = [
-                f for f in blob["findings"]
+        assert rc == 0, (
+            "default-mode CLI must tolerate expected `txt-missing` "
+            "findings; unexpected ones:\n"
+            + "\n".join(
+                f"  - {f['rule']} @ {f['path']}: {f['detail']}"
+                for f in blob["findings"]
                 if f["rule"] not in _GENERATED_TXT_RULES
-            ]
-            assert unexpected == [], (
-                "CLI flagged unexpected findings:\n"
-                + "\n".join(
-                    f"  - {f['rule']} @ {f['path']}: {f['detail']}"
-                    for f in unexpected
-                )
+            )
+        )
+
+    def test_cli_strict_mode_fails_on_txt_missing(self, tmp_path):
+        # `--strict` is the release-gate stance: every HARD finding
+        # (including the expected `txt-missing` set) must be resolved
+        # before the production deploy proceeds.
+        out = tmp_path / "report.json"
+        rc = main(["--strict", "--json", str(out)])
+        blob = json.loads(out.read_text())
+        if any(f["rule"] in _GENERATED_TXT_RULES for f in blob["findings"]):
+            assert rc == 1, (
+                "--strict must fail when txt-missing rules are present"
             )

@@ -56,8 +56,10 @@ file.
       because cert-account storage cannot carry `previous_score` without
       a backwards-incompatible migration.
 - [ ] **VULN-25 supply-chain sweep clean** —
-      `python3 audit/supply_chain_check.py --json audit/reports/supply_chain.json`
-      reports **0 HARD findings**. Before mainnet:
+      `python3 audit/supply_chain_check.py --strict --json audit/reports/supply_chain.json`
+      reports **0 HARD findings** (strict mode also fails on the
+      `*-requirements-txt-missing` rules, which the default run_all
+      sweep tolerates pre-release). Before mainnet:
         1. Run `bash scripts/regen_requirements.sh` to produce
            `helixor-{oracle,api,indexer}/requirements.txt` with full
            SHA256 hash closures via `pip-compile --generate-hashes`.

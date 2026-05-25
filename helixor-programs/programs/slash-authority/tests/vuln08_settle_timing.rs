@@ -52,7 +52,7 @@ fn min_execute_to_settle_floor_does_not_block_clean_lifecycle() {
     // window (72h) + grace (1h) = 73h is the natural ceiling. 48 < 73,
     // so a clean, un-appealed slash settled at `appeal_deadline + grace`
     // is past the floor.
-    assert!(MIN_EXECUTE_TO_SETTLE_SECONDS < 72 * 3_600 + SETTLE_GRACE_PERIOD_SECONDS);
+    const { assert!(MIN_EXECUTE_TO_SETTLE_SECONDS < 72 * 3_600 + SETTLE_GRACE_PERIOD_SECONDS) };
 }
 
 // =============================================================================

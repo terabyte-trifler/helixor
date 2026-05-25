@@ -163,5 +163,5 @@ fn thirty_day_rotation_is_well_inside_the_allowed_window() {
     // The whole point of the floor is "machine-gun rotations are
     // blocked, normal cadence is not". 30 days > 1 day, so a normal
     // baseline cycle clears the floor by a huge margin.
-    assert!(MIN_SECONDS_BETWEEN_ORACLE_COMMITS < 30 * 86_400);
+    const { assert!(MIN_SECONDS_BETWEEN_ORACLE_COMMITS < 30 * 86_400) };
 }
