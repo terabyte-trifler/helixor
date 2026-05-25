@@ -24,11 +24,15 @@ import * as fs from "fs";
 import * as path from "path";
 
 
-const PROGRAMS = {
+// Placeholder mainnet IDs — replace with the real upgrade-keypair pubkeys
+// at deploy time. For non-mainnet runs (devnet, localhost, CI), supply
+// `--programs-file <path.json>` with the actual deployed IDs:
+//   { "health_oracle": "EKK2...", "certificate_issuer": "4bsG...", ... }
+const PROGRAMS: Record<string, string> = {
     "health_oracle":       "HzOraCLE111111111111111111111111111111111",
     "certificate_issuer":  "CertIssuer1111111111111111111111111111111",
     "slash_authority":     "SLasH1111111111111111111111111111111111111",
-} as const;
+};
 
 const BPF_UPGRADEABLE_LOADER = new PublicKey(
     "BPFLoaderUpgradeab1e11111111111111111111111",
@@ -39,16 +43,21 @@ const BPF_UPGRADEABLE_LOADER = new PublicKey(
 // Args
 // ─────────────────────────────────────────────────────────────────────────────
 
-function parseArgs(): { cluster: string; buildDir: string; report: string } {
+function parseArgs(): {
+    cluster: string; buildDir: string; report: string;
+    programsFile: string | null;
+} {
     const argv = process.argv.slice(2);
     const get = (k: string, dflt: string) => {
         const i = argv.indexOf(`--${k}`);
         return i < 0 ? dflt : argv[i + 1];
     };
+    const programsFile = argv.indexOf("--programs-file");
     return {
-        cluster:  get("cluster", "mainnet-beta"),
-        buildDir: get("build-dir", "helixor-programs/target/deploy"),
-        report:   get("report", "audit/reports/so_match.json"),
+        cluster:      get("cluster", "mainnet-beta"),
+        buildDir:     get("build-dir", "helixor-programs/target/deploy"),
+        report:       get("report", "audit/reports/so_match.json"),
+        programsFile: programsFile < 0 ? null : argv[programsFile + 1],
     };
 }
 
@@ -83,15 +92,25 @@ function sha256(buf: Buffer): string {
 
 async function main(): Promise<number> {
     const args = parseArgs();
-    const clusterUrl = args.cluster.includes("://")
-        ? args.cluster
-        : `https://api.${args.cluster}.solana.com`;
+    const clusterUrl = (() => {
+        if (args.cluster.includes("://")) return args.cluster;
+        if (args.cluster === "localhost" || args.cluster === "localnet") {
+            return "http://127.0.0.1:8899";
+        }
+        return `https://api.${args.cluster}.solana.com`;
+    })();
     const conn = new Connection(clusterUrl, "confirmed");
+
+    let programs: Record<string, string> = PROGRAMS;
+    if (args.programsFile) {
+        const raw = fs.readFileSync(args.programsFile, "utf8");
+        programs = JSON.parse(raw);
+    }
 
     const report: Record<string, any> = { cluster: clusterUrl, programs: {} };
     let failed = false;
 
-    for (const [name, idStr] of Object.entries(PROGRAMS)) {
+    for (const [name, idStr] of Object.entries(programs)) {
         const programId = new PublicKey(idStr);
         const localPath = path.join(args.buildDir, `${name}.so`);
 
@@ -102,7 +121,12 @@ async function main(): Promise<number> {
             continue;
         }
 
-        const localBytes = fs.readFileSync(localPath);
+        // Trim trailing zero padding from BOTH sides — the linker may emit
+        // a few trailing zero bytes on the local .so, and the chain copy
+        // is also zero-padded to max_data_size. Strip equally so the
+        // comparison reflects the real bytecode.
+        const localRaw = fs.readFileSync(localPath);
+        const localBytes = trimTrailingZeros(localRaw);
         const localHash = sha256(localBytes);
 
         let deployedHash = "";
@@ -117,17 +141,18 @@ async function main(): Promise<number> {
 
             const match = deployedHash === localHash;
             console.log(`[${name}]`);
-            console.log(`  local  ${localBytes.length} bytes  sha256=${localHash}`);
+            console.log(`  local  ${localBytes.length} bytes (raw ${localRaw.length})  sha256=${localHash}`);
             console.log(`  chain  ${deployedSize} bytes  sha256=${deployedHash}`);
             console.log(`  match: ${match ? "✅" : "❌"}`);
 
             report.programs[name] = {
                 programId: idStr,
-                local_path:   localPath,
-                local_size:   localBytes.length,
-                local_sha256: localHash,
-                deployed_size:   deployedSize,
-                deployed_sha256: deployedHash,
+                local_path:        localPath,
+                local_size:        localBytes.length,
+                local_size_raw:    localRaw.length,
+                local_sha256:      localHash,
+                deployed_size:     deployedSize,
+                deployed_sha256:   deployedHash,
                 match,
             };
 

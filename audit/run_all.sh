@@ -117,25 +117,48 @@ fi
 
 
 # ── 7. Load tests against deployed services (external) ──────────────────────
+# Optional helpers:
+#   HELIXOR_WALLETS_FILE  — JSON list of registered agent wallets so the
+#                           harness gets real 2xx responses (otherwise the
+#                           DEFAULT_AGENTS placeholder list 4xx's).
+#   HELIXOR_DB_PYTHON     — python with psycopg2 installed (defaults to
+#                           the API venv if present, else system python3).
 if [[ -n "${HELIXOR_API_URL:-}" ]]; then
-    run "API load (smoke)" python3 audit/load_tests/api_load.py \
-        --base-url "$HELIXOR_API_URL" --rate 4 --duration 30
+    API_LOAD_ARGS=(--base-url "$HELIXOR_API_URL" --rate 4 --duration 30)
+    if [[ -n "${HELIXOR_WALLETS_FILE:-}" ]]; then
+        API_LOAD_ARGS+=(--wallets-file "$HELIXOR_WALLETS_FILE" --rate 1.5)
+    fi
+    run "API load (smoke)" python3 audit/load_tests/api_load.py "${API_LOAD_ARGS[@]}"
 else
     skip "API load test" "HELIXOR_API_URL not set"
 fi
 
 if [[ -n "${DATABASE_URL:-}" ]]; then
-    run "DB stress (smoke)" python3 audit/load_tests/db_stress.py --rows 100000
+    DB_PYTHON="${HELIXOR_DB_PYTHON:-}"
+    if [[ -z "$DB_PYTHON" ]] && [[ -x helixor-api/.venv/bin/python ]]; then
+        DB_PYTHON="helixor-api/.venv/bin/python"
+    fi
+    DB_PYTHON="${DB_PYTHON:-python3}"
+    run "DB stress (smoke)" "$DB_PYTHON" audit/load_tests/db_stress.py --rows 100000
 else
     skip "DB stress" "DATABASE_URL not set"
 fi
 
 
 # ── 8. Deployed .so verification (external) ─────────────────────────────────
+# Optional: HELIXOR_PROGRAMS_FILE overrides the placeholder PROGRAMS map
+# with the real deployed program IDs for non-mainnet clusters.
 if [[ -n "${HELIXOR_SOLANA_CLUSTER:-}" ]]; then
     if command -v npx >/dev/null; then
-        run ".so verification" bash -c \
-            "cd audit/artifact_verification && npx ts-node verify_so_match.ts --cluster $HELIXOR_SOLANA_CLUSTER"
+        REPO_ROOT="$PWD"
+        VERIFY_CMD="cd audit/artifact_verification && npx ts-node verify_so_match.ts"
+        VERIFY_CMD+=" --cluster $HELIXOR_SOLANA_CLUSTER"
+        VERIFY_CMD+=" --report $REPO_ROOT/audit/reports/so_match.json"
+        VERIFY_CMD+=" --build-dir ${HELIXOR_BUILD_DIR:-$REPO_ROOT/helixor-programs/target/deploy}"
+        if [[ -n "${HELIXOR_PROGRAMS_FILE:-}" ]]; then
+            VERIFY_CMD+=" --programs-file $HELIXOR_PROGRAMS_FILE"
+        fi
+        run ".so verification" bash -c "$VERIFY_CMD"
     else
         skip ".so verification" "npx not installed"
     fi
@@ -148,12 +171,12 @@ fi
 echo
 echo "──────────────────────────────────────────────────────────────────"
 echo "PASSED (${#PASS[@]}):"
-for n in "${PASS[@]}"; do echo "  ✅ $n"; done
+for n in ${PASS[@]+"${PASS[@]}"}; do echo "  ✅ $n"; done
 echo "SKIPPED (${#SKIP[@]}):"
-for n in "${SKIP[@]}"; do echo "  ⊘  $n"; done
+for n in ${SKIP[@]+"${SKIP[@]}"}; do echo "  ⊘  $n"; done
 if [[ "${#FAIL[@]}" -ne 0 ]]; then
     echo "FAILED (${#FAIL[@]}):"
-    for n in "${FAIL[@]}"; do echo "  ❌ $n"; done
+    for n in ${FAIL[@]+"${FAIL[@]}"}; do echo "  ❌ $n"; done
     echo
     echo "❌ AUDIT GATE FAILED"
     exit 1

@@ -157,6 +157,25 @@ def run_load(base_url: str, rate: float, duration_s: int,
     }
 
 
+def _agents_from_file(path: Path) -> list[str]:
+    """Load wallet list from a JSON file. Accepts:
+      - `[{"wallet": "..."}, ...]`  (helixor synthetic-explanation report)
+      - `["wallet1", "wallet2", ...]`  (flat list)
+      - `{"agents": [...]}`           (wrapped, either of the above)
+    Lets the smoke run hit registered wallets (200s) instead of
+    synthetic ones (400s), producing real p95 latency signal."""
+    payload = json.loads(path.read_text())
+    if isinstance(payload, dict) and "agents" in payload:
+        payload = payload["agents"]
+    out: list[str] = []
+    for entry in payload:
+        if isinstance(entry, str):
+            out.append(entry)
+        elif isinstance(entry, dict) and "wallet" in entry:
+            out.append(entry["wallet"])
+    return out
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--base-url", required=True)
@@ -167,10 +186,27 @@ def main(argv=None) -> int:
     p.add_argument("--workers", type=int, default=16)
     p.add_argument("--report",
                    default="audit/reports/api_load.json")
+    p.add_argument(
+        "--wallets-file", type=Path, default=None,
+        help=(
+            "Load wallet list from a JSON file (synthetic explanation "
+            "report or on-chain registry export). Default uses the "
+            "static DEFAULT_AGENTS list, which 4xx's against a real API."
+        ),
+    )
     args = p.parse_args(argv)
 
+    agents = (
+        _agents_from_file(args.wallets_file)
+        if args.wallets_file
+        else DEFAULT_AGENTS
+    )
+    if not agents:
+        print("❌ no agents to query")
+        return 1
+
     result = run_load(args.base_url, args.rate, args.duration,
-                      DEFAULT_AGENTS, workers=args.workers)
+                      agents, workers=args.workers)
     print(json.dumps(result, indent=2))
 
     out = Path(args.report)
