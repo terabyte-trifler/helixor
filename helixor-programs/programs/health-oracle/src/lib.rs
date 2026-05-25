@@ -109,4 +109,55 @@ pub mod health_oracle {
     pub fn get_health(ctx: Context<GetHealth>, agent_wallet: Pubkey) -> Result<()> {
         instructions::get_health::handler(ctx, agent_wallet)
     }
+
+    // ── VULN-13: time-locked, N-of-M-attested oracle key rotation ───────────
+    //
+    // The audit flagged single-admin oracle-key replacement as CRITICAL:
+    // any admin-key compromise would let the attacker swap in 5
+    // attacker-controlled cluster keys and issue perfect GREEN certs for
+    // any agent. The four instructions below implement the audit-mandated
+    // mitigations: rotation must go through a time-locked governance
+    // proposal that requires N-of-M EXISTING cluster nodes to attest.
+    // Admin alone cannot rewrite cluster membership.
+
+    /// VULN-13: propose a new oracle cluster. Singleton PDA; admin OR any
+    /// current cluster member may propose. Sets `enact_after = now +
+    /// timelock_seconds` with a 48h floor.
+    pub fn propose_oracle_key_rotation(
+        ctx:                Context<ProposeOracleKeyRotation>,
+        new_keys:           Vec<Pubkey>,
+        new_min_confidence: u16,
+        timelock_seconds:   i64,
+    ) -> Result<()> {
+        instructions::propose_oracle_key_rotation::handler(
+            ctx, new_keys, new_min_confidence, timelock_seconds,
+        )
+    }
+
+    /// VULN-13: a current cluster member attests to the open proposal.
+    /// Each cluster key counts once; proposed-but-not-yet-current keys
+    /// cannot attest (the gate is the LIVE cluster).
+    pub fn attest_oracle_key_rotation(
+        ctx: Context<AttestOracleKeyRotation>,
+    ) -> Result<()> {
+        instructions::attest_oracle_key_rotation::handler(ctx)
+    }
+
+    /// VULN-13: enact a fully-vetted proposal. Anyone may call once
+    /// `now >= enact_after` AND `attestations >= consensus_threshold(
+    /// current_cluster)`. Closes the PDA and refunds rent to the proposer.
+    pub fn enact_oracle_key_rotation(
+        ctx: Context<EnactOracleKeyRotation>,
+    ) -> Result<()> {
+        instructions::enact_oracle_key_rotation::handler(ctx)
+    }
+
+    /// VULN-13: cancel an open proposal. Admin OR any current cluster
+    /// member may cancel — a single honest cluster member is enough to
+    /// veto a hostile proposal during the 48h window.
+    pub fn cancel_oracle_key_rotation(
+        ctx: Context<CancelOracleKeyRotation>,
+    ) -> Result<()> {
+        instructions::cancel_oracle_key_rotation::handler(ctx)
+    }
 }

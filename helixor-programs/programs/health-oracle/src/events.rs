@@ -141,3 +141,51 @@ pub struct AdvanceAuthorityRotated {
     pub rotated_by:    Pubkey,
     pub rotated_at:    i64,
 }
+
+// ── VULN-13: oracle key rotation governance events ──────────────────────────
+// These events are the canonical timeline for an off-chain "rotation watcher"
+// to alert on. Operators MUST alert on any `OracleRotationProposed` whose
+// `proposer` is unexpected, and on any `OracleRotationEnacted` that was not
+// preceded by the team's own internal rotation runbook.
+
+/// Emitted when a new oracle-key-rotation proposal is created.
+#[event]
+pub struct OracleRotationProposed {
+    pub proposer:           Pubkey,
+    pub new_keys:           Vec<Pubkey>,
+    pub new_min_confidence: u16,
+    pub enact_after:        i64,
+    pub proposed_at:        i64,
+}
+
+/// Emitted on each cluster-member attestation. A rotation that lands
+/// `consensus_threshold(cluster)` of these is eligible to enact once the
+/// timelock has elapsed.
+#[event]
+pub struct OracleRotationAttested {
+    pub attester:                 Pubkey,
+    pub total_attestations:       u8,
+    pub required_attestations:    u8,
+    pub attested_at:              i64,
+}
+
+/// Emitted on a successful enact. Carries the FULL diff so an indexer can
+/// snapshot the cluster transition without joining other events.
+#[event]
+pub struct OracleRotationEnacted {
+    pub enactor:            Pubkey,
+    pub old_keys:           Vec<Pubkey>,
+    pub new_keys:           Vec<Pubkey>,
+    pub old_min_confidence: u16,
+    pub new_min_confidence: u16,
+    pub enacted_at:         i64,
+}
+
+/// Emitted on cancellation. The proposal is dropped and the rent returned
+/// to the original proposer.
+#[event]
+pub struct OracleRotationCancelled {
+    pub cancelled_by: Pubkey,
+    pub proposer:     Pubkey,
+    pub cancelled_at: i64,
+}

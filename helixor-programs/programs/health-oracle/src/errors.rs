@@ -70,4 +70,33 @@ pub enum HelixorError {
     #[msg("new_authority equals the current advance_authority — no-op rotation \
            is not permitted")]
     SameAdvanceAuthority = 6056,
+
+    // ── VULN-13: oracle key rotation governance ────────────────────────────
+    #[msg("signer is neither the OracleConfig admin nor a current cluster \
+           member — only those two roles may propose or cancel a key rotation")]
+    NotRotationProposer = 6060,
+    #[msg("signer is not a current cluster member — only members of the \
+           live OracleConfig.oracle_keys may attest to a rotation proposal")]
+    NotClusterMemberAttester = 6061,
+    #[msg("timelock_seconds is below the protocol minimum (48h)")]
+    TimelockTooShort = 6062,
+    #[msg("a key rotation proposal is already in flight — enact or cancel \
+           it before proposing another")]
+    PendingRotationExists = 6063,
+    #[msg("the proposed new_keys equal the current cluster — no-op \
+           rotation is not permitted")]
+    NoopRotation = 6064,
+    #[msg("the rotation timelock has not elapsed — proposal is not yet \
+           enactable")]
+    TimelockNotElapsed = 6065,
+    #[msg("insufficient attestations from the current cluster — a strict \
+           majority of the live OracleConfig.oracle_keys must attest")]
+    InsufficientAttestations = 6066,
+    #[msg("this cluster member has already attested to the current \
+           proposal — double-voting is not permitted")]
+    DuplicateAttestation = 6067,
+    #[msg("the OracleConfig PDA passed to enact does not match the one \
+           referenced by the pending rotation — refusing to apply to a \
+           different cluster")]
+    OracleConfigMismatch = 6068,
 }
