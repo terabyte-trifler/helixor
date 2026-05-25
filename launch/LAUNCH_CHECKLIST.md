@@ -15,6 +15,18 @@ file.
       `helixor-oracle/db/`, `helixor-oracle/baseline/`, `helixor-api/api/`,
       and `helixor-indexer/` uses parameterised binding (`%s` + params
       sequence); no f-strings, no `.format()`, no `+` concatenation.
+- [ ] **VULN-21 Ed25519 strictness sweep clean** —
+      `python3 audit/ed25519_strictness_check.py --json audit/reports/ed25519_strictness.json`
+      reports **0 HARD findings**. NO file under signing/verification
+      paths uses any batch-verify primitive (`verify_batch`,
+      `batch_verify`, `verify_strict_batch`, `verify_multi`,
+      `multi_verify`, `VerifyBatch`), no Rust code calls a non-strict
+      `ed25519_dalek::*.verify(...)` (only `verify_strict(`), and no
+      Python code imports a non-OpenSSL Ed25519 library (`nacl.signing`,
+      `pysodium`, `fastecdsa`). Off-chain (Python `cryptography`) and
+      on-chain (Solana's Ed25519 precompile = ed25519-dalek strict)
+      MUST share canonical-S semantics so a signature that passes
+      client-side never fails the precompile.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain
@@ -118,6 +130,15 @@ the entry gate.
       returns `400 bad_request` (NOT 404, NOT 500). Confirms the
       base58 boundary check is in the deployed binary, not just the
       tests.
+- [ ] **VULN-21 signature symmetry on the live cluster.** During the
+      first mainnet epoch, journalctl on any cluster node shows the
+      `threshold signatures verified: N of 5 (threshold 3)` line emitted
+      by `certificate_issuer::signing::verify_threshold_signatures` —
+      meaning the precompile accepted every signature the off-chain
+      aggregator produced. If the precompile ever rejects an
+      aggregator-emitted signature, the transaction aborts BEFORE the
+      handler runs and this log line is absent — investigate the
+      off-chain / on-chain Ed25519 library symmetry before continuing.
 - [ ] **The first epoch on mainnet completes** end-to-end, on-chain
       cert visible via explorer
 

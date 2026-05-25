@@ -49,6 +49,11 @@ run "sql injection sweep"  python3 audit/sql_injection_check.py \
     --json audit/reports/sql_injection.json
 
 
+# ── 1c. VULN-21 Ed25519 strictness sweep ────────────────────────────────────
+run "ed25519 strictness sweep"  python3 audit/ed25519_strictness_check.py \
+    --json audit/reports/ed25519_strictness.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

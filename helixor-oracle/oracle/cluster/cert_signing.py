@@ -166,6 +166,37 @@ class AggregatedSignatures:
         return len(self.signatures)
 
 
+# VULN-21: Ed25519 group order L. RFC 8032 §5.1.7 requires the second half
+# of a signature (the integer S) to satisfy 0 <= S < L. Any signature with
+# S >= L is "non-canonical" and a malleability surface: ed25519-dalek strict
+# mode (used by Solana's on-chain Ed25519 precompile) rejects them; we MUST
+# match that rule client-side so an aggregator never collects an off-chain
+# "valid" signature that the on-chain precompile will later reject.
+#
+# The off-chain `cryptography` Ed25519 verifier (OpenSSL) already enforces
+# this in modern versions, but we do the check explicitly so a future
+# library swap or downgrade cannot silently relax the rule.
+_ED25519_GROUP_ORDER_L: int = (
+    2**252 + 27742317777372353535851937790883648493
+)
+
+
+def is_canonical_signature_s(signature: bytes) -> bool:
+    """
+    Return True iff the second half (S) of an Ed25519 signature is in the
+    canonical range [0, L). Pre-screens for the malleability case where
+    `S + L` would also "verify" under a non-strict verifier.
+
+    The first 32 bytes are R (the curve point); the last 32 bytes are the
+    little-endian integer S. Per RFC 8032 strict-mode rules, S must be in
+    [0, L) — any other S is non-canonical and must be rejected.
+    """
+    if len(signature) != 64:
+        return False
+    s_int = int.from_bytes(signature[32:64], "little")
+    return s_int < _ED25519_GROUP_ORDER_L
+
+
 def aggregate_signatures(
     digest:        bytes,
     signatures:    Sequence[ClusterSignature],
@@ -181,6 +212,8 @@ def aggregate_signatures(
         a node signing the wrong thing does not count),
       - signer must be one of `cluster_keys`,
       - each distinct signer counts only once (dedup),
+      - signature S-value must be canonical (VULN-21: pre-screens the
+        malleable `S + L` form that a non-strict verifier might accept),
       - signature bytes must verify against the signer's public key (the
         precompile would otherwise reject the transaction, but we screen
         client-side so a bad signature is caught before the tx is even
@@ -206,6 +239,11 @@ def aggregate_signatures(
         if sig.signer_pubkey not in cluster_set:
             continue
         if sig.signer_pubkey in seen_signers:
+            continue
+        # VULN-21: reject non-canonical S BEFORE handing the bytes to the
+        # crypto verifier. Belt-and-suspenders — strict-mode libraries
+        # already check, but a future swap cannot silently relax this.
+        if not is_canonical_signature_s(sig.signature):
             continue
         if not _verify_ed25519(sig.signer_pubkey, sig.signature, digest):
             continue
