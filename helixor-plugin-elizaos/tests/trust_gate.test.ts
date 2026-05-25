@@ -1,15 +1,27 @@
 // tests/trust_gate.test.ts — Day 12: mode + fail_mode + telemetry
+//                            + VULN-12 fail-closed-with-cache integration
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { TrustScore } from "@helixor/client";
+
+import { loadConfig } from "../src/config";
 import { trustGateEvaluator } from "../src/evaluators/trust_gate";
+import { getOrInitState } from "../src/state";
 import { makeRuntime, scoreResponse } from "./helpers";
 
-// Helper: compose a fetch that handles BOTH score requests and beacon POSTs
+// Helper: compose a fetch that handles BOTH score requests and beacon POSTs.
+// Also captures every beacon body so VULN-12 tests can assert event_type.
+const capturedBeacons: any[] = [];
+
 function withDualFetch(scoreHandler: (url: string) => any) {
   const original = globalThis.fetch;
+  capturedBeacons.length = 0;
   globalThis.fetch = vi.fn(async (url: any, init?: any) => {
     const u = String(url);
     if (u.includes("/telemetry/beacon")) {
+      try {
+        if (init?.body) capturedBeacons.push(JSON.parse(init.body));
+      } catch { /* ignore non-JSON bodies */ }
       return {
         ok: true, status: 202, headers: new Headers(),
         json: async () => ({ accepted: true, deduped: false }),
@@ -26,6 +38,41 @@ function withDualFetch(scoreHandler: (url: string) => any) {
     } as Response;
   }) as any;
   return () => { globalThis.fetch = original; };
+}
+
+/** Seed the plugin's last-known-good cache with a synthetic TrustScore. */
+function primeCache(runtime: ReturnType<typeof makeRuntime>, score: TrustScore) {
+  const config = loadConfig(runtime as any);
+  const state  = getOrInitState(runtime as any, config);
+  state.scoreCache.put(score);
+  return state;
+}
+
+/** Telemetry-enabled runtime for VULN-12 tests that assert beacon emissions. */
+function makeBeaconRuntime(extra: Record<string,string> = {}) {
+  return makeRuntime({
+    settings: {
+      HELIXOR_TELEMETRY:          "true",
+      HELIXOR_TELEMETRY_DISABLED: "false",
+      ...extra,
+    },
+  });
+}
+
+function ts(overrides: Partial<TrustScore> = {}): TrustScore {
+  return {
+    agentWallet: "C6EiVB4Tiky14k8mtrK6EJ4FZN54pKCtcJstU7umhtjP",
+    score:       800, alert: "GREEN", source: "live",
+    successRate: 97, anomalyFlag: false, isFresh: true,
+    updatedAt:   Math.floor(Date.now() / 1000),
+    servedAt:    Math.floor(Date.now() / 1000), cached: false,
+    ...overrides,
+  };
+}
+
+/** Wait briefly for fire-and-forget beacons to flush through fetch. */
+async function flushBeacons(): Promise<void> {
+  for (let i = 0; i < 5; i++) await new Promise(r => setTimeout(r, 5));
 }
 
 
@@ -151,5 +198,202 @@ describe("TRUST_GATE.handler — provisional unbypassable", () => {
     // is at the outer layer). This tests that mode is honored even for hard
     // policy violations — the operator decided to opt in to warn-only.
     expect(r).toBe("helixor:warned:AGENT_DEACTIVATED");
+  });
+});
+
+
+// =============================================================================
+// VULN-12 — fail-closed with last-known-good cache.
+//
+// The combined attack the audit cares about: attacker DDoSes helixor-api,
+// every score fetch throws, the trust_gate (pre-fix) either fails open
+// (RED agent borrows max) or fails closed for the entire fleet (a DoS).
+//
+// The mitigation: before deciding fail-open/closed, consult a recently
+// fetched score in the local ScoreCache and run the local policy mirror
+// against it. The tests below cover every branch of that decision tree.
+// =============================================================================
+describe("TRUST_GATE.handler — VULN-12 fail-closed-with-cache", () => {
+  let restore: () => void = () => {};
+  afterEach(() => restore());
+
+  it("fresh cache + policy passes → allow from cache", async () => {
+    restore = withDualFetch(() => { throw new Error("DDoS blackout"); });
+    const runtime = makeBeaconRuntime();
+    primeCache(runtime, ts({ score: 850 }));
+
+    const r = await trustGateEvaluator.handler(runtime as any, {
+      content: { action: "SWAP_TOKEN" },
+    } as any);
+
+    expect(r).toMatch(/^helixor:allowed:cache:\d+$/);
+    await flushBeacons();
+    const types = capturedBeacons.map(b => b.event_type);
+    expect(types).toContain("action_allowed_from_cache");
+    expect(types).not.toContain("gate_fail_closed_no_cache");
+  });
+
+  it("fresh cache + policy fails → block with cache code + reason", async () => {
+    restore = withDualFetch(() => { throw new Error("DDoS blackout"); });
+    const runtime = makeBeaconRuntime();
+    primeCache(runtime, ts({ score: 100, alert: "RED" }));
+
+    const r = await trustGateEvaluator.handler(runtime as any, {
+      content: { action: "SWAP_TOKEN" },
+    } as any);
+
+    expect(r).toBe("helixor:blocked:SCORE_TOO_LOW:cache");
+    await flushBeacons();
+    const blocked = capturedBeacons.find(b => b.event_type === "action_blocked_from_cache");
+    expect(blocked).toBeDefined();
+    expect(blocked.block_reason).toBe("SCORE_TOO_LOW");
+    expect(blocked.score).toBe(100);
+  });
+
+  it("fresh cache + deactivated → blocks even though score >= min", async () => {
+    restore = withDualFetch(() => { throw new Error("DDoS blackout"); });
+    const runtime = makeRuntime();
+    primeCache(runtime, ts({ score: 999, source: "deactivated" }));
+
+    const r = await trustGateEvaluator.handler(runtime as any, {
+      content: { action: "SWAP_TOKEN" },
+    } as any);
+    expect(r).toBe("helixor:blocked:AGENT_DEACTIVATED:cache");
+  });
+
+  it("fresh cache + provisional → blocks (allowProvisional is forced false)", async () => {
+    restore = withDualFetch(() => { throw new Error("DDoS blackout"); });
+    const runtime = makeRuntime();
+    primeCache(runtime, ts({ score: 800, source: "provisional" }));
+
+    const r = await trustGateEvaluator.handler(runtime as any, {
+      content: { action: "SWAP_TOKEN" },
+    } as any);
+    expect(r).toBe("helixor:blocked:PROVISIONAL_SCORE:cache");
+  });
+
+  it("fresh cache + policy fails + warn mode → warns from cache, does not block", async () => {
+    restore = withDualFetch(() => { throw new Error("DDoS blackout"); });
+    const runtime = makeRuntime({ settings: { HELIXOR_MODE: "warn" } });
+    primeCache(runtime, ts({ score: 100 }));
+
+    const r = await trustGateEvaluator.handler(runtime as any, {
+      content: { action: "SWAP_TOKEN" },
+    } as any);
+    expect(r).toBe("helixor:warned:SCORE_TOO_LOW:cache");
+  });
+
+  it("no cache at all → fail-closed with gate_fail_closed_no_cache beacon", async () => {
+    restore = withDualFetch(() => { throw new Error("DDoS blackout"); });
+    const runtime = makeBeaconRuntime();   // cache deliberately not primed
+
+    const r = await trustGateEvaluator.handler(runtime as any, {
+      content: { action: "SWAP_TOKEN" },
+    } as any);
+
+    expect(r).toBe("helixor:blocked:GATE_ERROR");
+    await flushBeacons();
+    const noCache = capturedBeacons.find(b => b.event_type === "gate_fail_closed_no_cache");
+    expect(noCache).toBeDefined();
+    expect(noCache.extra.fail_mode).toBe("closed");
+  });
+
+  it("stale cache (older than TTL) → fail-closed, NOT served from cache", async () => {
+    restore = withDualFetch(() => { throw new Error("DDoS blackout"); });
+    // 1-minute TTL but cache will be 2 minutes old
+    const runtime = makeBeaconRuntime({ HELIXOR_CACHE_TTL_MS: "60000" });
+    const config = loadConfig(runtime as any);
+    const state  = getOrInitState(runtime as any, config);
+    state.scoreCache.put(ts({ score: 850 }), Date.now() - 120_000);
+
+    const r = await trustGateEvaluator.handler(runtime as any, {
+      content: { action: "SWAP_TOKEN" },
+    } as any);
+    expect(r).toBe("helixor:blocked:GATE_ERROR");
+    await flushBeacons();
+    expect(capturedBeacons.find(b => b.event_type === "action_allowed_from_cache")).toBeUndefined();
+    expect(capturedBeacons.find(b => b.event_type === "gate_fail_closed_no_cache")).toBeDefined();
+  });
+
+  it("cacheTtlMs=0 disables cache entirely (even just-written entry)", async () => {
+    restore = withDualFetch(() => { throw new Error("DDoS blackout"); });
+    const runtime = makeRuntime({ settings: { HELIXOR_CACHE_TTL_MS: "0" } });
+    primeCache(runtime, ts({ score: 850 }));   // written but cache is disabled
+
+    const r = await trustGateEvaluator.handler(runtime as any, {
+      content: { action: "SWAP_TOKEN" },
+    } as any);
+    expect(r).toBe("helixor:blocked:GATE_ERROR");
+  });
+
+  it("fail_mode=open + no cache → still allows (legacy escape hatch)", async () => {
+    restore = withDualFetch(() => { throw new Error("DDoS blackout"); });
+    const runtime = makeBeaconRuntime({ HELIXOR_FAIL_MODE: "open" });
+
+    const r = await trustGateEvaluator.handler(runtime as any, {
+      content: { action: "SWAP_TOKEN" },
+    } as any);
+    expect(r).toBe("helixor:allowed:fail_open");
+    await flushBeacons();
+    // The fail-open path STILL emits the audit beacon so operators see
+    // their fleet is in degraded mode during a blackout.
+    expect(capturedBeacons.find(b => b.event_type === "gate_fail_closed_no_cache")).toBeDefined();
+  });
+
+  it("fail_mode=open is BYPASSED when cache is fresh (cache wins)", async () => {
+    restore = withDualFetch(() => { throw new Error("DDoS blackout"); });
+    // Even with fail_mode=open, a fresh cached RED score must still block.
+    // Otherwise the legacy escape hatch would silently override the audit fix.
+    const runtime = makeRuntime({ settings: { HELIXOR_FAIL_MODE: "open" } });
+    primeCache(runtime, ts({ score: 50, alert: "RED" }));
+
+    const r = await trustGateEvaluator.handler(runtime as any, {
+      content: { action: "SWAP_TOKEN" },
+    } as any);
+    expect(r).toBe("helixor:blocked:SCORE_TOO_LOW:cache");
+  });
+
+  it("successful fetch primes the cache for subsequent blackout calls", async () => {
+    // First call returns a healthy score; second call (and beyond) blow up.
+    // The second call should be allowed from cache.
+    let calls = 0;
+    restore = withDualFetch(() => {
+      calls += 1;
+      if (calls === 1) {
+        return { status: 200, body: scoreResponse({ score: 820 }) };
+      }
+      throw new Error("DDoS blackout");
+    });
+
+    const runtime = makeRuntime();
+
+    const r1 = await trustGateEvaluator.handler(runtime as any, {
+      content: { action: "SWAP_TOKEN" },
+    } as any);
+    expect(r1).toBe("helixor:allowed:820");
+
+    // Force the SDK's internal 30s cache to release on the next call by
+    // invalidating it through the plugin state.
+    const config = loadConfig(runtime as any);
+    const state  = getOrInitState(runtime as any, config);
+    state.client.invalidate(config.agentWallet);
+
+    const r2 = await trustGateEvaluator.handler(runtime as any, {
+      content: { action: "SWAP_TOKEN" },
+    } as any);
+    expect(r2).toMatch(/^helixor:allowed:cache:\d+$/);
+  });
+
+  it("HelixorError with code NETWORK_ERROR (HTTP 5xx path) also serves cache", async () => {
+    // The SDK throws HelixorError("NETWORK_ERROR") on non-2xx after retries.
+    // Confirm the cache path covers that branch too, not just thrown JS Errors.
+    restore = withDualFetch(() => ({ status: 503, body: { error: "Service Unavailable" } }));
+    const runtime = makeRuntime();
+    primeCache(runtime, ts({ score: 800 }));
+
+    const r = await trustGateEvaluator.handler(runtime as any, {
+      content: { action: "SWAP_TOKEN" },
+    } as any);
+    expect(r).toMatch(/^helixor:allowed:cache:\d+$/);
   });
 });

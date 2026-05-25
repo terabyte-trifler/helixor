@@ -1,17 +1,35 @@
 // =============================================================================
-// trust_gate evaluator (Day 12) — adds three production-critical behaviors:
+// trust_gate evaluator (Day 12 + VULN-12) — production-critical behaviors:
 //
 //   1. mode = "enforce" | "warn" | "observe"
 //      - enforce: blocks on policy failure (default)
 //      - warn:    logs + beacons but allows action through (rollout/canary mode)
 //      - observe: completely transparent — beacons but never participates
 //
-//   2. fail_mode = "closed" | "open"
-//      - closed: when API is unreachable or unexpected error, BLOCK (default)
-//      - open:   when API is unreachable, ALLOW (HA-degraded operation)
+//   2. fail_mode = "closed" | "open" (DISCOURAGED — see VULN-12)
+//      - closed: when API is unreachable AND no fresh cache, BLOCK (default)
+//      - open:   when API is unreachable AND no fresh cache, ALLOW
+//                — legacy HA-degraded operation. The audit's preferred
+//                  blackout path is the cache; this flag bypasses even that.
 //
 //   3. Telemetry beacons for every decision, including PII-stripped action_name
 //      and block_reason. Server-side dedup via beacon_id.
+//
+//   4. VULN-12 — FAIL CLOSED WITH LAST-KNOWN-GOOD CACHE.
+//      On a NETWORK_ERROR (or any unexpected throw from the SDK), we no
+//      longer jump straight to the fail-mode decision. Instead:
+//
+//        a. Consult `state.scoreCache.getIfFresh(now)`. If a cached score
+//           younger than HELIXOR_CACHE_TTL_MS (default 15min) exists, we
+//           evaluate the local `applyPolicy` mirror against it.
+//             - Policy passes → allow, emit `action_allowed_from_cache`.
+//             - Policy fails  → block with the policy code, emit
+//                               `action_blocked_from_cache`.
+//        b. No fresh cache → emit `gate_fail_closed_no_cache` and honour
+//           the fail_mode (default closed). This is the audit-mandated
+//           DDoS-resistant path: a blackout no longer bypasses the gate
+//           as long as the cache is fresh; once the cache expires the
+//           agent is locked down rather than fail-opened.
 // =============================================================================
 
 import {
@@ -23,6 +41,7 @@ import {
 import { HelixorError } from "@helixor/client";
 
 import { loadConfig } from "../config";
+import { applyPolicy, type CachedScore } from "../score_cache";
 import { getOrInitState } from "../state";
 
 
@@ -83,8 +102,7 @@ export const trustGateEvaluator: Evaluator = {
         },
       );
 
-      state.lastScore = score;
-      state.lastScoreFetchedAt = Date.now();
+      state.recordScore(score);
       scoreSnapshot = score.score;
       alertSnapshot = score.alert;
 
@@ -106,28 +124,15 @@ export const trustGateEvaluator: Evaluator = {
       // ── 1. Mapped policy failure (HelixorError) ─────────────────────────
       if (err instanceof HelixorError) {
         if (err.code === "NETWORK_ERROR") {
-          state.recordEvent("gate_error", { action, error: err.message });
-          state.beacon.emit({
-            event_type:    "gate_error",
-            agent_wallet:  config.agentWallet,
-            action_name:   action,
-            error_message: err.message.slice(0, 500),
-            extra: { mode: config.mode, fail_mode: config.failMode },
-          });
-
-          if (config.failMode === "open") {
-            // eslint-disable-next-line no-console
-            console.warn(
-              `[Helixor] gate_error (fail-open) — allowing ${action}: ${err.message}`,
-            );
-            return "helixor:allowed:fail_open";
-          }
-
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[Helixor] gate_error (fail-closed) — blocking ${action}: ${err.message}`,
+          // VULN-12: before deciding fail-open/closed, consult the cache.
+          const cacheDecision = tryServeFromCache(
+            state, config, action, err.message, runtime,
           );
-          return "helixor:blocked:GATE_ERROR";
+          if (cacheDecision !== null) return cacheDecision;
+
+          return failureWithoutCache(
+            state, config, action, err.message,
+          );
         }
 
         scoreSnapshot = err.score?.score ?? null;
@@ -170,6 +175,9 @@ export const trustGateEvaluator: Evaluator = {
       }
 
       // ── 2. Unexpected error (network, timeout, malformed response) ──────
+      // Treat same as a NETWORK_ERROR for VULN-12 purposes: an unexpected
+      // throw from the SDK might mean the API is down, malformed, or under
+      // attack — exactly the blackout class the cache exists to survive.
       const errMsg = err instanceof Error ? err.message : String(err);
       state.recordEvent("gate_error", { action, error: errMsg });
       state.beacon.emit({
@@ -180,21 +188,149 @@ export const trustGateEvaluator: Evaluator = {
         extra: { mode: config.mode, fail_mode: config.failMode },
       });
 
-      // fail_mode="open" → degraded operation: allow
-      if (config.failMode === "open") {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[Helixor] gate_error (fail-open) — allowing ${action}: ${errMsg}`,
-        );
-        return "helixor:allowed:fail_open";
-      }
-
-      // Default: fail-closed — block on any unexpected error
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[Helixor] gate_error (fail-closed) — blocking ${action}: ${errMsg}`,
+      const cacheDecision = tryServeFromCache(
+        state, config, action, errMsg, runtime,
       );
-      return "helixor:blocked:GATE_ERROR";
+      if (cacheDecision !== null) return cacheDecision;
+
+      return failureWithoutCache(state, config, action, errMsg);
     }
   },
 };
+
+
+// =============================================================================
+// VULN-12 helpers — fail-closed-with-last-known-good cache.
+// =============================================================================
+
+/**
+ * Consult the last-known-good cache. Returns a handler return-string if the
+ * cache was fresh enough to make a decision, or null if the caller should
+ * fall through to {@link failureWithoutCache}.
+ */
+function tryServeFromCache(
+  state:   ReturnType<typeof getOrInitState>,
+  config:  ReturnType<typeof loadConfig>,
+  action:  string,
+  errMsg:  string,
+  runtime: IAgentRuntime,
+): string | null {
+  const cached: CachedScore | null = state.scoreCache.getIfFresh();
+  if (!cached) return null;
+
+  const ageMs = state.scoreCache.age();
+  const policy = applyPolicy(cached.score, {
+    minScore:         config.minScore,
+    allowStale:       config.allowStale,
+    allowAnomaly:     config.allowAnomaly,
+    allowProvisional: false,
+  });
+
+  if (policy.allowed) {
+    state.recordEvent("action_allowed_from_cache", {
+      action,
+      score:        cached.score.score,
+      alert:        cached.score.alert,
+      cache_age_ms: ageMs,
+    });
+    state.beacon.emit({
+      event_type:     "action_allowed_from_cache",
+      agent_wallet:   config.agentWallet,
+      character_name: runtime.character?.name,
+      score:          cached.score.score,
+      alert_level:    cached.score.alert,
+      action_name:    action,
+      extra: {
+        mode:         config.mode,
+        cache_age_ms: ageMs,
+        error:        errMsg.slice(0, 200),
+      },
+    });
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[Helixor] API unreachable — allowing ${action} from cache ` +
+      `(score=${cached.score.score}, age=${ageMs}ms): ${errMsg}`,
+    );
+    return `helixor:allowed:cache:${ageMs}`;
+  }
+
+  // Cache says BLOCK — the score in cache violates policy. Honour the policy.
+  const code = policy.code ?? "SCORE_TOO_LOW";
+  state.recordEvent("action_blocked_from_cache", {
+    action,
+    code,
+    score:        cached.score.score,
+    alert:        cached.score.alert,
+    cache_age_ms: ageMs,
+  });
+  state.beacon.emit({
+    event_type:     "action_blocked_from_cache",
+    agent_wallet:   config.agentWallet,
+    character_name: runtime.character?.name,
+    score:          cached.score.score,
+    alert_level:    cached.score.alert,
+    action_name:    action,
+    block_reason:   code,
+    extra: {
+      mode:         config.mode,
+      cache_age_ms: ageMs,
+      error:        errMsg.slice(0, 200),
+    },
+  });
+
+  if (config.mode === "warn") {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[Helixor] WARN-only mode (cache): would block ${action} ` +
+      `(${code}, score=${cached.score.score}, age=${ageMs}ms)`,
+    );
+    return `helixor:warned:${code}:cache`;
+  }
+  return `helixor:blocked:${code}:cache`;
+}
+
+/**
+ * No fresh cache available — emit the audit-mandated DDoS-blackout beacon
+ * and honour {@link HelixorPluginConfig.failMode}. Default is fail-closed.
+ */
+function failureWithoutCache(
+  state:  ReturnType<typeof getOrInitState>,
+  config: ReturnType<typeof loadConfig>,
+  action: string,
+  errMsg: string,
+): string {
+  const cacheAgeMs = state.scoreCache.age();
+  state.recordEvent("gate_fail_closed_no_cache", {
+    action,
+    fail_mode:    config.failMode,
+    cache_age_ms: Number.isFinite(cacheAgeMs) ? cacheAgeMs : null,
+    error:        errMsg,
+  });
+  state.beacon.emit({
+    event_type:    "gate_fail_closed_no_cache",
+    agent_wallet:  config.agentWallet,
+    action_name:   action,
+    error_message: errMsg.slice(0, 500),
+    extra: {
+      mode:         config.mode,
+      fail_mode:    config.failMode,
+      cache_age_ms: Number.isFinite(cacheAgeMs) ? cacheAgeMs : null,
+    },
+  });
+
+  if (config.failMode === "open") {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[Helixor] gate blackout (fail-open) — allowing ${action}: ${errMsg}. ` +
+      "VULN-12: this bypasses the audit-mandated cache path.",
+    );
+    return "helixor:allowed:fail_open";
+  }
+
+  // Default: fail-closed — audit-mandated DDoS-resistant behaviour.
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[Helixor] gate blackout (fail-closed, no cache) — blocking ${action}: ${errMsg}`,
+  );
+  return "helixor:blocked:GATE_ERROR";
+}

@@ -21,7 +21,12 @@ export type BeaconEventType =
   | "score_changed"
   | "anomaly_detected"
   | "agent_deactivated"
-  | "plugin_shutdown";
+  | "plugin_shutdown"
+  // VULN-12 — fail-closed-with-cache decisions. Operators alert on a
+  // sustained rate of these to detect a DDoS-induced blackout.
+  | "action_allowed_from_cache"     // cache fresh, policy passed → allow
+  | "action_blocked_from_cache"     // cache fresh, policy failed → block
+  | "gate_fail_closed_no_cache";    // no fresh cache → fail closed (audit)
 
 export interface BeaconPayload {
   event_type:        BeaconEventType;

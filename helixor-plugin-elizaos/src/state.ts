@@ -1,11 +1,13 @@
 // =============================================================================
-// @elizaos/plugin-helixor — plugin state (Day 12 extensions).
-// Now owns the TelemetryBeaconClient lifecycle.
+// @elizaos/plugin-helixor — plugin state (Day 12 + VULN-12 extensions).
+// Owns the TelemetryBeaconClient lifecycle and the VULN-12 last-known-good
+// ScoreCache.
 // =============================================================================
 
 import { HelixorClient, type TrustScore } from "@helixor/client";
 
 import type { HelixorPluginConfig } from "./config";
+import { ScoreCache } from "./score_cache";
 import { TelemetryBeaconClient } from "./telemetry/beacon";
 
 
@@ -17,9 +19,12 @@ interface TelemetryEvent {
 
 
 export class PluginState {
-  public readonly client:  HelixorClient;
-  public readonly beacon:  TelemetryBeaconClient;
-  public readonly config:  HelixorPluginConfig;
+  public readonly client:     HelixorClient;
+  public readonly beacon:     TelemetryBeaconClient;
+  public readonly config:     HelixorPluginConfig;
+  // VULN-12: the last-known-good cache. Read by the trust_gate's fail-closed
+  // branch; written by every successful score fetch via `recordScore`.
+  public readonly scoreCache: ScoreCache;
 
   public lastScore:        TrustScore | null = null;
   public lastScoreFetchedAt = 0;
@@ -44,6 +49,19 @@ export class PluginState {
       apiKey:   config.apiKey,
       enabled:  config.telemetryEnabled,
     });
+    this.scoreCache = new ScoreCache(config.cacheTtlMs);
+  }
+
+  /**
+   * Centralized write of a successfully-fetched score. Keeps the legacy
+   * `lastScore` / `lastScoreFetchedAt` fields and the VULN-12 ScoreCache
+   * in lock-step so the fail-closed-with-cache path always sees the latest
+   * known-good entry, regardless of which call site fetched it.
+   */
+  recordScore(score: TrustScore, now: number = Date.now()): void {
+    this.lastScore = score;
+    this.lastScoreFetchedAt = now;
+    this.scoreCache.put(score, now);
   }
 
   startRefreshLoop(): void {
@@ -71,8 +89,7 @@ export class PluginState {
       const score = await this.client.getScore(this.config.agentWallet);
       const previous = this.lastScore;
 
-      this.lastScore = score;
-      this.lastScoreFetchedAt = Date.now();
+      this.recordScore(score);
       this.lastError = null;
 
       // Local telemetry
