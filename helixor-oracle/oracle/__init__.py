@@ -51,6 +51,10 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "AgentEpochResult": ("oracle.epoch_runner", "AgentEpochResult"),
     "EpochReport": ("oracle.epoch_runner", "EpochReport"),
     "make_onchain_submitter": ("oracle.epoch_runner", "make_onchain_submitter"),
+    # lag_gate.py — VULN-14 cert-blocking interlock
+    "LagGatedSubmit": ("oracle.lag_gate", "LagGatedSubmit"),
+    "ConsumerLagExceeded": ("oracle.lag_gate", "ConsumerLagExceeded"),
+    "CertBlocked": ("oracle.lag_gate", "CertBlocked"),
 }
 
 __all__ = list(_EXPORTS)

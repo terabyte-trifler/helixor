@@ -44,6 +44,16 @@ class Topic(str, enum.Enum):
     # Poison messages — records that failed processing past the retry
     # limit. Quarantined here so they never block a partition.
     DEAD_LETTER  = "agent.deadletter"
+    # VULN-14 TOPIC ISOLATION. Certificate-revocation / cert-blocked
+    # events live on their OWN topic so they cannot be backed up behind
+    # high-volume general telemetry (`agent.transactions`). The cert
+    # path's consumer group reads ONLY this topic, so its lag is
+    # bounded by cert-event throughput, not by telemetry storms — the
+    # exact attack the audit flagged (drown the bus with VULN-07-style
+    # spam, induce a stale scoring window). Per-partition keying is
+    # still by `agent_wallet`, so per-agent ordering of cert events is
+    # preserved.
+    CERT_EVENTS  = "agent.cert_events"
 
 
 # =============================================================================

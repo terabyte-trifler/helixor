@@ -33,6 +33,11 @@ from eventbus.consumer import (
     PoisonMessage,
     RecordProcessor,
 )
+from eventbus.lag_monitor import (
+    BrokerIntrospector,
+    ConsumerLagMonitor,
+    LagSnapshot,
+)
 from eventbus.producer import AlertProducer, TransactionProducer
 from eventbus.serialization import (
     SerializationError,
@@ -71,4 +76,5 @@ __all__ = [
     "TrustedProducer", "TrustedProducerSet",
     "PayloadSignatureError", "UntrustedProducer",
     "attach_signature", "verify_record_headers",
+    "BrokerIntrospector", "ConsumerLagMonitor", "LagSnapshot",
 ]
