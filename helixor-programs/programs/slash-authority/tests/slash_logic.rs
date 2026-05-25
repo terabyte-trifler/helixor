@@ -26,15 +26,16 @@ fn escrow_vault_size_is_correct() {
 
 #[test]
 fn slash_record_size_is_correct() {
-    //   Day-20 core 140 + Day-21 lifecycle 49 + reserve 7 = 196
-    assert_eq!(SlashRecord::SIZE_WITHOUT_DISCRIMINATOR, 196);
-    assert_eq!(SlashRecord::SPACE, 204); // + 8 discriminator
+    //   Day-20 core 140 + Day-21 lifecycle 49 + VULN-04 (8 + 32 + 8) = 237
+    assert_eq!(SlashRecord::SIZE_WITHOUT_DISCRIMINATOR, 237);
+    assert_eq!(SlashRecord::SPACE, 245); // + 8 discriminator
 }
 
 #[test]
 fn slash_config_size_is_correct() {
-    // 8 + 32 + 32 + 32 + 1 = 105
-    assert_eq!(SlashConfig::SPACE, 105);
+    // 8 disc + 5*32 (pubkeys) + 8 + 1 + 8 + 1 + 1 + 30 = 217
+    assert_eq!(SlashConfig::SPACE, 217);
+    assert_eq!(SlashConfig::SIZE_WITHOUT_DISCRIMINATOR, 209);
 }
 
 #[test]

@@ -1,30 +1,54 @@
 // =============================================================================
 // programs/slash-authority/src/instructions/resolve_appeal.rs
 //
-// resolve_appeal — the slash authority resolves an Appealed slash.
+// resolve_appeal — the APPEAL_RESOLVER (not the slash_executor) resolves
+// an Appealed slash.
 //
 //   resolve_appeal(ctx, uphold: bool)
 //
+// VULN-04 — INDEPENDENT REVIEW + POST-UPHOLD TIMELOCK
+// ---------------------------------------------------
+// Pre-VULN-04 the same `slash_authority` key that executed a slash also
+// resolved its appeal. A compromised or malicious holder could slash an
+// agent, then immediately uphold its own slash, then settle the funds.
+// We now require two independent gates:
+//
+//   AUTHORITY      : signer must be `slash_config.appeal_resolver`,
+//                    which is enforced to differ from `slash_executor`
+//                    at config init/update time (`AuthoritiesMustDiffer`).
+//                    The handler ADDITIONALLY refuses if the signer is
+//                    the executor of THIS specific slash record — an
+//                    operational defence in depth for the rare race
+//                    where roles were rotated mid-flight.
+//
+//   POST-UPHOLD    : an upheld appeal no longer immediately re-closes
+//   TIMELOCK         the window. The slash record's
+//                    `settlement_unlock_at` is set to
+//                    `now + slash_config.settlement_timelock_seconds`
+//                    (>= 72h). settle_slash refuses until that elapses,
+//                    giving governance / the pause_authority time to
+//                    intervene if both executor AND resolver are
+//                    compromised.
+//
 // Two outcomes:
 //
-//   uphold = false  -> the appeal SUCCEEDS. The slash is OVERTURNED: the
-//                      encumbered lamports are released back into the
-//                      vault's free `staked_lamports`. The agent loses
-//                      nothing. The record is terminal (Overturned).
+//   uphold = false  -> the appeal SUCCEEDS. The slash is OVERTURNED:
+//                      the encumbered lamports are released back into
+//                      the vault's free `staked_lamports`. The agent
+//                      loses nothing. The record is terminal (Overturned).
 //
-//   uphold = true   -> the appeal FAILS. The slash stands. The record
-//                      returns to Pending with its appeal window
-//                      RE-CLOSED (appeal_deadline set to now), so it
-//                      becomes immediately settleable via settle_slash.
+//   uphold = true   -> the appeal FAILS. The record returns to Pending
+//                      with `appeal_deadline = now` (so the appeal
+//                      window doesn't artificially block settlement)
+//                      but `settlement_unlock_at = now + timelock` —
+//                      settle_slash is gated on BOTH being satisfied.
 //
-// AUTHORITY: only the slash authority (the Phase-4 multisig stand-in) may
-// resolve an appeal — the same authority that executes slashes. In Phase 4
-// this becomes the threshold authority, making resolution a multi-party
-// decision rather than one key.
+// `appeal_resolved_by` is recorded in either case for the audit trail.
 //
-// No lamports leave the vault here. An overturn just RE-LABELS encumbered
+// No lamports leave the vault here. An overturn re-labels encumbered
 // funds back to free; an upheld appeal leaves them encumbered for
-// settle_slash to move. "Funds held, not burned" holds throughout.
+// settle_slash to move AFTER the timelock. "Funds held, not burned"
+// holds throughout.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -58,23 +82,31 @@ pub struct ResolveAppeal<'info> {
     )]
     pub slash_record: Account<'info, SlashRecord>,
 
-    /// SlashConfig — verifies the resolver is the slash authority.
+    /// SlashConfig — verifies the resolver and supplies the timelock.
     #[account(
         seeds = [SlashConfig::SEED],
         bump  = slash_config.bump,
     )]
     pub slash_config: Account<'info, SlashConfig>,
 
-    /// The slash authority — resolves the appeal.
+    /// The appeal resolver — distinct from `slash_executor` (enforced at
+    /// config init/update) AND distinct from the executor of this
+    /// specific slash record (enforced in the handler).
     #[account(
-        constraint = slash_authority.key() == slash_config.slash_authority
-            @ SlashError::NotSlashAuthority,
+        constraint = appeal_resolver.key() == slash_config.appeal_resolver
+            @ SlashError::NotAppealResolver,
     )]
-    pub slash_authority: Signer<'info>,
+    pub appeal_resolver: Signer<'info>,
 }
 
 pub fn handler(ctx: Context<ResolveAppeal>, uphold: bool) -> Result<()> {
     let clock = Clock::get()?;
+
+    // ── Refuse while paused ─────────────────────────────────────────────────
+    require!(
+        !ctx.accounts.slash_config.paused,
+        SlashError::SettlementsPaused,
+    );
 
     // ── Lifecycle: the slash must be Appealed ───────────────────────────────
     let status = SlashStatus::from_u8(ctx.accounts.slash_record.status)
@@ -84,16 +116,33 @@ pub fn handler(ctx: Context<ResolveAppeal>, uphold: bool) -> Result<()> {
         SlashError::WrongSlashStatus,
     );
 
+    // ── VULN-04 defence in depth: the resolver may NOT be the executor
+    //    of this specific slash. Belt-and-braces on top of the config-
+    //    level separation, in case role keys were rotated mid-lifecycle.
+    require!(
+        ctx.accounts.appeal_resolver.key() != ctx.accounts.slash_record.executor,
+        SlashError::ResolverIsExecutor,
+    );
+
     let amount = ctx.accounts.slash_record.slashed_lamports;
+    let timelock = ctx.accounts.slash_config.settlement_timelock_seconds;
+    let resolver_key = ctx.accounts.appeal_resolver.key();
 
     if uphold {
         // ── Appeal FAILS — the slash stands ─────────────────────────────────
-        // Return the record to Pending, but with the appeal window already
-        // closed, so settle_slash can finalise it immediately. The funds
-        // stay encumbered until then.
+        // Return the record to Pending with the appeal window already
+        // closed, BUT block settlement for at least `timelock` seconds
+        // (VULN-04). settle_slash must wait until BOTH appeal_deadline
+        // and settlement_unlock_at have passed. The funds stay
+        // encumbered the entire time.
+        let unlock_at = clock.unix_timestamp
+            .checked_add(timelock)
+            .ok_or(SlashError::MathOverflow)?;
         let record = &mut ctx.accounts.slash_record;
-        record.status          = SlashStatus::Pending.as_u8();
-        record.appeal_deadline = clock.unix_timestamp; // window closed now
+        record.status               = SlashStatus::Pending.as_u8();
+        record.appeal_deadline      = clock.unix_timestamp;
+        record.settlement_unlock_at = unlock_at;
+        record.appeal_resolved_by   = resolver_key;
     } else {
         // ── Appeal SUCCEEDS — the slash is OVERTURNED ───────────────────────
         // Release the encumbered lamports back to free stake. No lamports
@@ -108,7 +157,11 @@ pub fn handler(ctx: Context<ResolveAppeal>, uphold: bool) -> Result<()> {
             .ok_or(SlashError::MathOverflow)?;
 
         let record = &mut ctx.accounts.slash_record;
-        record.status = SlashStatus::Overturned.as_u8();
+        record.status             = SlashStatus::Overturned.as_u8();
+        record.appeal_resolved_by = resolver_key;
+        // Overturned records have no settlement timelock — they cannot
+        // be settled at all.
+        record.settlement_unlock_at = 0;
     }
 
     emit!(AppealResolved {
@@ -120,10 +173,11 @@ pub fn handler(ctx: Context<ResolveAppeal>, uphold: bool) -> Result<()> {
     });
 
     msg!(
-        "appeal resolved: agent={} index={} upheld={}",
+        "appeal resolved: agent={} index={} upheld={} resolver={}",
         ctx.accounts.slash_record.agent_wallet,
         ctx.accounts.slash_record.index,
         uphold,
+        resolver_key,
     );
     Ok(())
 }

@@ -20,9 +20,10 @@ use slash_authority::instructions::appeal_slash::APPEAL_COOLDOWN_SECONDS;
 
 #[test]
 fn slash_record_grew_for_the_lifecycle_fields() {
-    // Day 20: 172. Day 21 spends the 32-byte reserve + adds 24 -> 196.
-    assert_eq!(SlashRecord::SIZE_WITHOUT_DISCRIMINATOR, 196);
-    assert_eq!(SlashRecord::SPACE, 204);
+    // Day 20: 172. Day 21 -> 196. VULN-04 adds 40 (settlement_unlock_at
+    // + appeal_resolved_by) and shrinks reserve to 8 -> 237.
+    assert_eq!(SlashRecord::SIZE_WITHOUT_DISCRIMINATOR, 237);
+    assert_eq!(SlashRecord::SPACE, 245);
 }
 
 #[test]
@@ -90,23 +91,25 @@ fn pending_and_appealed_are_not_terminal() {
 
 fn record_with_deadline(deadline: i64) -> SlashRecord {
     SlashRecord {
-        agent_wallet:     Default::default(),
-        index:            0,
-        offense_tier:     0,
-        slashed_lamports: 0,
-        destination:      0,
-        evidence_hash:    [0u8; 32],
-        stake_before:     0,
-        stake_after:      0,
-        executed_at:      0,
-        executor:         Default::default(),
-        bump:             0,
-        layout_version:   1,
-        status:           SlashStatus::Pending.as_u8(),
-        appeal_deadline:  deadline,
-        appeal_hash:      [0u8; 32],
-        appealed_at:      0,
-        _reserved:        [0u8; 7],
+        agent_wallet:         Default::default(),
+        index:                0,
+        offense_tier:         0,
+        slashed_lamports:     0,
+        destination:          0,
+        evidence_hash:        [0u8; 32],
+        stake_before:         0,
+        stake_after:          0,
+        executed_at:          0,
+        executor:             Default::default(),
+        bump:                 0,
+        layout_version:       SlashRecord::CURRENT_LAYOUT_VERSION,
+        status:               SlashStatus::Pending.as_u8(),
+        appeal_deadline:      deadline,
+        appeal_hash:          [0u8; 32],
+        appealed_at:          0,
+        settlement_unlock_at: 0,
+        appeal_resolved_by:   Default::default(),
+        _reserved:            [0u8; 8],
     }
 }
 

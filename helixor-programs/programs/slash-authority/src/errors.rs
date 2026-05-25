@@ -10,10 +10,20 @@ use anchor_lang::prelude::*;
 #[error_code]
 pub enum SlashError {
     // ── Authority ───────────────────────────────────────────────────────────
-    #[msg("signer is not the configured slash authority")]
+    #[msg("signer is not the configured slash executor")]
     NotSlashAuthority = 6000,
     #[msg("signer is not the config admin")]
     NotAdmin = 6001,
+    #[msg("signer is not the configured appeal resolver (VULN-04: separate from executor)")]
+    NotAppealResolver = 6002,
+    #[msg("signer is not the configured pause authority")]
+    NotPauseAuthority = 6003,
+    #[msg("slash_executor, appeal_resolver and pause_authority must all be distinct keys")]
+    AuthoritiesMustDiffer = 6004,
+    #[msg("an appeal_resolver may not resolve a slash they also executed")]
+    ResolverIsExecutor = 6005,
+    #[msg("a role key may not be the all-zero default Pubkey")]
+    DefaultPubkey = 6006,
 
     // ── Input validation ────────────────────────────────────────────────────
     #[msg("offense tier is not a valid OffenseTier code (0 Minor, 1 Major, 2 Compromise)")]
@@ -54,6 +64,18 @@ pub enum SlashError {
     AppealCooldownActive = 6045,
     #[msg("the slash record does not belong to this escrow vault")]
     RecordVaultMismatch = 6046,
+
+    // ── VULN-04: pause + timelock ───────────────────────────────────────────
+    #[msg("slash actions are paused by the pause authority")]
+    SettlementsPaused = 6060,
+    #[msg("slash actions are not paused")]
+    NotPaused = 6061,
+    #[msg("slash actions are already paused")]
+    AlreadyPaused = 6062,
+    #[msg("post-uphold settlement timelock has not elapsed yet")]
+    SettlementTimelockNotElapsed = 6063,
+    #[msg("settlement timelock is shorter than the protocol minimum (72h)")]
+    SettlementTimelockTooShort = 6064,
 
     // ── Day 21: oracle challenges ───────────────────────────────────────────
     #[msg("challenge proof hash is all zeros — a challenge must cite evidence")]

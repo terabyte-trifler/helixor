@@ -22,6 +22,8 @@ const { BN } = anchor;
 
 function args(): {
     cluster: string; admin: string; oracleKeys: string; threshold: number;
+    slashExecutor: string; appealResolver: string; pauseAuthority: string;
+    treasury: string; settlementTimelockSeconds: number;
 } {
     const a = process.argv.slice(2);
     const get = (k: string, dflt?: string): string => {
@@ -37,6 +39,16 @@ function args(): {
         admin:      get("admin"),
         oracleKeys: get("oracle-keys"),
         threshold:  parseInt(get("threshold", "3")),
+        // VULN-04: slash-authority requires three distinct role keys, a
+        // treasury, and a settlement timelock >= 72h. No defaults — these
+        // MUST be supplied so that production never silently reuses one
+        // key for all three roles.
+        slashExecutor:             get("slash-executor"),
+        appealResolver:            get("appeal-resolver"),
+        pauseAuthority:            get("pause-authority"),
+        treasury:                  get("treasury"),
+        settlementTimelockSeconds: parseInt(get("settlement-timelock-seconds",
+                                                String(72 * 3_600))),
     };
 }
 
@@ -92,10 +104,18 @@ async function main(): Promise<number> {
     await initIssuerConfig(provider, programs, adminKp, oracleKeys, a.threshold);
 
     // ── 3. slash-authority: SlashConfig ─────────────────────────────────────
-    // (Reuses the existing initialize_config pattern from Day 20 — admin
-    // is the update authority, thresholds use the defaults in
-    // programs/slash-authority/src/state/slash_config.rs.)
-    await initSlashConfig(provider, programs, adminKp);
+    // VULN-04: admin pays rent and becomes the update authority. The
+    // executor/resolver/pauser keys MUST be distinct from each other and
+    // from the default Pubkey. The settlement timelock MUST be >= 72h —
+    // the on-chain program will reject anything shorter.
+    await initSlashConfig(
+        provider, programs, adminKp,
+        new PublicKey(a.slashExecutor),
+        new PublicKey(a.appealResolver),
+        new PublicKey(a.pauseAuthority),
+        new PublicKey(a.treasury),
+        a.settlementTimelockSeconds,
+    );
 
     console.log();
     console.log("✅ ALL CONFIGS INITIALIZED");
@@ -169,9 +189,14 @@ async function initIssuerConfig(
 
 
 async function initSlashConfig(
-    provider: anchor.AnchorProvider,
-    programs: Record<string, any>,
-    admin: Keypair,
+    provider:                  anchor.AnchorProvider,
+    programs:                  Record<string, any>,
+    admin:                     Keypair,
+    slashExecutor:             PublicKey,
+    appealResolver:            PublicKey,
+    pauseAuthority:            PublicKey,
+    treasury:                  PublicKey,
+    settlementTimelockSeconds: number,
 ): Promise<void> {
     const idl = require("../../helixor-programs/target/idl/slash_authority.json");
     const programId = new PublicKey(programs["slash-authority"].program_id);
@@ -186,14 +211,26 @@ async function initSlashConfig(
     }
 
     const sig = await program.methods
-        .initializeConfig()
+        .initializeConfig(
+            slashExecutor,
+            appealResolver,
+            pauseAuthority,
+            treasury,
+            new BN(settlementTimelockSeconds),
+        )
         .accounts({
             slashConfig:   pda,
             admin:         admin.publicKey,
             systemProgram: SystemProgram.programId,
         })
         .rpc();
-    console.log(`✅ slash-authority.SlashConfig init  tx=${sig}`);
+    console.log(
+        `✅ slash-authority.SlashConfig init  tx=${sig} ` +
+        `executor=${slashExecutor.toBase58()} ` +
+        `resolver=${appealResolver.toBase58()} ` +
+        `pauser=${pauseAuthority.toBase58()} ` +
+        `timelock=${settlementTimelockSeconds}s`,
+    );
 }
 
 

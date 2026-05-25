@@ -72,16 +72,22 @@ pub struct SettleSlash<'info> {
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
 
-    /// The slash authority — settlement is an authority action.
+    /// The slash executor — settlement is an executor-side action.
     #[account(
-        constraint = slash_authority.key() == slash_config.slash_authority
+        constraint = slash_executor.key() == slash_config.slash_executor
             @ SlashError::NotSlashAuthority,
     )]
-    pub slash_authority: Signer<'info>,
+    pub slash_executor: Signer<'info>,
 }
 
 pub fn handler(ctx: Context<SettleSlash>) -> Result<()> {
     let clock = Clock::get()?;
+
+    // ── Refuse while paused (VULN-04 kill switch) ───────────────────────────
+    require!(
+        !ctx.accounts.slash_config.paused,
+        SlashError::SettlementsPaused,
+    );
 
     // ── Lifecycle preconditions ─────────────────────────────────────────────
     let status = SlashStatus::from_u8(ctx.accounts.slash_record.status)
@@ -94,6 +100,13 @@ pub fn handler(ctx: Context<SettleSlash>) -> Result<()> {
     require!(
         !ctx.accounts.slash_record.appeal_window_open(clock.unix_timestamp),
         SlashError::AppealWindowStillOpen,
+    );
+    // VULN-04: the post-uphold settlement timelock must have ELAPSED. For
+    // slashes that were never appealed `settlement_unlock_at` is zero and
+    // this passes immediately — only an upheld appeal sets the timelock.
+    require!(
+        ctx.accounts.slash_record.settlement_timelock_elapsed(clock.unix_timestamp),
+        SlashError::SettlementTimelockNotElapsed,
     );
 
     let tier = OffenseTier::from_u8(ctx.accounts.slash_record.offense_tier)

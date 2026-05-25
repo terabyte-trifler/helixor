@@ -25,8 +25,10 @@
 // So "funds held, not burned" is literally true: between execute_slash and
 // settle_slash the lamports sit untouched in the vault, merely re-labelled.
 //
-// AUTHORITY: only the configured slash_authority (the Phase-4 multisig
-// stand-in) may execute a slash.
+// AUTHORITY: only the configured `slash_executor` may execute a slash
+// (VULN-04 separated slash_executor from appeal_resolver). The slash is
+// REFUSED when `slash_config.paused` is true — the pause_authority
+// kill-switch.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -54,7 +56,7 @@ pub struct ExecuteSlash<'info> {
     /// must equal the vault's current slash_count (checked in the handler).
     #[account(
         init,
-        payer = slash_authority,
+        payer = slash_executor,
         space = SlashRecord::SPACE,
         seeds = [
             SlashRecord::SEED_PREFIX,
@@ -65,20 +67,21 @@ pub struct ExecuteSlash<'info> {
     )]
     pub slash_record: Account<'info, SlashRecord>,
 
-    /// SlashConfig — verifies the signer is the slash authority.
+    /// SlashConfig — verifies the signer is the slash executor and the
+    /// program is not paused.
     #[account(
         seeds = [SlashConfig::SEED],
         bump  = slash_config.bump,
     )]
     pub slash_config: Account<'info, SlashConfig>,
 
-    /// The slash authority — signs the slash and pays the SlashRecord rent.
+    /// The slash executor — signs the slash and pays the SlashRecord rent.
     #[account(
         mut,
-        constraint = slash_authority.key() == slash_config.slash_authority
+        constraint = slash_executor.key() == slash_config.slash_executor
             @ SlashError::NotSlashAuthority,
     )]
-    pub slash_authority: Signer<'info>,
+    pub slash_executor: Signer<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -89,6 +92,12 @@ pub fn handler(
     offense_tier:  u8,
     evidence_hash: [u8; 32],
 ) -> Result<()> {
+    // -- Refuse while the pause kill-switch is active -----------------------
+    require!(
+        !ctx.accounts.slash_config.paused,
+        SlashError::SettlementsPaused,
+    );
+
     // -- Validate inputs ----------------------------------------------------
     let tier = OffenseTier::from_u8(offense_tier)
         .ok_or(SlashError::InvalidOffenseTier)?;
@@ -137,7 +146,7 @@ pub fn handler(
     record.stake_before     = stake_before;
     record.stake_after      = stake_after;
     record.executed_at      = clock.unix_timestamp;
-    record.executor         = ctx.accounts.slash_authority.key();
+    record.executor         = ctx.accounts.slash_executor.key();
     record.bump             = ctx.bumps.slash_record;
     record.layout_version   = SlashRecord::CURRENT_LAYOUT_VERSION;
     // Day-21 lifecycle: the slash starts PENDING with an open appeal window.
@@ -147,6 +156,11 @@ pub fn handler(
         .ok_or(SlashError::MathOverflow)?;
     record.appeal_hash      = [0u8; 32];
     record.appealed_at      = 0;
+    // VULN-04 fields default to zero — only resolve_appeal(uphold=true)
+    // populates them.
+    record.settlement_unlock_at = 0;
+    record.appeal_resolved_by   = Pubkey::default();
+    record._reserved            = [0u8; 8];
 
     emit!(SlashExecuted {
         agent_wallet:     vault.agent_wallet,
@@ -156,7 +170,7 @@ pub fn handler(
         destination:      record.destination,
         stake_after,
         terminal:         tier.is_terminal(),
-        executor:         ctx.accounts.slash_authority.key(),
+        executor:         ctx.accounts.slash_executor.key(),
         executed_at:      clock.unix_timestamp,
     });
 

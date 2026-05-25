@@ -43,14 +43,56 @@ declare_id!("S1ash1xor1111111111111111111111111111111111");
 pub mod slash_authority {
     use super::*;
 
-    /// One-time: create the SlashConfig singleton — the slash authority
-    /// (the Phase-4 multisig stand-in) and the treasury.
+    /// One-time: create the SlashConfig singleton with VULN-04's
+    /// separated-authority model: distinct executor / resolver / pauser
+    /// keys, plus the settlement timelock (>= 72h).
     pub fn initialize_config(
-        ctx:             Context<InitializeConfig>,
-        slash_authority: Pubkey,
-        treasury:        Pubkey,
+        ctx:                         Context<InitializeConfig>,
+        slash_executor:              Pubkey,
+        appeal_resolver:             Pubkey,
+        pause_authority:             Pubkey,
+        treasury:                    Pubkey,
+        settlement_timelock_seconds: i64,
     ) -> Result<()> {
-        instructions::initialize_config::handler(ctx, slash_authority, treasury)
+        instructions::initialize_config::handler(
+            ctx,
+            slash_executor,
+            appeal_resolver,
+            pause_authority,
+            treasury,
+            settlement_timelock_seconds,
+        )
+    }
+
+    /// VULN-04: admin-gated rotation of the three role keys and the
+    /// settlement timelock. Keys must remain distinct, timelock must
+    /// remain >= MIN_SETTLEMENT_TIMELOCK_SECONDS (72h).
+    pub fn update_authorities(
+        ctx:                         Context<UpdateAuthorities>,
+        slash_executor:              Pubkey,
+        appeal_resolver:             Pubkey,
+        pause_authority:             Pubkey,
+        settlement_timelock_seconds: i64,
+    ) -> Result<()> {
+        instructions::update_authorities::handler(
+            ctx,
+            slash_executor,
+            appeal_resolver,
+            pause_authority,
+            settlement_timelock_seconds,
+        )
+    }
+
+    /// VULN-04: the pause kill switch — freeze execute_slash,
+    /// resolve_appeal and settle_slash. Pause_authority gated; cannot
+    /// move funds.
+    pub fn pause_settlements(ctx: Context<PauseSettlements>) -> Result<()> {
+        instructions::pause_settlements::pause_handler(ctx)
+    }
+
+    /// VULN-04: unpause the slash pipeline.
+    pub fn unpause_settlements(ctx: Context<PauseSettlements>) -> Result<()> {
+        instructions::pause_settlements::unpause_handler(ctx)
     }
 
     /// Open an agent's EscrowVault and fund it with real staked collateral.

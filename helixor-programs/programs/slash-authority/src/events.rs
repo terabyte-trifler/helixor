@@ -72,6 +72,27 @@ pub struct SlashSettled {
     pub settled_at:       i64,
 }
 
+// ── VULN-04 events: role separation + pause kill switch ────────────────────
+
+/// Emitted when the admin rotates the role keys / settlement timelock.
+#[event]
+pub struct AuthoritiesUpdated {
+    pub slash_executor:              Pubkey,
+    pub appeal_resolver:             Pubkey,
+    pub pause_authority:             Pubkey,
+    pub settlement_timelock_seconds: i64,
+    pub updated_at:                  i64,
+}
+
+/// Emitted when the pause_authority toggles the slash kill switch.
+#[event]
+pub struct SlashPaused {
+    /// True for pause, false for unpause.
+    pub paused:    bool,
+    pub at:        i64,
+    pub authority: Pubkey,
+}
+
 /// Emitted when a watchdog files an oracle challenge.
 #[event]
 pub struct OracleChallenged {

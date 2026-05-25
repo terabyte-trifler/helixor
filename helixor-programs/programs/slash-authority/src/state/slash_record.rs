@@ -30,20 +30,29 @@
 //                 — and the vault is deactivated. This is terminal.
 //
 // LAYOUT (after the 8-byte Anchor discriminator):
-//   agent_wallet         32   (Pubkey)
-//   index                 8   (u64 — this slash's count; part of the seed)
-//   offense_tier          1   (u8  — OffenseTier code)
-//   slashed_lamports      8   (u64 — lamports taken in this slash)
-//   destination           1   (u8  — SlashDestination: 0 treasury, 1 burn)
-//   evidence_hash        32   ([u8;32] — hash of the off-chain detection evidence)
-//   stake_before          8   (u64 — staked_lamports before this slash)
-//   stake_after           8   (u64 — staked_lamports after this slash)
-//   executed_at           8   (i64 — unix seconds)
-//   executor             32   (Pubkey — the slash authority that executed)
-//   bump                  1   (u8)
-//   layout_version        1   (u8)
-//   _reserved            32   (zeroed cushion)
-//   TOTAL (without discriminator): 196 bytes
+//   agent_wallet           32   (Pubkey)
+//   index                   8   (u64 — this slash's count; part of the seed)
+//   offense_tier            1   (u8  — OffenseTier code)
+//   slashed_lamports        8   (u64 — lamports taken in this slash)
+//   destination             1   (u8  — SlashDestination: 0 treasury, 1 burn)
+//   evidence_hash          32   ([u8;32] — hash of the off-chain detection evidence)
+//   stake_before            8   (u64 — staked_lamports before this slash)
+//   stake_after             8   (u64 — staked_lamports after this slash)
+//   executed_at             8   (i64 — unix seconds)
+//   executor               32   (Pubkey — the slash_executor that executed)
+//   bump                    1   (u8)
+//   layout_version          1   (u8)
+//   status                  1   (u8  — SlashStatus code)
+//   appeal_deadline         8   (i64 — appeal-window close)
+//   appeal_hash            32   ([u8;32] — agent justification commitment)
+//   appealed_at             8   (i64 — unix seconds appeal was filed)
+//   settlement_unlock_at    8   (i64 — VULN-04: earliest settle time after
+//                                an appeal is upheld. Zero until upheld.)
+//   appeal_resolved_by     32   (Pubkey — VULN-04: the appeal_resolver
+//                                that resolved this slash, for audit.
+//                                Default::default until resolved.)
+//   _reserved               8   (zeroed cushion)
+//   TOTAL (without discriminator): 237 bytes
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -215,36 +224,47 @@ pub struct SlashRecord {
 
     // ── Day-21 lifecycle fields (carved from the former reserve) ────────────
     /// The lifecycle state (SlashStatus code).
-    pub status:           u8,
+    pub status:               u8,
     /// Unix seconds the appeal window closes (executed_at + APPEAL_WINDOW).
     /// After this a Pending slash may be settled.
-    pub appeal_deadline:  i64,
+    pub appeal_deadline:      i64,
     /// Hash of the agent's appeal justification. Zero until an appeal is
     /// filed.
-    pub appeal_hash:      [u8; 32],
+    pub appeal_hash:          [u8; 32],
     /// Unix seconds the appeal was filed. Zero until an appeal is filed.
-    pub appealed_at:      i64,
-    /// Zero-padded reserve — shrunk to make room for the lifecycle fields.
-    pub _reserved:        [u8; 7],
+    pub appealed_at:          i64,
+
+    // ── VULN-04 fields: post-uphold timelock + resolver audit trail ─────────
+    /// Unix seconds the settlement timelock unlocks — settle_slash refuses
+    /// to run until `now >= settlement_unlock_at` AND
+    /// `now >= appeal_deadline`. Zero on Pending / Overturned slashes
+    /// (only meaningful once an appeal was upheld).
+    pub settlement_unlock_at: i64,
+    /// The appeal_resolver that resolved this slash (uphold OR overturn).
+    /// Zeroed until resolve_appeal runs. Recorded so the audit log shows
+    /// which key approved the slash, separate from `executor`.
+    pub appeal_resolved_by:   Pubkey,
+    /// Zero-padded reserve — for forward compatibility.
+    pub _reserved:            [u8; 8],
 }
 
 impl SlashRecord {
-    pub const CURRENT_LAYOUT_VERSION: u8 = 1;
+    pub const CURRENT_LAYOUT_VERSION: u8 = 2;
 
     /// Data size WITHOUT the 8-byte Anchor discriminator.
     ///   32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1 = 140  (Day-20 core)
     /// + 1 status + 8 appeal_deadline + 32 appeal_hash + 8 appealed_at = 49
-    /// + 7 reserved                                                   =  7
-    ///   = 196
+    /// + 8 settlement_unlock_at + 32 appeal_resolved_by               = 40
+    /// + 8 reserved                                                   =  8
+    ///   = 237
     ///
-    /// NOTE: Day 20 declared 172 bytes (140 core + 32 reserve). Day 21
-    /// spends that 32-byte reserve on the lifecycle fields and adds 24
-    /// more, so the account grows 172 -> 196. Because this is pre-mainnet
-    /// devnet iteration, the larger size is simply the new SPACE — there
-    /// are no Day-20 SlashRecords in existence to migrate.
+    /// Day-20 was 172, Day-21 was 196, VULN-04 grows the record to 237
+    /// for the post-uphold settlement timelock and the appeal-resolver
+    /// audit field. Pre-mainnet devnet iteration — no migration needed.
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
         32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1
-        + 1 + 8 + 32 + 8 + 7;
+        + 1 + 8 + 32 + 8
+        + 8 + 32 + 8;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;
@@ -255,5 +275,15 @@ impl SlashRecord {
     /// Whether the appeal window is still open at time `now`.
     pub fn appeal_window_open(&self, now: i64) -> bool {
         now < self.appeal_deadline
+    }
+
+    /// Whether the post-uphold settlement timelock has elapsed at time
+    /// `now`. Records that never had an upheld appeal have
+    /// `settlement_unlock_at == 0`, in which case the timelock is
+    /// considered immediately elapsed (the appeal window itself is the
+    /// only gate). Records whose appeal was upheld carry a non-zero
+    /// unlock time; settlement is blocked until `now >= unlock_at`.
+    pub fn settlement_timelock_elapsed(&self, now: i64) -> bool {
+        self.settlement_unlock_at == 0 || now >= self.settlement_unlock_at
     }
 }

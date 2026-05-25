@@ -3,13 +3,17 @@ pub mod challenge_oracle;
 pub mod execute_slash;
 pub mod initialize_config;
 pub mod open_vault;
+pub mod pause_settlements;
 pub mod resolve_appeal;
 pub mod settle_slash;
+pub mod update_authorities;
 
 pub use appeal_slash::*;
 pub use challenge_oracle::*;
 pub use execute_slash::*;
 pub use initialize_config::*;
 pub use open_vault::*;
+pub use pause_settlements::*;
 pub use resolve_appeal::*;
 pub use settle_slash::*;
+pub use update_authorities::*;
