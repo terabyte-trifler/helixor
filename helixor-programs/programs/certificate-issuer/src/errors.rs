@@ -47,4 +47,15 @@ pub enum CertificateError {
     CrossInstructionReference = 6036,
     #[msg("Ed25519 signed message length is not the expected 32-byte digest")]
     WrongDigestLength = 6037,
+
+    // ── VULN-06: baseline write gating ──────────────────────────────────────
+    #[msg("signer is not authorised to write this agent's baseline — must be \
+           the agent itself or a cluster signing key")]
+    UnauthorizedBaselineWriter = 6040,
+    #[msg("baseline rotation refused — a baseline for this agent was already \
+           recorded at this epoch; rotate at a later epoch")]
+    BaselineRotationTooSoon = 6041,
+    #[msg("baseline epoch is not strictly greater than the previously recorded \
+           epoch — baseline records are appendable only and monotonic")]
+    BaselineEpochNotMonotonic = 6042,
 }

@@ -1,6 +1,6 @@
 {
   "hard_count": 0,
-  "soft_count": 2,
+  "soft_count": 4,
   "findings": [
     {
       "category": "design-intent-no-signer-constraint",
@@ -17,6 +17,22 @@
       "line": 0,
       "text": "challenge_oracle: no signer constraint by design",
       "note": "Permissionless by design \u2014 any party may file; proof is validated by slash-authority"
+    },
+    {
+      "category": "design-intent-no-signer-constraint",
+      "severity": "SOFT",
+      "file": "helixor-programs/.../instructions/record_baseline.rs",
+      "line": 0,
+      "text": "record_baseline: no signer constraint by design",
+      "note": "VULN-06 \u2014 authority enforced in the handler via `require!(is_authorised_baseline_writer(...))`. The (agent OR cluster member) rule cannot be a single Anchor account-attribute constraint because `cluster_keys` is a Vec."
+    },
+    {
+      "category": "design-intent-no-signer-constraint",
+      "severity": "SOFT",
+      "file": "helixor-programs/.../instructions/advance_epoch.rs",
+      "line": 0,
+      "text": "advance_epoch: no signer constraint by design",
+      "note": "VULN-02 \u2014 two-tier authority enforced in the handler. The valid signer set is conditional on elapsed time (Tier 1: advance_authority at 1\u00d7 duration; Tier 2: any cluster key at 2\u00d7), which an account-attribute constraint cannot express."
     }
   ]
 }

@@ -8,8 +8,14 @@
 // the TypeScript integration test (tests/certificate_issuer.integration.ts).
 // =============================================================================
 
+use anchor_lang::prelude::Pubkey;
+
+use certificate_issuer::errors::CertificateError;
 use certificate_issuer::instructions::issue_certificate::{
     validate_score_alert, GREEN_THRESHOLD, YELLOW_THRESHOLD,
+};
+use certificate_issuer::instructions::record_baseline::{
+    check_baseline_epoch_monotonic, is_authorised_baseline_writer,
 };
 use certificate_issuer::state::{AlertTier, BaselineStats, HealthCertificate, IssuerConfig};
 
@@ -137,4 +143,127 @@ fn threshold_boundaries_are_exact() {
     // One below → YELLOW ok, GREEN not.
     assert!(validate_score_alert(GREEN_THRESHOLD - 1, AlertTier::Yellow, false).is_ok());
     assert!(validate_score_alert(GREEN_THRESHOLD - 1, AlertTier::Green, false).is_err());
+}
+
+// =============================================================================
+// VULN-06 — record_baseline authority gating
+// =============================================================================
+
+fn cfg_with(cluster_keys: Vec<Pubkey>) -> IssuerConfig {
+    IssuerConfig {
+        authority:    Pubkey::new_unique(),
+        issuer_node:  Pubkey::new_unique(),
+        cluster_keys,
+        threshold:    3,
+        bump:         255,
+    }
+}
+
+#[test]
+fn baseline_writer_accepts_the_agent_itself() {
+    // Audit mitigation: signer == agent owner is allowed even when the
+    // signer is in no cluster set.
+    let agent = Pubkey::new_unique();
+    let cfg = cfg_with(vec![Pubkey::new_unique(); 5]);
+    assert!(is_authorised_baseline_writer(&agent, &agent, &cfg));
+}
+
+#[test]
+fn baseline_writer_accepts_a_cluster_key() {
+    // Audit mitigation: signer in cluster_keys (i.e., is_oracle_node).
+    let agent = Pubkey::new_unique();
+    let signer = Pubkey::new_unique();
+    let cfg = cfg_with(vec![
+        Pubkey::new_unique(), signer, Pubkey::new_unique(),
+    ]);
+    assert!(is_authorised_baseline_writer(&signer, &agent, &cfg));
+}
+
+#[test]
+fn baseline_writer_rejects_a_random_signer() {
+    // The core VULN-06 invariant: an arbitrary key cannot overwrite an
+    // agent's baseline.
+    let agent = Pubkey::new_unique();
+    let stranger = Pubkey::new_unique();
+    let cfg = cfg_with(vec![Pubkey::new_unique(), Pubkey::new_unique()]);
+    assert!(!is_authorised_baseline_writer(&stranger, &agent, &cfg));
+}
+
+#[test]
+fn baseline_writer_rejects_the_admin_authority() {
+    // Tightening: the IssuerConfig's `authority` (admin) is NOT a baseline
+    // writer unless it is ALSO a cluster key. Admins manage config; they
+    // do not get to silently rotate per-agent baselines.
+    let agent = Pubkey::new_unique();
+    let cfg = cfg_with(vec![Pubkey::new_unique(), Pubkey::new_unique()]);
+    let admin = cfg.authority;
+    assert!(!is_authorised_baseline_writer(&admin, &agent, &cfg));
+}
+
+#[test]
+fn baseline_writer_rejects_the_lone_issuer_node() {
+    // Tightening: the single `issuer_node` rent-payer is NOT itself a
+    // sufficient baseline writer in the BFT deployment. It must also be
+    // listed in `cluster_keys`. (This pins the move away from the
+    // pre-VULN-06 single-key gate.)
+    let agent = Pubkey::new_unique();
+    let cfg = cfg_with(vec![Pubkey::new_unique(), Pubkey::new_unique()]);
+    let issuer_node_only = cfg.issuer_node;
+    assert!(!is_authorised_baseline_writer(&issuer_node_only, &agent, &cfg));
+}
+
+// =============================================================================
+// VULN-06 — append-only / monotonic-epoch invariant
+// =============================================================================
+
+/// Anchor stamps `AnchorError.error_code_number` as the enum discriminant
+/// plus an internal offset (`ERROR_CODE_OFFSET = 6000`). The integration
+/// test matches on the FORMATTED message (which carries the raw 6041 /
+/// 6042 / 6043 number), but at the API surface we compare to the runtime
+/// value — so canonicalise via this helper.
+fn err_matches(e: anchor_lang::error::Error, code: CertificateError) -> bool {
+    match e {
+        anchor_lang::error::Error::AnchorError(a) => {
+            a.error_code_number == code as u32 + anchor_lang::error::ERROR_CODE_OFFSET
+        }
+        _ => panic!("expected AnchorError, got: {e:?}"),
+    }
+}
+
+#[test]
+fn first_record_is_always_permitted() {
+    // `stored_epoch == 0` is the "never recorded" sentinel; any positive
+    // new epoch is allowed.
+    assert!(check_baseline_epoch_monotonic(0, 1).is_ok());
+    assert!(check_baseline_epoch_monotonic(0, 999_999).is_ok());
+}
+
+#[test]
+fn same_epoch_rotation_is_refused() {
+    // Audit mitigation: "can't change baseline more than once per epoch".
+    let err = check_baseline_epoch_monotonic(7, 7).unwrap_err();
+    assert!(err_matches(err, CertificateError::BaselineRotationTooSoon));
+}
+
+#[test]
+fn earlier_epoch_rotation_is_refused() {
+    let err = check_baseline_epoch_monotonic(10, 9).unwrap_err();
+    assert!(err_matches(err, CertificateError::BaselineEpochNotMonotonic));
+    let err = check_baseline_epoch_monotonic(10, 1).unwrap_err();
+    assert!(err_matches(err, CertificateError::BaselineEpochNotMonotonic));
+}
+
+#[test]
+fn strictly_later_epoch_rotation_is_allowed() {
+    assert!(check_baseline_epoch_monotonic(7, 8).is_ok());
+    assert!(check_baseline_epoch_monotonic(7, 100).is_ok());
+}
+
+#[test]
+fn vuln06_error_codes_are_stable() {
+    // Stability test — these codes are consumed by off-chain tooling and
+    // the integration test, so they must not be silently renumbered.
+    assert_eq!(CertificateError::UnauthorizedBaselineWriter as u32, 6040);
+    assert_eq!(CertificateError::BaselineRotationTooSoon as u32, 6041);
+    assert_eq!(CertificateError::BaselineEpochNotMonotonic as u32, 6042);
 }

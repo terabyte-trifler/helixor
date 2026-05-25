@@ -98,9 +98,15 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
   );
 
   // Synthetic agents for the success path and each independent failure path.
-  const agentOk = Keypair.generate().publicKey;
-  const agentBad = Keypair.generate().publicKey;
-  const agentReplay = Keypair.generate().publicKey;
+  // VULN-06: `recordBaseline` now requires the signer to be EITHER the agent
+  // itself OR a cluster signing key — so we keep the agents as full Keypairs
+  // (with secret keys) and have them sign their own baseline writes below.
+  const agentOkKp = Keypair.generate();
+  const agentBadKp = Keypair.generate();
+  const agentReplayKp = Keypair.generate();
+  const agentOk = agentOkKp.publicKey;
+  const agentBad = agentBadKp.publicKey;
+  const agentReplay = agentReplayKp.publicKey;
   const baselineHash = Buffer.alloc(32, 7);
 
   // ── PDA helpers ──────────────────────────────────────────────────────────
@@ -137,17 +143,130 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
   });
 
   // ── 2. record baselines (cert preconditions) ─────────────────────────────
+  // VULN-06: each agent signs its OWN `recordBaseline` — the audit's
+  // "signer == agent owner" branch. Airdrop rent-exempt SOL first.
   it("records baselines for the agents", async () => {
-    for (const agent of [agentOk, agentBad, agentReplay]) {
+    for (const agentKp of [agentOkKp, agentBadKp, agentReplayKp]) {
+      // Airdrop enough SOL to cover BaselineStats rent + tx fees.
+      const sig = await provider.connection.requestAirdrop(
+        agentKp.publicKey, 1_000_000_000,    // 1 SOL
+      );
+      const { blockhash, lastValidBlockHeight } =
+        await provider.connection.getLatestBlockhash();
+      await provider.connection.confirmTransaction({
+        signature: sig, blockhash, lastValidBlockHeight,
+      });
+
       await program.methods
-        .recordBaseline(agent, [...baselineHash], 3, new BN(1))
+        .recordBaseline(agentKp.publicKey, [...baselineHash], 3, new BN(1))
         .accounts({
-          baselineStats: baselinePda(agent),
+          baselineStats: baselinePda(agentKp.publicKey),
+          issuerConfig: issuerConfigPda(),
+          issuer: agentKp.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([agentKp])
+        .rpc();
+    }
+  });
+
+  // ── 2b. VULN-06 regressions — gating + per-epoch rate-limit ───────────────
+  it("REJECTS recordBaseline from a non-cluster, non-agent signer", async () => {
+    // The provider wallet (`submitter`) is NEITHER an agent NOR a cluster
+    // signing key. Pre-VULN-06 this was the privileged writer; now it must
+    // be rejected with `UnauthorizedBaselineWriter` (6040).
+    const strangerAgent = Keypair.generate().publicKey;
+    try {
+      await program.methods
+        .recordBaseline(strangerAgent, [...baselineHash], 3, new BN(1))
+        .accounts({
+          baselineStats: baselinePda(strangerAgent),
           issuerConfig: issuerConfigPda(),
           issuer: submitter.publicKey,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
+      assert.fail("expected UnauthorizedBaselineWriter — submitter is neither agent nor cluster key");
+    } catch (err: any) {
+      const msg = (err.logs ?? []).join("\n") + (err.message ?? "");
+      assert.ok(
+        /UnauthorizedBaselineWriter|6040/.test(msg),
+        `expected UnauthorizedBaselineWriter, got: ${msg}`,
+      );
+    }
+  });
+
+  it("REJECTS a second baseline rotation at the SAME epoch", async () => {
+    // Audit mitigation 3: append-only / can't change baseline twice per epoch.
+    // The agentOk baseline was already recorded at epoch 1 in test 2.
+    // A second write at epoch 1 must be refused.
+    try {
+      await program.methods
+        .recordBaseline(agentOk, [...baselineHash], 3, new BN(1))
+        .accounts({
+          baselineStats: baselinePda(agentOk),
+          issuerConfig: issuerConfigPda(),
+          issuer: agentOk,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([agentOkKp])
+        .rpc();
+      assert.fail("expected BaselineRotationTooSoon — same-epoch rotation must fail");
+    } catch (err: any) {
+      const msg = (err.logs ?? []).join("\n") + (err.message ?? "");
+      assert.ok(
+        /BaselineRotationTooSoon|6041/.test(msg),
+        `expected BaselineRotationTooSoon, got: ${msg}`,
+      );
+    }
+  });
+
+  it("REJECTS a baseline rotation at an EARLIER epoch", async () => {
+    // Even an authorised writer cannot walk the recorded epoch backwards.
+    try {
+      // agentOk was last recorded at epoch 1; a write at epoch 0 also
+      // trips the ZeroEpoch guard, so use a clean agent freshly recorded
+      // at a higher epoch and then attempt to rotate downward.
+      const freshKp = Keypair.generate();
+      const sig = await provider.connection.requestAirdrop(
+        freshKp.publicKey, 1_000_000_000,
+      );
+      const { blockhash, lastValidBlockHeight } =
+        await provider.connection.getLatestBlockhash();
+      await provider.connection.confirmTransaction({
+        signature: sig, blockhash, lastValidBlockHeight,
+      });
+
+      // Record at epoch 5 first.
+      await program.methods
+        .recordBaseline(freshKp.publicKey, [...baselineHash], 3, new BN(5))
+        .accounts({
+          baselineStats: baselinePda(freshKp.publicKey),
+          issuerConfig: issuerConfigPda(),
+          issuer: freshKp.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([freshKp])
+        .rpc();
+
+      // Now attempt to walk back to epoch 3.
+      await program.methods
+        .recordBaseline(freshKp.publicKey, [...baselineHash], 3, new BN(3))
+        .accounts({
+          baselineStats: baselinePda(freshKp.publicKey),
+          issuerConfig: issuerConfigPda(),
+          issuer: freshKp.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([freshKp])
+        .rpc();
+      assert.fail("expected BaselineEpochNotMonotonic — must not walk epoch backwards");
+    } catch (err: any) {
+      const msg = (err.logs ?? []).join("\n") + (err.message ?? "");
+      assert.ok(
+        /BaselineEpochNotMonotonic|6042/.test(msg),
+        `expected BaselineEpochNotMonotonic, got: ${msg}`,
+      );
     }
   });
 

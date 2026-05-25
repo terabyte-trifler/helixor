@@ -345,14 +345,19 @@ SENSITIVE_HANDLERS = {
     # health-oracle — agent registration + score submission
     "commit_baseline":           "health-oracle",        # registers/rotates agent
     "submit_score":              "health-oracle",        # cluster submits a score
-    "advance_epoch":             "health-oracle",        # advances epoch counter
+    # advance_epoch: VULN-02 moved authority into the handler body — the
+    # valid signer set is conditional on elapsed time (Tier 1 vs Tier 2),
+    # which an Anchor account-attribute constraint cannot express. Allow-listed.
     "initialize_oracle_config":  "health-oracle",        # one-time admin
     "initialize_epoch":          "health-oracle",        # one-time admin
     "migrate_registration":      "health-oracle",        # migration tool
 
     # certificate-issuer — cert writes + admin
     "initialize_config":         "certificate-issuer",   # one-time admin
-    "record_baseline":           "certificate-issuer",   # one-time per agent
+    # record_baseline: VULN-06 moved authority into the handler body via
+    # `require!(is_authorised_baseline_writer(...))`. The (agent OR cluster
+    # member) rule cannot be expressed as a single Anchor account-attribute
+    # constraint because `cluster_keys` is a Vec on `IssuerConfig`. Allow-listed.
     # issue_certificate is INTENTIONALLY signerless apart from the rent
     # payer — Day 27 replaced the issuer-key gate with threshold
     # signature verification (see programs/certificate-issuer/src/signing.rs).
@@ -376,6 +381,16 @@ DESIGN_INTENT_ALLOWLIST = {
                           "certificate-issuer/src/signing.rs",
     "challenge_oracle":   "Permissionless by design — any party may file; "
                           "proof is validated by slash-authority",
+    "record_baseline":    "VULN-06 — authority enforced in the handler via "
+                          "`require!(is_authorised_baseline_writer(...))`. "
+                          "The (agent OR cluster member) rule cannot be a "
+                          "single Anchor account-attribute constraint "
+                          "because `cluster_keys` is a Vec.",
+    "advance_epoch":      "VULN-02 — two-tier authority enforced in the "
+                          "handler. The valid signer set is conditional on "
+                          "elapsed time (Tier 1: advance_authority at 1× "
+                          "duration; Tier 2: any cluster key at 2×), which "
+                          "an account-attribute constraint cannot express.",
 }
 
 
