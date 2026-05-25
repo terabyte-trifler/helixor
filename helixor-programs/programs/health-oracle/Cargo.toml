@@ -16,8 +16,9 @@ no-log-ix-name = []
 cpi          = ["no-entrypoint"]
 
 [dependencies]
-anchor-lang = "0.30.1"
+anchor-lang = "1.0.2"
 # Day 19: health-oracle CPI-calls certificate_issuer.issue_certificate.
 # The `cpi` feature pulls in the callee's auto-generated CPI module
 # without its entrypoint (no-entrypoint), so it links as a library.
 certificate-issuer = { path = "../certificate-issuer", features = ["cpi"] }
+solana-instructions-sysvar = "3.0.1"

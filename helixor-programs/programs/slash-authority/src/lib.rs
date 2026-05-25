@@ -23,6 +23,11 @@
 // with the deployed key when this is published to devnet.
 // =============================================================================
 
+// Anchor 0.30 emits internal cfgs such as `anchor-debug` from its derive
+// macros. They are toolchain noise, not Helixor logic warnings. Keep the
+// audit gate strict for our code while allowing those upstream macro cfgs.
+#![allow(unexpected_cfgs, ambiguous_glob_reexports, clippy::diverging_sub_expression)]
+
 use anchor_lang::prelude::*;
 
 pub mod errors;
@@ -97,9 +102,9 @@ pub mod slash_authority {
     }
 
     /// Day-21 NEW: the watchdog mechanism. Anyone may challenge an oracle
-    /// node for a bad submission. On-chain-verifiable proof types
-    /// (conflicting scores, phantom agent) are recorded Verified; an
-    /// off-chain evidence claim is recorded Pending for governance review.
+    /// node for a bad submission. The instruction records the accusation
+    /// and evidence hash; slash-authority review verifies referenced
+    /// artifacts before any oracle-side slashing.
     pub fn challenge_oracle(
         ctx:           Context<ChallengeOracle>,
         proof_type:    u8,

@@ -173,7 +173,14 @@ class GrpcTransport:
     this module does not require grpcio.
     """
 
-    def __init__(self, directory: PeerDirectory) -> None:
+    def __init__(
+        self,
+        directory: PeerDirectory,
+        *,
+        root_certificates: bytes | None = None,
+        private_key: bytes | None = None,
+        certificate_chain: bytes | None = None,
+    ) -> None:
         try:
             import grpc                              # noqa: F401
             from oracle.proto import cluster_pb2, cluster_pb2_grpc  # noqa: F401
@@ -189,11 +196,24 @@ class GrpcTransport:
         self._pb2 = cluster_pb2
         self._pb2_grpc = cluster_pb2_grpc
         self._channels: dict[str, object] = {}
+        self._root_certificates = root_certificates
+        self._private_key = private_key
+        self._certificate_chain = certificate_chain
 
     def _stub(self, peer_id: str):
         address = self._directory.address_of(peer_id)
         if peer_id not in self._channels:
-            self._channels[peer_id] = self._grpc.insecure_channel(address)
+            if self._root_certificates is None:
+                self._channels[peer_id] = self._grpc.insecure_channel(address)
+            else:
+                credentials = self._grpc.ssl_channel_credentials(
+                    root_certificates=self._root_certificates,
+                    private_key=self._private_key,
+                    certificate_chain=self._certificate_chain,
+                )
+                self._channels[peer_id] = self._grpc.secure_channel(
+                    address, credentials,
+                )
         return self._pb2_grpc.OracleClusterStub(self._channels[peer_id])
 
     def ping(self, peer_id: str, request: PingRequest) -> PingResponse:

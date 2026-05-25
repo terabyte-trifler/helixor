@@ -49,6 +49,7 @@ def cert_payload_digest(
     score:              int,
     alert_tier:         int,
     flags:              int,
+    baseline_hash:      bytes,
     immediate_red:      bool,
 ) -> bytes:
     """
@@ -58,11 +59,17 @@ def cert_payload_digest(
     message matches.
 
     `agent_wallet_bytes` is the 32-byte Solana pubkey of the agent.
+    `baseline_hash` is the exact 32-byte baseline commitment that the
+    on-chain certificate will stamp. Binding it into the digest prevents a
+    replay where the same score signature is issued against a different
+    baseline.
     """
     import hashlib
 
     if len(agent_wallet_bytes) != 32:
         raise ValueError("agent_wallet_bytes must be 32 bytes")
+    if len(baseline_hash) != 32:
+        raise ValueError("baseline_hash must be 32 bytes")
     if not (0 <= score <= 0xFFFF):
         raise ValueError(f"score out of u16 range: {score}")
     if not (0 <= alert_tier <= 0xFF):
@@ -79,6 +86,7 @@ def cert_payload_digest(
         + score.to_bytes(2, "big")                      #  2
         + alert_tier.to_bytes(1, "big")                 #  1
         + flags.to_bytes(4, "big")                      #  4
+        + bytes(baseline_hash)                           # 32
         + immediate_red_byte                            #  1
     )
     return hashlib.sha256(payload).digest()

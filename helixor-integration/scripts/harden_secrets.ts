@@ -22,18 +22,22 @@ interface Hit {
 }
 
 const ROOT_CANDIDATES = [
-  "../helixor-programs",
-  "../helixor-oracle",
-  "../helixor-sdk",
-  "../helixor-plugin-elizaos",
-  "../helixor-e2e",
-  "../helixor-integration",
+  "helixor-programs",
+  "helixor-oracle",
+  "helixor-sdk",
+  "helixor-plugin-elizaos",
+  "helixor-e2e",
+  "helixor-integration",
 ];
 
 const SCAN_EXTENSIONS = /\.(rs|ts|tsx|js|json|py|toml|yml|yaml|sh|md)$/;
 
 const SKIP_DIRS = ["node_modules", "target", ".venv", "dist", "coverage", ".git"];
-const REPO_ROOT = path.resolve(process.cwd(), "..");
+const CWD = process.cwd();
+const REPO_ROOT =
+  path.basename(CWD) === "helixor-integration"
+    ? path.resolve(CWD, "..")
+    : CWD;
 const exec = promisify(execFile);
 
 const SUSPICIOUS_PATTERNS: Array<{ name: string; regex: RegExp }> = [
@@ -55,7 +59,7 @@ const SUSPICIOUS_PATTERNS: Array<{ name: string; regex: RegExp }> = [
 
 async function findFiles(root: string): Promise<string[]> {
   const tracked = await gitTrackedFiles();
-  const rootAbs = path.resolve(root);
+  const rootAbs = path.resolve(REPO_ROOT, root);
   return tracked.filter((file) => {
     if (!file.startsWith(rootAbs + path.sep) && file !== rootAbs) return false;
     if (!SCAN_EXTENSIONS.test(file)) return false;
@@ -107,19 +111,42 @@ async function scan(root: string): Promise<Hit[]> {
 // =============================================================================
 
 async function checkOracleKeypairLoad(): Promise<{ ok: boolean; detail: string }> {
-  const oracleDir = "../helixor-oracle";
+  const oracleDir = path.resolve(REPO_ROOT, "helixor-oracle/oracle");
   try {
-    const target = path.join(oracleDir, "oracle/submit.py");
-    const content = await fs.readFile(target, "utf-8");
-    if (/Keypair\.from_bytes\s*\(\s*\[/.test(content)) {
-      return { ok: false, detail: "submit.py contains a hardcoded keypair literal" };
+    const oracleFiles = (await gitTrackedFiles()).filter((file) =>
+      file.startsWith(oracleDir + path.sep) &&
+      /\.(py|ts|rs)$/.test(file) &&
+      !file.split(path.sep).includes("tests")
+    );
+
+    const inlineKeypairFiles: string[] = [];
+    let envBackedLoaderFound = false;
+
+    for (const file of oracleFiles) {
+      const content = await fs.readFile(file, "utf-8");
+      if (/Keypair\.from_bytes\s*\(\s*\[/.test(content)) {
+        inlineKeypairFiles.push(file);
+      }
+      if (/ORACLE_KEYPAIR_PATH|oracle_keypair_path/.test(content)) {
+        envBackedLoaderFound = true;
+      }
     }
-    if (!/oracle_keypair_path|ORACLE_KEYPAIR_PATH/.test(content)) {
-      return { ok: false, detail: "submit.py doesn't reference oracle_keypair_path" };
+
+    if (inlineKeypairFiles.length > 0) {
+      return {
+        ok: false,
+        detail: `oracle source contains hardcoded keypair literal(s):\n  ${inlineKeypairFiles.join("\n  ")}`,
+      };
     }
-    return { ok: true, detail: "submit.py loads keypair from configured path" };
+    if (!envBackedLoaderFound) {
+      return {
+        ok: false,
+        detail: "oracle source doesn't reference ORACLE_KEYPAIR_PATH / oracle_keypair_path",
+      };
+    }
+    return { ok: true, detail: "oracle source loads authority keypair from configured env path" };
   } catch (e: any) {
-    return { ok: false, detail: `couldn't read submit.py: ${e.message}` };
+    return { ok: false, detail: `couldn't audit oracle keypair loading: ${e.message}` };
   }
 }
 

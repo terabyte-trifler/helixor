@@ -88,7 +88,7 @@ pub struct IssueCertificate<'info> {
     /// CHECK: the Instructions sysvar — read inside the handler to find
     /// the Ed25519 precompile instructions that carry the cluster
     /// signatures. The handler verifies this is the right sysvar pubkey.
-    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    #[account(address = solana_instructions_sysvar::ID)]
     pub instructions_sysvar: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
@@ -129,14 +129,16 @@ pub fn handler(
 
     // ── DAY 27: verify the THRESHOLD SIGNATURES from the cluster ────────────
     // The cert payload (the canonical digest of agent/epoch/score/tier/
-    // flags/immediate_red) MUST have been signed by at least `threshold`
+    // flags/baseline_hash/immediate_red) MUST have been signed by at least `threshold`
     // distinct cluster keys, via Ed25519 precompile instructions in this
     // same transaction. Below threshold -> InsufficientSignatures -> ix
     // fails. This is the on-chain enforcement of 3-of-5 (or whatever the
     // configured threshold is).
     let digest = crate::signing::cert_payload_digest(
         &ctx.accounts.baseline_stats.agent_wallet,
-        epoch, score, alert_tier, flags, immediate_red,
+        epoch, score, alert_tier, flags,
+        &ctx.accounts.baseline_stats.baseline_hash,
+        immediate_red,
     );
     let valid_signers = crate::signing::verify_threshold_signatures(
         &digest,
@@ -207,7 +209,7 @@ pub fn validate_score_alert(
 
     let consistent = match tier {
         AlertTier::Green  => score >= GREEN_THRESHOLD,
-        AlertTier::Yellow => score >= YELLOW_THRESHOLD && score < GREEN_THRESHOLD,
+        AlertTier::Yellow => (YELLOW_THRESHOLD..GREEN_THRESHOLD).contains(&score),
         AlertTier::Red    => score < YELLOW_THRESHOLD,
     };
     require!(consistent, CertificateError::InconsistentScoreAlert);

@@ -58,7 +58,7 @@ pub fn handler(
     // moves the STAKE on top — a System-program CPI signed by the staker.
     system_program::transfer(
         CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
+            ctx.accounts.system_program.key(),
             Transfer {
                 from: ctx.accounts.staker.to_account_info(),
                 to:   ctx.accounts.escrow_vault.to_account_info(),

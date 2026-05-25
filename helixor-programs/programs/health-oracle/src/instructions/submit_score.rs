@@ -100,7 +100,7 @@ pub struct SubmitScore<'info> {
     /// path in Phase 4; this CPI route is retained for backward
     /// compatibility and only succeeds when the same outer tx carries the
     /// required threshold signatures.
-    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    #[account(address = solana_instructions_sysvar::ID)]
     pub instructions_sysvar: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
@@ -140,7 +140,7 @@ pub fn handler(
         system_program:      ctx.accounts.system_program.to_account_info(),
     };
     let cpi_ctx = CpiContext::new(
-        ctx.accounts.certificate_issuer_program.to_account_info(),
+        ctx.accounts.certificate_issuer_program.key(),
         cpi_accounts,
     );
 

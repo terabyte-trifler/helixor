@@ -28,5 +28,7 @@ fn current_layout_version_is_two() {
 #[test]
 fn v2_is_strictly_larger_than_v1() {
     // The whole reason migrate_registration exists.
-    assert!(AgentRegistration::SPACE > AgentRegistration::V1_SPACE);
+    let v2_space = AgentRegistration::SPACE;
+    let v1_space = AgentRegistration::V1_SPACE;
+    assert!(v2_space > v1_space);
 }

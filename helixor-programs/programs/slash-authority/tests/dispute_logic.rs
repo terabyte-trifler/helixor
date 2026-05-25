@@ -159,14 +159,12 @@ fn proof_type_rejects_invalid_code() {
 }
 
 #[test]
-fn conflicting_scores_and_phantom_agent_are_onchain_verifiable() {
-    assert!(ProofType::ConflictingScores.is_onchain_verifiable());
-    assert!(ProofType::PhantomAgent.is_onchain_verifiable());
-}
-
-#[test]
-fn evidence_hash_is_not_onchain_verifiable() {
-    // Honest scope: an off-chain claim cannot be auto-verified on chain.
+fn challenges_are_not_self_verifying_without_referenced_artifacts() {
+    // Honest scope: challenge_oracle records evidence. It does not yet load
+    // median/certificate/registration artifacts, so no proof type is
+    // automatically verified in this instruction.
+    assert!(!ProofType::ConflictingScores.is_onchain_verifiable());
+    assert!(!ProofType::PhantomAgent.is_onchain_verifiable());
     assert!(!ProofType::EvidenceHash.is_onchain_verifiable());
 }
 

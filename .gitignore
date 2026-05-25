@@ -35,3 +35,6 @@ keys/
 **/.pytest_cache/
 **/tsconfig.tsbuildinfo
 **/target/
+**/dist/
+audit/reports/fuzz_coverage.json
+audit/reports/fuzz_crashes/

@@ -26,6 +26,24 @@ from oracle.network_guard import (
 )
 
 
+def test_oracle_node_refuses_production_plaintext_grpc(monkeypatch):
+    """
+    Mainnet opt-in alone is not enough for oracle peer transport: production
+    gRPC must have mTLS material. This prevents a 5-node cluster from
+    accidentally starting on plaintext sockets.
+    """
+    from oracle.cluster.run_cluster_node import main
+
+    monkeypatch.setenv("HELIXOR_NETWORK", NETWORK_MAINNET_BETA)
+    monkeypatch.setenv("HELIXOR_MAINNET_OK", "1")
+    monkeypatch.delenv("HELIXOR_GRPC_TLS_CERT", raising=False)
+    monkeypatch.delenv("HELIXOR_GRPC_TLS_KEY", raising=False)
+    monkeypatch.delenv("HELIXOR_GRPC_TLS_CA_CERT", raising=False)
+
+    rc = main(["--node-id", "oracle-node-0", "--port", "50051"])
+    assert rc == 2
+
+
 # =============================================================================
 # Defaults — a fresh process refuses anything risky
 # =============================================================================

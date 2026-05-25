@@ -39,7 +39,7 @@
 // CANONICAL PAYLOAD
 // -----------------
 // The signed payload is sha256( agent || epoch || score || alert_tier ||
-// flags || immediate_red ). Fixed-width big-endian integers, fixed order
+// flags || baseline_hash || immediate_red ). Fixed-width big-endian integers, fixed order
 // — same canonical-serialisation discipline as Day 25's commit_reveal. A
 // signer signs the DIGEST, not the unhashed bytes, so we control payload
 // length (the Ed25519 precompile signs arbitrary-length messages, but
@@ -47,12 +47,9 @@
 // =============================================================================
 
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::{
-    ed25519_program,
-    hash::hashv,
-    instruction::Instruction,
-    sysvar::instructions::{load_instruction_at_checked, ID as INSTRUCTIONS_ID},
-};
+use solana_instructions_sysvar::{load_instruction_at_checked, ID as INSTRUCTIONS_ID};
+use solana_program::{hash::hashv, instruction::Instruction};
+use solana_sdk_ids::ed25519_program;
 
 use crate::errors::CertificateError;
 use crate::state::IssuerConfig;
@@ -70,6 +67,7 @@ pub fn cert_payload_digest(
     score:          u16,
     alert_tier:     u8,
     flags:          u32,
+    baseline_hash:  &[u8; 32],
     immediate_red:  bool,
 ) -> [u8; 32] {
     // The byte layout is FIXED and PUBLIC — every signer and verifier must
@@ -82,6 +80,7 @@ pub fn cert_payload_digest(
         &score.to_be_bytes(),                //  2 bytes
         &[alert_tier],                       //  1 byte
         &flags.to_be_bytes(),                //  4 bytes
+        baseline_hash,                       // 32 bytes
         &[immediate_red_byte],               //  1 byte
     ]);
     h.to_bytes()
@@ -150,12 +149,12 @@ fn parse_ed25519_ix(ix: &Instruction) -> Result<PrecompileRecord> {
     // data, with the expected sizes. (We don't follow cross-instruction
     // references; an attacker that tried would fail the bounds checks.)
     let sig_offset    = u16::from_le_bytes([ix.data[2],  ix.data[3]])  as usize;
-    let sig_ix_idx    = u16::from_le_bytes([ix.data[4],  ix.data[5]])  as u16;
+    let sig_ix_idx    = u16::from_le_bytes([ix.data[4],  ix.data[5]]);
     let pk_offset     = u16::from_le_bytes([ix.data[6],  ix.data[7]])  as usize;
-    let pk_ix_idx     = u16::from_le_bytes([ix.data[8],  ix.data[9]])  as u16;
+    let pk_ix_idx     = u16::from_le_bytes([ix.data[8],  ix.data[9]]);
     let msg_offset    = u16::from_le_bytes([ix.data[10], ix.data[11]]) as usize;
     let msg_size      = u16::from_le_bytes([ix.data[12], ix.data[13]]) as usize;
-    let msg_ix_idx    = u16::from_le_bytes([ix.data[14], ix.data[15]]) as u16;
+    let msg_ix_idx    = u16::from_le_bytes([ix.data[14], ix.data[15]]);
 
     // The sentinel u16::MAX (0xFFFF) means "same instruction" — which is
     // what we require so an attacker cannot misdirect to another ix's data.
@@ -216,14 +215,10 @@ pub fn verify_threshold_signatures(
     // signers whose signed message matches our expected digest.
     let mut signers: Vec<Pubkey> = Vec::with_capacity(IssuerConfig::MAX_CLUSTER_KEYS);
     let mut ix_index: usize = 0;
-    loop {
-        let ix = match load_instruction_at_checked(ix_index, instructions_sysvar) {
-            Ok(ix) => ix,
-            Err(_) => break,                          // no more instructions
-        };
+    while let Ok(ix) = load_instruction_at_checked(ix_index, instructions_sysvar) {
         ix_index += 1;
 
-        if ix.program_id != ed25519_program::ID {
+        if ix.program_id != ed25519_program::id() {
             continue;                                 // not a precompile ix
         }
 

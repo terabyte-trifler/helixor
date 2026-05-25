@@ -170,7 +170,7 @@ class TestByzantineNodeDetectedAndExcluded:
 
         challenge = filed[0]
         # The challenge cites the node's deviating score vs the median —
-        # a provable conflict (ProofType.ConflictingScores = 0).
+        # conflicting-score evidence (ProofType.ConflictingScores = 0).
         assert challenge.proof_type == 0
         assert challenge.accused_score == 40
         assert challenge.cluster_median != 40

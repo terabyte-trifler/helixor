@@ -24,14 +24,15 @@ threshold and is challenged.
 
 THE CHALLENGE
 -------------
-A confirmed repeat offender is challenged with `ProofType.ConflictingScores`
-— the Day-21 on-chain-verifiable proof type. A Byzantine node's score, by
-definition, conflicts with the cluster's: the challenge cites the node's
-deviating score against the cluster median for the same (agent, epoch),
-which is exactly a provable conflict. The challenge is FILED through an
-injected seam (`ChallengeFn`), the same pattern as the epoch runner's
-submit / slash seams — production wires the real `challenge_oracle`
-instruction; tests pass a recording stub.
+A confirmed repeat offender is challenged with `ProofType.ConflictingScores`.
+A Byzantine node's score, by definition, conflicts with the cluster's: the
+challenge cites the node's deviating score against the cluster median for
+the same (agent, epoch). Day 21 records that evidence for slash-authority
+review; it is not treated as auto-verified unless the referenced median /
+certificate artifacts are supplied and checked by the resolver. The
+challenge is FILED through an injected seam (`ChallengeFn`), the same
+pattern as the epoch runner's submit / slash seams — production wires the
+real `challenge_oracle` instruction; tests pass a recording stub.
 
 DETERMINISM
 -----------

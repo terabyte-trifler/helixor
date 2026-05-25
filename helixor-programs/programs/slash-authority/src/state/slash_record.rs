@@ -50,6 +50,7 @@ use anchor_lang::prelude::*;
 
 /// The severity tier of an offense. Drives the slash fraction + destination.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[borsh(use_discriminant = true)]
 pub enum OffenseTier {
     /// A soft, recoverable signal. Small penalty, vault stays active.
     Minor = 0,
@@ -102,6 +103,7 @@ impl OffenseTier {
 
 /// Where slashed lamports are sent.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[borsh(use_discriminant = true)]
 pub enum SlashDestination {
     /// The protocol slash treasury — a penalty pool.
     Treasury = 0,
@@ -148,6 +150,7 @@ pub fn compute_slash_amount(staked_lamports: u64, tier: OffenseTier) -> u64 {
 ///               the appeal was rejected); the funds were moved/burned.
 ///               Terminal.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[borsh(use_discriminant = true)]
 pub enum SlashStatus {
     Pending    = 0,
     Appealed   = 1,
@@ -232,7 +235,7 @@ impl SlashRecord {
     ///   32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1 = 140  (Day-20 core)
     /// + 1 status + 8 appeal_deadline + 32 appeal_hash + 8 appealed_at = 49
     /// + 7 reserved                                                   =  7
-    /// = 196
+    ///   = 196
     ///
     /// NOTE: Day 20 declared 172 bytes (140 core + 32 reserve). Day 21
     /// spends that 32-byte reserve on the lifecycle fields and adds 24

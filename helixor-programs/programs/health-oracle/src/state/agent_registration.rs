@@ -90,7 +90,7 @@ impl AgentRegistration {
     ///   32 + 32 + 8 + 1 + 1  =  74    (v1 fields)
     /// + 1 + 32 + 1 + 32 + 8 + 8 + 1   =  83    (v2 fields)
     /// + 64                            =  64    (reserved)
-    /// = 221
+    ///   = 221
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize = 32 + 32 + 8 + 1 + 1
                                                  + 1 + 32 + 1 + 32 + 8 + 8 + 1
                                                  + 64;

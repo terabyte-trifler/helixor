@@ -13,17 +13,16 @@
 // attack vector. So a challenge is recorded with a PROOF, and the proof
 // type determines what happens:
 //
-//   ConflictingScores — the accused oracle signed TWO scores for the SAME
-//                        (agent, epoch) with different values. Both score
-//                        certificates are on chain, so this is
-//                        ON-CHAIN VERIFIABLE: challenge_oracle checks the
-//                        two cited certificates and, if they genuinely
-//                        conflict, marks the challenge Verified. A verified
-//                        conflict is grounds for oracle-side slashing.
+//   ConflictingScores — the accused oracle submitted a score that conflicts
+//                        with the anchored cluster median for the same
+//                        (agent, epoch). Until the instruction accepts the
+//                        referenced median/certificate artifacts as accounts,
+//                        this is recorded Pending for review rather than
+//                        auto-Verified.
 //
 //   PhantomAgent      — the accused oracle scored an agent that was never
-//                        registered. Also on-chain checkable (the agent
-//                        registration PDA does not exist).
+//                        registered. Also recorded Pending until the
+//                        registration PDA is checked by the resolver.
 //
 //   EvidenceHash      — an off-chain-only claim (e.g. the oracle's score
 //                        contradicts public data). NOT verifiable on chain
@@ -31,9 +30,9 @@
 //                        governance authority to review and resolve.
 //
 // HONEST SCOPE: on-chain code can only verify what is on chain. The
-// ConflictingScores / PhantomAgent paths are genuinely self-proving; the
-// EvidenceHash path is an accusation queued for human/governance review,
-// not an automatic slash. challenge_oracle does not pretend otherwise.
+// No challenge is an automatic slash. challenge_oracle records the
+// accusation and evidence hash; slash-authority review verifies the cited
+// artifacts before any oracle-side slashing path is executed.
 //
 // LAYOUT (after the 8-byte Anchor discriminator):
 //   accused_oracle    32   (Pubkey — the oracle node being challenged)
@@ -57,12 +56,13 @@ use anchor_lang::prelude::*;
 /// What KIND of proof a challenge cites — and therefore whether the program
 /// can verify it on chain.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[borsh(use_discriminant = true)]
 pub enum ProofType {
     /// The oracle signed two conflicting scores for one (agent, epoch).
-    /// ON-CHAIN VERIFIABLE.
+    /// Pending until referenced median/certificate artifacts are verified.
     ConflictingScores = 0,
     /// The oracle scored an unregistered (phantom) agent.
-    /// ON-CHAIN VERIFIABLE.
+    /// Pending until registration state is checked.
     PhantomAgent = 1,
     /// An off-chain-only claim — recorded for governance review.
     /// NOT on-chain verifiable.
@@ -83,18 +83,19 @@ impl ProofType {
         self as u8
     }
 
-    /// Whether this proof type can be verified by on-chain code alone.
+    /// Whether this proof type is self-verifying in this instruction.
     pub fn is_onchain_verifiable(self) -> bool {
-        matches!(self, ProofType::ConflictingScores | ProofType::PhantomAgent)
+        false
     }
 }
 
 /// The lifecycle state of an oracle challenge.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[borsh(use_discriminant = true)]
 pub enum ChallengeStatus {
     /// Recorded, awaiting governance review (the EvidenceHash path).
     Pending = 0,
-    /// On-chain proof checked and confirmed — grounds for oracle slashing.
+    /// Proof checked and confirmed by a resolver — grounds for oracle slashing.
     Verified = 1,
     /// Reviewed and dismissed — the accusation did not hold.
     Dismissed = 2,
@@ -152,7 +153,7 @@ impl OracleChallenge {
     /// Data size WITHOUT the 8-byte Anchor discriminator.
     ///   32 + 32 + 8 + 1 + 1 + 32 + 32 + 8 + 8 + 8 + 1 + 1 = 164
     /// + 32 reserved                                        =  32
-    /// = 196
+    ///   = 196
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
         32 + 32 + 8 + 1 + 1 + 32 + 32 + 8 + 8 + 8 + 1 + 1 + 32;
 

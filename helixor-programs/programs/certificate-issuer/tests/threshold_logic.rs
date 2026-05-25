@@ -21,59 +21,70 @@ fn agent() -> Pubkey {
     Pubkey::new_from_array([0x11; 32])
 }
 
+fn baseline_hash() -> [u8; 32] {
+    [0x33; 32]
+}
+
 #[test]
 fn digest_is_32_bytes() {
-    let d = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
+    let d = cert_payload_digest(&agent(), 1, 851, 2, 8, &baseline_hash(), true);
     assert_eq!(d.len(), 32);
 }
 
 #[test]
 fn digest_is_deterministic() {
-    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
-    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, &baseline_hash(), true);
+    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, &baseline_hash(), true);
     assert_eq!(a, b);
 }
 
 #[test]
 fn digest_changes_with_score() {
-    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
-    let b = cert_payload_digest(&agent(), 1, 852, 2, 8, true);
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, &baseline_hash(), true);
+    let b = cert_payload_digest(&agent(), 1, 852, 2, 8, &baseline_hash(), true);
     assert_ne!(a, b);
 }
 
 #[test]
 fn digest_changes_with_epoch() {
-    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
-    let b = cert_payload_digest(&agent(), 2, 851, 2, 8, true);
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, &baseline_hash(), true);
+    let b = cert_payload_digest(&agent(), 2, 851, 2, 8, &baseline_hash(), true);
     assert_ne!(a, b);
 }
 
 #[test]
 fn digest_changes_with_alert_tier() {
-    let a = cert_payload_digest(&agent(), 1, 851, 0, 8, true);
-    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
+    let a = cert_payload_digest(&agent(), 1, 851, 0, 8, &baseline_hash(), true);
+    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, &baseline_hash(), true);
     assert_ne!(a, b);
 }
 
 #[test]
 fn digest_changes_with_flags() {
-    let a = cert_payload_digest(&agent(), 1, 851, 2, 0, true);
-    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 0, &baseline_hash(), true);
+    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, &baseline_hash(), true);
+    assert_ne!(a, b);
+}
+
+#[test]
+fn digest_changes_with_baseline_hash() {
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, &[0x33; 32], true);
+    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, &[0x44; 32], true);
     assert_ne!(a, b);
 }
 
 #[test]
 fn digest_changes_with_immediate_red() {
-    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
-    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, false);
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, &baseline_hash(), true);
+    let b = cert_payload_digest(&agent(), 1, 851, 2, 8, &baseline_hash(), false);
     assert_ne!(a, b);
 }
 
 #[test]
 fn digest_changes_with_agent() {
     let other = Pubkey::new_from_array([0x22; 32]);
-    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, true);
-    let b = cert_payload_digest(&other, 1, 851, 2, 8, true);
+    let a = cert_payload_digest(&agent(), 1, 851, 2, 8, &baseline_hash(), true);
+    let b = cert_payload_digest(&other, 1, 851, 2, 8, &baseline_hash(), true);
     assert_ne!(a, b);
 }
 
@@ -116,6 +127,8 @@ fn is_cluster_key_recognises_members() {
 fn three_of_five_is_a_strict_majority() {
     // The on-chain validator (initialize_config) enforces strict majority
     // for a BFT cluster — 3 of 5, 2 of 3.
-    assert!(3 > 5 / 2);
-    assert!(2 > 3 / 2);
+    let five_node_threshold = 3u8;
+    let three_node_threshold = 2u8;
+    assert!(five_node_threshold > 5 / 2);
+    assert!(three_node_threshold > 3 / 2);
 }

@@ -49,6 +49,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from baseline import compute_baseline, stats_hash_to_bytes
 from oracle.cluster.aggregation import AggregatedScore
 from oracle.cluster.byzantine_runner import (
     ByzantineAgentResult,
@@ -96,6 +97,7 @@ class SubmittableCertificate:
     score:           int
     alert_tier:      int
     flags:           int
+    baseline_hash:   bytes
     immediate_red:   bool
     digest:          bytes
     signatures:      AggregatedSignatures
@@ -209,6 +211,7 @@ def run_full_pipeline_epoch(
     ts = computed_at or datetime.now(timezone.utc)
     cluster_size = len(nodes)
     agent_list = list(agent_inputs)
+    baseline_hashes = _baseline_hashes_by_wallet(agent_list, computed_at=ts)
 
     # ── DETECT unreachable nodes BEFORE running the epoch ───────────────────
     # A node whose service is unregistered (the "kill node" model) is
@@ -256,6 +259,7 @@ def run_full_pipeline_epoch(
         results.append(_sign_and_submit(
             byz_result, epoch_id, signing_kps,
             all_cluster_keys, threshold, submit_fn,
+            baseline_hashes=baseline_hashes,
         ))
 
     elapsed = time.perf_counter() - started
@@ -326,6 +330,8 @@ def _sign_and_submit(
     cluster_keys:     Sequence[bytes],
     threshold:        int,
     submit_fn:        OnChainSubmitFn,
+    *,
+    baseline_hashes:  dict[str, bytes],
 ) -> PipelineAgentResult:
     """Sign one agent's aggregated score and submit it on-chain."""
     wallet = byz_result.agent_wallet
@@ -340,6 +346,14 @@ def _sign_and_submit(
         )
 
     aggregated = byz_result.aggregated
+    baseline_hash = baseline_hashes.get(wallet)
+    if baseline_hash is None:
+        return PipelineAgentResult(
+            agent_wallet=wallet, aggregated=aggregated,
+            excluded_nodes=byz_result.excluded_nodes,
+            certificate=None, submitted=False,
+            error="missing baseline hash for certificate digest",
+        )
 
     # ── BUILD the canonical cert digest ─────────────────────────────────────
     # The on-chain code computes the IDENTICAL bytes (programs/
@@ -360,6 +374,7 @@ def _sign_and_submit(
         score=aggregated.score,
         alert_tier=aggregated.alert_tier,
         flags=aggregated.flags,
+        baseline_hash=baseline_hash,
         immediate_red=aggregated.immediate_red,
     )
 
@@ -389,6 +404,7 @@ def _sign_and_submit(
         score=aggregated.score,
         alert_tier=aggregated.alert_tier,
         flags=aggregated.flags,
+        baseline_hash=baseline_hash,
         immediate_red=aggregated.immediate_red,
         digest=digest,
         signatures=agg_sigs,
@@ -413,6 +429,29 @@ def _sign_and_submit(
             certificate=certificate, submitted=False,
             error=f"on-chain submit failed: {exc}",
         )
+
+
+def _baseline_hashes_by_wallet(
+    agent_inputs: Sequence[AgentEpochInput],
+    *,
+    computed_at: datetime,
+) -> dict[str, bytes]:
+    """
+    Compute the exact baseline commitment each certificate will be issued
+    against. The digest signed by the cluster binds this hash, closing the
+    replay gap where a valid score signature could otherwise be stamped
+    onto a different rotated baseline.
+    """
+    out: dict[str, bytes] = {}
+    for agent_input in agent_inputs:
+        baseline = compute_baseline(
+            agent_input.agent_wallet,
+            list(agent_input.baseline_transactions),
+            agent_input.baseline_window,
+            computed_at=computed_at,
+        )
+        out[agent_input.agent_wallet] = stats_hash_to_bytes(baseline.stats_hash)
+    return out
 
 
 def _wallet_to_bytes(wallet: str) -> bytes:

@@ -11,22 +11,18 @@
 // depends on the proof type — and, honestly, on what on-chain code can
 // actually verify:
 //
-//   ConflictingScores — the watchdog claims the oracle signed two
-//                        DIFFERENT scores for the same (agent, epoch).
-//                        The two score values are passed in; the
-//                        instruction verifies on chain that they genuinely
-//                        differ. If so the challenge is recorded VERIFIED
-//                        — self-proving grounds for oracle slashing. (A
-//                        fuller version would also load the two on-chain
-//                        certificate accounts to confirm the oracle signed
-//                        them; the per-(agent,epoch) certificate PDA makes
-//                        that a deterministic lookup.)
+//   ConflictingScores — the watchdog claims the oracle signed a score that
+//                        conflicts with the anchored cluster median for
+//                        the same (agent, epoch). This instruction can
+//                        reject non-conflicts (equal scores), but it does
+//                        NOT yet load and verify the referenced median /
+//                        signature artifacts. Therefore the challenge is
+//                        recorded PENDING for slash-authority review.
 //
 //   PhantomAgent      — the watchdog claims the oracle scored an
-//                        unregistered agent. Recorded VERIFIED only if the
-//                        caller-supplied evidence is well-formed; the
-//                        registration check itself is a cross-program
-//                        lookup left to the resolution step.
+//                        unregistered agent. The registration check is a
+//                        cross-program lookup left to the resolution step,
+//                        so the challenge is recorded PENDING.
 //
 //   EvidenceHash      — an off-chain-only claim. On-chain code CANNOT
 //                        verify it, so the challenge is recorded PENDING
@@ -36,11 +32,9 @@
 // EVIDENCE REQUIREMENT: every challenge must cite a non-zero proof_hash.
 // SELF-CHALLENGE GUARD: the challenger and the accused oracle must differ.
 //
-// A VERIFIED challenge is the trigger for oracle-side slashing: the oracle
-// stakes via the SAME EscrowVault machinery as an agent (its vault is
-// keyed by the oracle pubkey), so a confirmed-bad oracle is slashed by the
-// ordinary execute_slash path. challenge_oracle produces the verified
-// finding; it does not itself move the oracle's funds.
+// A challenge is only grounds for oracle-side slashing after the
+// slash-authority review verifies the referenced artifacts. This instruction
+// records the evidence; it does not itself move or slash funds.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -119,16 +113,16 @@ pub fn handler(
     // ── Determine the challenge's initial status by proof type ──────────────
     let status = match tier {
         ProofType::ConflictingScores => {
-            // ON-CHAIN VERIFIABLE: the two cited scores for the same
-            // (agent, epoch) must genuinely differ. Identical scores are
-            // not a conflict — reject the challenge outright.
+            // The two cited scores must genuinely differ. Identical scores
+            // are not a conflict — reject the challenge outright. The
+            // referenced median/certificate artifacts are not yet supplied
+            // to this instruction, so this remains Pending.
             require!(score_a != score_b, SlashError::NotInConflict);
-            ChallengeStatus::Verified
+            ChallengeStatus::Pending
         }
         ProofType::PhantomAgent => {
-            // The well-formed accusation is recorded Verified; the
-            // registration cross-program check is performed at resolution.
-            ChallengeStatus::Verified
+            // Registration cross-program check is performed at resolution.
+            ChallengeStatus::Pending
         }
         ProofType::EvidenceHash => {
             // NOT on-chain verifiable — recorded for governance review.

@@ -42,6 +42,7 @@ function certPayloadDigest(
   score: number,
   alertTier: number,
   flags: number,
+  baselineHash: Buffer,
   immediateRed: boolean,
 ): Buffer {
   const epochBuf = Buffer.alloc(8);  epochBuf.writeBigUInt64BE(BigInt(epoch));
@@ -53,6 +54,7 @@ function certPayloadDigest(
     scoreBuf,                                    //  2
     Buffer.from([alertTier]),                    //  1
     flagsBuf,                                    //  4
+    baselineHash,                                // 32
     Buffer.from([immediateRed ? 1 : 0]),         //  1
   ]);
   return createHash("sha256").update(payload).digest();
@@ -151,7 +153,7 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
           immediateRed = false;
 
     const digest = certPayloadDigest(
-      agentOk, epoch, score, alertTier, flags, immediateRed,
+      agentOk, epoch, score, alertTier, flags, baselineHash, immediateRed,
     );
 
     // Pick three of the five cluster keys to sign.
@@ -192,7 +194,7 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
   it("REJECTS a certificate write with only 2 signatures", async () => {
     const epoch = 1, score = 800, alertTier = 0, flags = 0, immediateRed = false;
     const digest = certPayloadDigest(
-      agentBad, epoch, score, alertTier, flags, immediateRed,
+      agentBad, epoch, score, alertTier, flags, baselineHash, immediateRed,
     );
 
     // Only TWO signers — below the threshold of 3.
@@ -232,7 +234,7 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
   it("REJECTS when a third signer is not a cluster key", async () => {
     const epoch = 1, score = 800, alertTier = 0, flags = 0, immediateRed = false;
     const digest = certPayloadDigest(
-      agentBad, epoch, score, alertTier, flags, immediateRed,
+      agentBad, epoch, score, alertTier, flags, baselineHash, immediateRed,
     );
 
     const cluster2 = clusterKps.slice(0, 2);

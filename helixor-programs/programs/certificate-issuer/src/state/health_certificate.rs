@@ -39,6 +39,7 @@ use anchor_lang::prelude::*;
 
 /// AlertTier on-chain encoding. Mirrors the off-chain scoring.AlertTier.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[borsh(use_discriminant = true)]
 pub enum AlertTier {
     Green  = 0,
     Yellow = 1,
@@ -103,7 +104,7 @@ impl HealthCertificate {
     /// Data size in bytes, WITHOUT the 8-byte Anchor discriminator.
     ///   32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1  = 122
     /// + 48 reserved                                    =  48
-    /// = 170
+    ///   = 170
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
         32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 48;
 

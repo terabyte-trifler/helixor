@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 import threading
@@ -46,6 +47,19 @@ from oracle.cluster.identity import NodeKeypair
 from oracle.node import ClusterMembership, OracleNode
 
 logger = logging.getLogger("helixor.oracle.cluster.harness")
+
+ENV_TLS_CERT = "HELIXOR_GRPC_TLS_CERT"
+ENV_TLS_KEY = "HELIXOR_GRPC_TLS_KEY"
+ENV_TLS_CA_CERT = "HELIXOR_GRPC_TLS_CA_CERT"
+
+
+class GrpcTlsMaterial:
+    """TLS material for authenticated oracle-node peer transport."""
+
+    def __init__(self, *, cert: bytes, key: bytes, ca_cert: bytes) -> None:
+        self.cert = cert
+        self.key = key
+        self.ca_cert = ca_cert
 
 
 def _parse_peers(spec: str) -> dict[str, str]:
@@ -69,6 +83,7 @@ def build_node(
     peer_addrs: dict[str, str],
     *,
     seed:       bytes | None = None,
+    tls:        GrpcTlsMaterial | None = None,
 ) -> OracleNode:
     """
     Build an `OracleNode` for a gRPC deployment: a keypair, a membership
@@ -89,11 +104,41 @@ def build_node(
         for pid in sorted(peer_addrs)
     )
     membership = ClusterMembership(self_identity=keypair.identity, peers=peers)
-    transport = GrpcTransport(PeerDirectory(peer_addrs))
+    transport = GrpcTransport(
+        PeerDirectory(peer_addrs),
+        root_certificates=tls.ca_cert if tls is not None else None,
+        private_key=tls.key if tls is not None else None,
+        certificate_chain=tls.cert if tls is not None else None,
+    )
     return OracleNode(keypair, membership, transport=transport)
 
 
-def serve(node: OracleNode, port: int) -> None:
+def _read_tls_material_from_env() -> GrpcTlsMaterial | None:
+    cert_path = os.environ.get(ENV_TLS_CERT, "").strip()
+    key_path = os.environ.get(ENV_TLS_KEY, "").strip()
+    ca_path = os.environ.get(ENV_TLS_CA_CERT, "").strip()
+    if not cert_path and not key_path and not ca_path:
+        return None
+    if not cert_path or not key_path or not ca_path:
+        raise RuntimeError(
+            f"partial gRPC TLS configuration. Set all three: "
+            f"{ENV_TLS_CERT}, {ENV_TLS_KEY}, {ENV_TLS_CA_CERT}."
+        )
+    with open(cert_path, "rb") as f:
+        cert = f.read()
+    with open(key_path, "rb") as f:
+        key = f.read()
+    with open(ca_path, "rb") as f:
+        ca_cert = f.read()
+    return GrpcTlsMaterial(cert=cert, key=key, ca_cert=ca_cert)
+
+
+def serve(
+    node: OracleNode,
+    port: int,
+    *,
+    tls: GrpcTlsMaterial | None = None,
+) -> None:
     """
     Start a gRPC server for `node` on `port` and block until interrupted.
     Needs grpcio — imported here so importing this module does not.
@@ -107,7 +152,15 @@ def serve(node: OracleNode, port: int) -> None:
     cluster_pb2_grpc.add_OracleClusterServicer_to_server(
         make_grpc_servicer(node), server,
     )
-    server.add_insecure_port(f"[::]:{port}")
+    if tls is None:
+        server.add_insecure_port(f"[::]:{port}")
+    else:
+        credentials = grpc.ssl_server_credentials(
+            [(tls.key, tls.cert)],
+            root_certificates=tls.ca_cert,
+            require_client_auth=True,
+        )
+        server.add_secure_port(f"[::]:{port}", credentials)
     server.start()
     logger.info("node %s serving on port %d (%d-node cluster)",
                 node.node_id, port, node.membership.size)
@@ -151,17 +204,25 @@ def main(argv: list[str] | None = None) -> int:
     # so the operator sees a clear error message rather than a stack trace.
     from oracle.network_guard import enforce_network_guard, ProductionRefused
     try:
-        enforce_network_guard(service=f"oracle-node:{args.node_id}")
+        verdict = enforce_network_guard(service=f"oracle-node:{args.node_id}")
     except ProductionRefused as exc:
         # The error message itself is the runbook.
         logger.error(str(exc))
         return 2
 
     try:
+        tls = _read_tls_material_from_env()
+        if verdict.is_production and tls is None:
+            logger.error(
+                "refusing production oracle-node gRPC without mTLS. Set "
+                "%s, %s, and %s to PEM files signed by the cluster CA.",
+                ENV_TLS_CERT, ENV_TLS_KEY, ENV_TLS_CA_CERT,
+            )
+            return 2
         peer_addrs = _parse_peers(args.peers)
         seed = args.seed.encode() if args.seed else None
-        node = build_node(args.node_id, peer_addrs, seed=seed)
-        serve(node, args.port)
+        node = build_node(args.node_id, peer_addrs, seed=seed, tls=tls)
+        serve(node, args.port, tls=tls)
         return 0
     except KeyboardInterrupt:                        # pragma: no cover
         return 0
