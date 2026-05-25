@@ -79,6 +79,24 @@ class ApiMetrics:
             "The wire-schema version this API serves",
             registry=registry,
         )
+        # VULN-09: rate-limit observability. A spike in rejections is
+        # either a real DDoS or a misconfigured client; either way the
+        # operator wants to see it.
+        self.rate_limit_rejections_total = Counter(
+            "helixor_api_rate_limit_rejections_total",
+            "Requests rejected by the sliding-window rate limiter",
+            labelnames=("bucket_type",),   # "ip" | "key"
+            registry=registry,
+        )
+        # VULN-09: auth observability. 401s on operational endpoints
+        # should be rare in steady state; sustained 401s mean a client
+        # is probing.
+        self.auth_rejections_total = Counter(
+            "helixor_api_auth_rejections_total",
+            "401s raised by the API-key gate on operational endpoints",
+            labelnames=("route",),
+            registry=registry,
+        )
 
 
 def render_metrics(registry: CollectorRegistry) -> tuple[bytes, str]:

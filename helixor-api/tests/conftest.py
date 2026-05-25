@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.app import create_app
+from api.auth import ApiKey, ApiKeyRegistry
 from api.byzantine_repo import (
     ByzantineFlagRecord,
     ChallengeRecord,
@@ -20,7 +21,26 @@ from api.cluster_health import (
     InMemoryClusterHealthRepo,
     NodeHeartbeat,
 )
+from api.rate_limit import SlidingWindowLimiter
 from api.score_repo import InMemoryScoreRepo, ScoreRecord
+
+
+# =============================================================================
+# VULN-09 test wiring
+# =============================================================================
+#
+# Every test fixture wires a single API key (`test-key-001` / secret
+# `test-secret-001`) and injects the secret as an X-API-Key header on the
+# default `client`. Tests of the auth gate use the `unauthed_client`
+# fixture instead, which omits the header.
+#
+# Rate limits in tests are set to a HIGH cap so that no existing test
+# accidentally trips 429. The VULN-09 rate-limit tests build their own
+# app with low caps to exercise the limiter directly.
+
+TEST_API_KEY_ID:     str = "test-key-001"
+TEST_API_KEY_SECRET: str = "test-secret-001"
+TEST_RATE_LIMIT_PER_MIN: int = 10_000
 
 
 REF_TS = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -110,7 +130,25 @@ def cluster_repo() -> InMemoryClusterHealthRepo:
 
 
 @pytest.fixture
-def app(score_repo, byzantine_repo, cluster_repo):
+def key_registry() -> ApiKeyRegistry:
+    return ApiKeyRegistry([
+        ApiKey.from_secret(
+            key_id=TEST_API_KEY_ID,
+            secret=TEST_API_KEY_SECRET,
+            tier="test",
+            rate_limit_per_minute=TEST_RATE_LIMIT_PER_MIN,
+        ),
+    ])
+
+
+@pytest.fixture
+def rate_limiter() -> SlidingWindowLimiter:
+    # Fresh limiter per test — no cross-test bucket contamination.
+    return SlidingWindowLimiter()
+
+
+@pytest.fixture
+def app(score_repo, byzantine_repo, cluster_repo, key_registry, rate_limiter):
     return create_app(
         score_repo=score_repo,
         byzantine_repo=byzantine_repo,
@@ -119,9 +157,22 @@ def app(score_repo, byzantine_repo, cluster_repo):
         is_production=False,
         scoring_algo_version="v2.7",
         scoring_weights_version="w1",
+        key_registry=key_registry,
+        rate_limiter=rate_limiter,
+        # Test default — well above anything any individual test triggers.
+        public_rate_limit_per_minute=TEST_RATE_LIMIT_PER_MIN,
     )
 
 
 @pytest.fixture
 def client(app) -> TestClient:
+    """Authenticated TestClient — every request carries the test key."""
+    c = TestClient(app)
+    c.headers["X-API-Key"] = TEST_API_KEY_SECRET
+    return c
+
+
+@pytest.fixture
+def unauthed_client(app) -> TestClient:
+    """TestClient with NO API key — for verifying the 401 path."""
     return TestClient(app)

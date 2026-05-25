@@ -108,8 +108,13 @@ _VERDICT = _enforce_or_exit()
 
 from api import __version__                                         # noqa: E402
 from api.app import create_app                                      # noqa: E402
+from api.auth import ApiKeyRegistry, load_keys_from_env             # noqa: E402
 from api.byzantine_repo import InMemoryByzantineRepo                # noqa: E402
 from api.cluster_health import InMemoryClusterHealthRepo            # noqa: E402
+from api.rate_limit import (                                        # noqa: E402
+    load_public_limit_from_env,
+    load_trust_proxy_from_env,
+)
 from api.score_repo import InMemoryScoreRepo                        # noqa: E402
 
 
@@ -176,6 +181,29 @@ def _build_repos():
 
 def build_app():
     score_repo, byzantine_repo, cluster_repo = _build_repos()
+
+    # VULN-09: load API keys + rate-limit config from the environment.
+    # An empty HELIXOR_API_KEYS is a legitimate (if locked-down) state —
+    # operational endpoints will then 401 every request and only the
+    # public score-read endpoints answer.
+    api_keys = load_keys_from_env()
+    if not api_keys and _VERDICT.is_production:
+        logger.warning(
+            "VULN-09: production start with no HELIXOR_API_KEYS — "
+            "operational endpoints (/health/cluster, /byzantine/*, "
+            "/challenges) will reject every caller. Set HELIXOR_API_KEYS "
+            "to one or more `key_id:secret[:tier[:limit_per_min]]` lines "
+            "to enable them."
+        )
+    key_registry = ApiKeyRegistry(api_keys)
+    trust_proxy  = load_trust_proxy_from_env()
+    public_limit = load_public_limit_from_env()
+    logger.info(
+        "VULN-09 wiring: %d API key(s) registered, "
+        "public_rate_limit=%d/min, trust_proxy=%s",
+        len(key_registry), public_limit, trust_proxy,
+    )
+
     return create_app(
         score_repo=score_repo,
         byzantine_repo=byzantine_repo,
@@ -184,6 +212,9 @@ def build_app():
         is_production=_VERDICT.is_production,
         scoring_algo_version=os.environ.get("SCORING_ALGO_VERSION"),
         scoring_weights_version=os.environ.get("SCORING_WEIGHTS_VERSION"),
+        key_registry=key_registry,
+        public_rate_limit_per_minute=public_limit,
+        trust_proxy=trust_proxy,
     )
 
 

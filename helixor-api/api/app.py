@@ -30,10 +30,16 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
 from api import __version__
+from api.auth import ApiKey, ApiKeyRegistry, require_api_key
 from api.byzantine_repo import ByzantineRepository
 from api.cluster_health import ClusterHealthRepository
 from api.metrics import (
     ApiMetrics, CollectorRegistry, make_registry, render_metrics,
+)
+from api.rate_limit import (
+    DEFAULT_PUBLIC_RATE_LIMIT_PER_MIN,
+    SlidingWindowLimiter,
+    client_ip,
 )
 from api.schemas import (
     SCHEMA_VERSION,
@@ -66,6 +72,35 @@ _TIER_LABEL = {0: "GREEN", 1: "YELLOW", 2: "RED"}
 
 def _tier(code: int) -> str:
     return _TIER_LABEL.get(code, f"UNKNOWN({code})")
+
+
+# =============================================================================
+# Cache-Control policy (VULN-09)
+# =============================================================================
+#
+# Score reads are CDN-cacheable for 5 minutes. The audit asked for this
+# explicitly — an upstream CDN that honours the header is the cheap fix
+# for enumeration cost. `stale-while-revalidate` lets the CDN keep
+# serving the previous body for an extra minute while it refreshes.
+SCORE_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=60"
+
+# Operational data must not be CDN-cached — it leaks oracle topology
+# and ongoing investigations. `no-store` so no intermediary keeps a copy.
+OPERATIONAL_CACHE_CONTROL = "private, no-store"
+
+# Liveness + metrics + version are always cheap and never cached.
+META_CACHE_CONTROL = "no-store"
+
+# Paths that the rate limiter does NOT charge. k8s liveness and
+# Prometheus scrapes must always answer; the docs surface is static.
+_UNMETERED_PREFIXES = ("/docs", "/openapi", "/redoc")
+_UNMETERED_EXACT    = frozenset({"/health", "/metrics"})
+
+
+def _is_unmetered(path: str) -> bool:
+    if path in _UNMETERED_EXACT:
+        return True
+    return any(path.startswith(prefix) for prefix in _UNMETERED_PREFIXES)
 
 
 # =============================================================================
@@ -112,19 +147,105 @@ def create_app(
     scoring_algo_version:    str | None = None,
     scoring_weights_version: str | None = None,
     metrics_registry: CollectorRegistry | None = None,
+    # ── VULN-09: auth + rate limit ───────────────────────────────────────
+    key_registry:    ApiKeyRegistry | None = None,
+    rate_limiter:    SlidingWindowLimiter | None = None,
+    public_rate_limit_per_minute: int = DEFAULT_PUBLIC_RATE_LIMIT_PER_MIN,
+    trust_proxy:     bool = False,
 ) -> FastAPI:
-    """Build the FastAPI app wired to the supplied repos."""
+    """Build the FastAPI app wired to the supplied repos.
+
+    VULN-09 wiring
+    --------------
+    `key_registry` is the set of API keys accepted on this process.
+    Defaults to an empty registry — operational endpoints will then 401
+    every request (the correct posture for an unconfigured production
+    service).
+
+    `rate_limiter` is the shared sliding-window limiter. A fresh
+    in-process limiter is created if not supplied. Tests pass a fresh
+    limiter per test to avoid cross-contamination.
+
+    `public_rate_limit_per_minute` is the per-IP cap for anonymous
+    traffic. `trust_proxy` controls whether the leftmost
+    `X-Forwarded-For` is honoured as the client IP.
+    """
 
     registry = metrics_registry if metrics_registry is not None else make_registry()
     metrics  = ApiMetrics(registry)
     metrics.is_production.set(1 if is_production else 0)
     metrics.schema_version.set(SCHEMA_VERSION)
 
+    if key_registry is None:
+        key_registry = ApiKeyRegistry()
+    if rate_limiter is None:
+        rate_limiter = SlidingWindowLimiter()
+    if public_rate_limit_per_minute < 1:
+        raise ValueError("public_rate_limit_per_minute must be >= 1")
+
     app = FastAPI(
         title="Helixor V2 API",
         description="Read-side cache for Helixor agent health certificates.",
         version=__version__,
     )
+
+    require_key = require_api_key(key_registry)
+
+    # ── Middleware: rate limit (VULN-09) ────────────────────────────────────
+    #
+    # Fires BEFORE the route handler so a rejected request never touches
+    # the repo. The middleware looks the API key up itself (no DI yet
+    # since we are upstream of the route), and charges either the
+    # per-key bucket or the per-IP bucket. Liveness + Prometheus +
+    # OpenAPI docs are unmetered — those must always answer.
+
+    @app.middleware("http")
+    async def _rate_limit(request: Request, call_next):
+        path = request.url.path
+        if _is_unmetered(path):
+            request.state.api_key = None
+            return await call_next(request)
+
+        raw_key = request.headers.get("x-api-key") or ""
+        api_key = key_registry.lookup(raw_key) if raw_key else None
+        request.state.api_key = api_key
+
+        if api_key is not None:
+            bucket = f"key:{api_key.key_id}"
+            limit  = api_key.rate_limit_per_minute
+            bucket_type = "key"
+        else:
+            ip = client_ip(request, trust_proxy=trust_proxy)
+            bucket = f"ip:{ip}"
+            limit  = public_rate_limit_per_minute
+            bucket_type = "ip"
+
+        decision = rate_limiter.check(bucket, limit)
+        if not decision.allowed:
+            metrics.rate_limit_rejections_total.labels(bucket_type).inc()
+            # Round up so Retry-After is never a misleading 0.
+            retry_after = max(1, int(decision.retry_after_s) + 1)
+            return JSONResponse(
+                status_code=429,
+                content=ErrorResponse(
+                    error="too_many_requests",
+                    detail=(
+                        f"rate limit {limit}/min exceeded; "
+                        f"retry in ~{retry_after}s"
+                    ),
+                ).model_dump(),
+                headers={
+                    "Retry-After":          str(retry_after),
+                    "X-RateLimit-Limit":    str(limit),
+                    "X-RateLimit-Remaining": "0",
+                    "Cache-Control":        META_CACHE_CONTROL,
+                },
+            )
+
+        response = await call_next(request)
+        response.headers.setdefault("X-RateLimit-Limit",     str(decision.limit))
+        response.headers.setdefault("X-RateLimit-Remaining", str(decision.remaining))
+        return response
 
     # ── Middleware: per-request latency + counter ───────────────────────────
 
@@ -142,6 +263,10 @@ def create_app(
         metrics.requests_total.labels(
             method, route_template, str(response.status_code),
         ).inc()
+        # VULN-09: count 401s on operational endpoints. The route
+        # template (not the literal path) keeps label cardinality bounded.
+        if response.status_code == 401:
+            metrics.auth_rejections_total.labels(route_template).inc()
         return response
 
     # ── Error handler — guarantee the JSON shape ────────────────────────────
@@ -157,26 +282,37 @@ def create_app(
         )
 
     # ── Routes ──────────────────────────────────────────────────────────────
+    #
+    # Score reads carry SCORE_CACHE_CONTROL so an upstream CDN can serve
+    # them — the audit's mitigation #2. Operational endpoints carry
+    # OPERATIONAL_CACHE_CONTROL and require a valid API key — the
+    # audit's mitigation #3. Meta endpoints (`/version`, `/health`,
+    # `/metrics`) carry META_CACHE_CONTROL.
 
     @app.get("/agents/{wallet}/health", response_model=HealthResponse)
-    def agent_health(wallet: str) -> HealthResponse:
+    def agent_health(wallet: str, response: Response) -> HealthResponse:
         rec = score_repo.latest_score(wallet)
         if rec is None:
             raise HTTPException(404, f"no score recorded for {wallet}")
+        response.headers["Cache-Control"] = SCORE_CACHE_CONTROL
         return _to_health(rec)
 
     @app.get("/agents/{wallet}/health/{epoch}", response_model=HealthResponse)
-    def agent_health_at_epoch(wallet: str, epoch: int) -> HealthResponse:
+    def agent_health_at_epoch(
+        wallet: str, epoch: int, response: Response,
+    ) -> HealthResponse:
         if epoch < 1:
             raise HTTPException(400, "epoch must be >= 1")
         rec = score_repo.score_at_epoch(wallet, epoch)
         if rec is None:
             raise HTTPException(404, f"no score for {wallet} at epoch {epoch}")
+        response.headers["Cache-Control"] = SCORE_CACHE_CONTROL
         return _to_health(rec)
 
     @app.get("/agents/{wallet}/history", response_model=HistoryResponse)
     def agent_history(
         wallet: str,
+        response: Response,
         from_epoch: int | None = None,
         to_epoch:   int | None = None,
         limit:      int = 100,
@@ -192,14 +328,19 @@ def create_app(
             wallet,
             from_epoch=from_epoch, to_epoch=to_epoch, limit=limit,
         )
+        response.headers["Cache-Control"] = SCORE_CACHE_CONTROL
         return HistoryResponse(
             agent_wallet=wallet,
             entries=[_to_history_entry(r) for r in records],
             from_epoch=from_epoch, to_epoch=to_epoch, limit=limit,
         )
 
-    @app.get("/byzantine/recent", response_model=ByzantineRecentResponse)
+    @app.get(
+        "/byzantine/recent", response_model=ByzantineRecentResponse,
+        dependencies=[Depends(require_key)],
+    )
     def byzantine_recent(
+        response: Response,
         since_epoch: int | None = None, limit: int = 100,
     ) -> ByzantineRecentResponse:
         if limit < 1 or limit > 1000:
@@ -207,6 +348,7 @@ def create_app(
         flags = byzantine_repo.recent_flags(
             since_epoch=since_epoch, limit=limit,
         )
+        response.headers["Cache-Control"] = OPERATIONAL_CACHE_CONTROL
         return ByzantineRecentResponse(
             since_epoch=since_epoch,
             flags=[
@@ -221,9 +363,13 @@ def create_app(
             ],
         )
 
-    @app.get("/byzantine/strikes", response_model=StrikeSummaryResponse)
-    def byzantine_strikes() -> StrikeSummaryResponse:
+    @app.get(
+        "/byzantine/strikes", response_model=StrikeSummaryResponse,
+        dependencies=[Depends(require_key)],
+    )
+    def byzantine_strikes(response: Response) -> StrikeSummaryResponse:
         rows = byzantine_repo.strike_summary()
+        response.headers["Cache-Control"] = OPERATIONAL_CACHE_CONTROL
         return StrikeSummaryResponse(
             summary={
                 row.node_id: StrikeEntry(
@@ -235,13 +381,17 @@ def create_app(
             },
         )
 
-    @app.get("/byzantine/per_node", response_model=PerNodeRevealsResponse)
+    @app.get(
+        "/byzantine/per_node", response_model=PerNodeRevealsResponse,
+        dependencies=[Depends(require_key)],
+    )
     def byzantine_per_node(
-        epoch: int, agent: str,
+        epoch: int, agent: str, response: Response,
     ) -> PerNodeRevealsResponse:
         if epoch < 1:
             raise HTTPException(400, "epoch must be >= 1")
         reveals = byzantine_repo.per_node_reveals(epoch=epoch, agent_wallet=agent)
+        response.headers["Cache-Control"] = OPERATIONAL_CACHE_CONTROL
         return PerNodeRevealsResponse(
             epoch=epoch, agent=agent,
             reveals=[
@@ -250,9 +400,13 @@ def create_app(
             ],
         )
 
-    @app.get("/challenges", response_model=ChallengesResponse)
-    def challenges(node: str) -> ChallengesResponse:
+    @app.get(
+        "/challenges", response_model=ChallengesResponse,
+        dependencies=[Depends(require_key)],
+    )
+    def challenges(node: str, response: Response) -> ChallengesResponse:
         rows = byzantine_repo.challenges_for(node)
+        response.headers["Cache-Control"] = OPERATIONAL_CACHE_CONTROL
         return ChallengesResponse(
             accused_node=node,
             challenges=[
@@ -272,10 +426,16 @@ def create_app(
             ],
         )
 
-    @app.get("/health/cluster", response_model=ClusterHealthResponse)
-    def cluster_health(limit: int = 10) -> ClusterHealthResponse:
+    @app.get(
+        "/health/cluster", response_model=ClusterHealthResponse,
+        dependencies=[Depends(require_key)],
+    )
+    def cluster_health(
+        response: Response, limit: int = 10,
+    ) -> ClusterHealthResponse:
         if limit < 1 or limit > 1000:
             raise HTTPException(400, "limit must be 1..1000")
+        response.headers["Cache-Control"] = OPERATIONAL_CACHE_CONTROL
         return ClusterHealthResponse(
             heartbeats=[
                 HeartbeatEntry(
@@ -301,7 +461,8 @@ def create_app(
         )
 
     @app.get("/version", response_model=VersionResponse)
-    def version() -> VersionResponse:
+    def version(response: Response) -> VersionResponse:
+        response.headers["Cache-Control"] = META_CACHE_CONTROL
         return VersionResponse(
             api_version=__version__,
             scoring_algo_version=scoring_algo_version,
@@ -311,18 +472,28 @@ def create_app(
         )
 
     @app.get("/health")
-    def health_liveness() -> dict:
+    def health_liveness(response: Response) -> dict:
         # Standard k8s/systemd liveness — fast, no I/O.
+        response.headers["Cache-Control"] = META_CACHE_CONTROL
         return {"status": "ok", "schema_version": SCHEMA_VERSION}
 
     @app.get("/metrics")
     def metrics_endpoint() -> Response:
         data, content_type = render_metrics(registry)
-        return Response(content=data, media_type=content_type)
+        return Response(
+            content=data, media_type=content_type,
+            headers={"Cache-Control": META_CACHE_CONTROL},
+        )
 
     # Hang the metrics + registry off the app for tests to inspect.
+    # VULN-09: also expose the key registry + limiter so tests can build
+    # auth flows without re-importing.
     app.state.metrics = metrics
     app.state.registry = registry
+    app.state.key_registry = key_registry
+    app.state.rate_limiter = rate_limiter
+    app.state.public_rate_limit_per_minute = public_rate_limit_per_minute
+    app.state.trust_proxy = trust_proxy
     return app
 
 
