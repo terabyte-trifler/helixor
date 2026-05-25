@@ -53,6 +53,11 @@ from oracle.cluster.byzantine_watchdog import (
     ByzantineWatchdog,
     ChallengeFn,
     EpochByzantineFlag,
+    SlowDriftFlag,
+)
+from oracle.cluster.drift_detector import (
+    DriftDetector,
+    DriftFlag,
 )
 from oracle.cluster.commit_reveal_runner import (
     ClusterSubmitFn,
@@ -81,6 +86,14 @@ class ByzantineAgentResult:
     submitted:       bool
     submission:      object | None = None
     error:           str = ""
+    # VULN-03: cross-epoch drift verdict for this agent in this epoch.
+    # None when no DriftDetector is wired into the run.
+    drift:           DriftFlag | None = None
+    # VULN-03: nodes named as slow-drift attackers for this agent over the
+    # rolling window. May overlap with excluded_nodes (a node both far off
+    # the current median AND consistently drifting) but typically catches
+    # the subtler cases excluded_nodes misses.
+    drift_attackers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +106,10 @@ class ByzantineEpochReport:
     byzantine_nodes:  tuple[str, ...]       # flagged Byzantine this epoch
     challenges_filed: tuple[ByzantineChallenge, ...]
     results:          tuple[ByzantineAgentResult, ...]
+    # VULN-03: nodes attributed as slow-drift attackers somewhere this epoch.
+    drift_attackers:  tuple[str, ...] = ()
+    # VULN-03: drift-specific challenges filed this epoch (proof_type=SlowDrift).
+    drift_challenges: tuple[ByzantineChallenge, ...] = ()
 
     @property
     def submitted_count(self) -> int:
@@ -125,6 +142,7 @@ def run_byzantine_epoch(
     deviation_threshold: float = BYZANTINE_DEVIATION_THRESHOLD,
     drop_commit:   Sequence[str] = (),
     drop_reveal:   Sequence[str] = (),
+    drift_detector: DriftDetector | None = None,
 ) -> ByzantineEpochReport:
     """
     Run one commit-reveal epoch, then detect and act on Byzantine nodes.
@@ -171,6 +189,8 @@ def run_byzantine_epoch(
     results: list[ByzantineAgentResult] = []
     epoch_flags: list[EpochByzantineFlag] = []
     byzantine_this_epoch: set[str] = set()
+    drift_flags_for_watchdog: list[SlowDriftFlag] = []
+    drift_attackers_this_epoch: set[str] = set()
 
     for agent_input in agent_list:
         wallet = agent_input.agent_wallet
@@ -210,17 +230,71 @@ def run_byzantine_epoch(
             for nid, s in per_node.items()
             if nid not in byzantine
         ]
-        results.append(
-            _aggregate_honest(
-                wallet, honest_scores, cluster_size,
-                deviation, tuple(sorted(byzantine)), submit_fn,
-            )
+        result = _aggregate_honest(
+            wallet, honest_scores, cluster_size,
+            deviation, tuple(sorted(byzantine)), submit_fn,
         )
+
+        # ── VULN-03 cross-epoch drift detection ────────────────────────────
+        if drift_detector is not None and result.aggregated is not None:
+            drift_flag = drift_detector.observe(
+                agent_wallet=wallet,
+                epoch=epoch_id,
+                aggregated_score=result.aggregated.score,
+                per_node_scores={
+                    nid: s.score for nid, s in per_node.items()
+                    if nid not in byzantine
+                },
+                cluster_median=deviation.median,
+            )
+            attackers = drift_detector.drift_attackers(wallet)
+            drift_attackers_this_epoch.update(attackers)
+
+            # Convert per-agent attacker attribution into watchdog-readable
+            # SlowDriftFlag records. The mean signed deviation is taken
+            # from the detector's per-node attribution view.
+            attribution_by_node = {
+                a.node_id: a
+                for a in drift_detector.node_attributions(wallet)
+            }
+            for attacker_id in attackers:
+                attribution = attribution_by_node[attacker_id]
+                drift_flags_for_watchdog.append(SlowDriftFlag(
+                    node_id=attacker_id,
+                    epoch=epoch_id,
+                    subject_agent=wallet,
+                    mean_signed_deviation=attribution.mean_signed_deviation,
+                    drift_direction=attribution.drift_direction,
+                    epochs_observed=attribution.epochs_contributed,
+                ))
+
+            result = ByzantineAgentResult(
+                agent_wallet=result.agent_wallet,
+                aggregated=result.aggregated,
+                deviation=result.deviation,
+                excluded_nodes=result.excluded_nodes,
+                submitted=result.submitted,
+                submission=result.submission,
+                error=result.error,
+                drift=drift_flag,
+                drift_attackers=attackers,
+            )
+
+        results.append(result)
 
     # ── 4. Watchdog — strikes + escalation ──────────────────────────────────
     challenges = watchdog.record_epoch(
         epoch_id, epoch_flags, challenge_fn=challenge_fn,
     )
+
+    # VULN-03: drift-strikes are tracked on a separate counter with their
+    # own escalation threshold; the resulting challenges carry SlowDrift
+    # evidence and are reported alongside the Byzantine challenges above.
+    drift_challenges: list[ByzantineChallenge] = []
+    if drift_flags_for_watchdog:
+        drift_challenges = watchdog.record_drift_attackers(
+            epoch_id, drift_flags_for_watchdog, challenge_fn=challenge_fn,
+        )
 
     return ByzantineEpochReport(
         epoch_id=epoch_id,
@@ -230,6 +304,8 @@ def run_byzantine_epoch(
         byzantine_nodes=tuple(sorted(byzantine_this_epoch)),
         challenges_filed=tuple(challenges),
         results=tuple(results),
+        drift_attackers=tuple(sorted(drift_attackers_this_epoch)),
+        drift_challenges=tuple(drift_challenges),
     )
 
 

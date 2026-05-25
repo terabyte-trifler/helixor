@@ -56,6 +56,16 @@ logger = logging.getLogger("helixor.oracle.cluster.watchdog")
 STRIKE_THRESHOLD = 3
 
 
+# VULN-03: drift strikes are a separate, lower-evidence track than per-epoch
+# Byzantine strikes. A drift strike is a cross-epoch signal — the cluster
+# saw a node consistently push the median in one direction over the rolling
+# window — which is by construction less proof-of-malice than a single
+# epoch >30% off the median. We escalate drift on a higher threshold so a
+# pattern must be sustained across MULTIPLE rolling-window evaluations
+# before it routes to slashing.
+DRIFT_STRIKE_THRESHOLD = 3
+
+
 # =============================================================================
 # Strike record
 # =============================================================================
@@ -69,10 +79,19 @@ class StrikeRecord:
     flagged_epochs:   list[int] = field(default_factory=list)
     # True once a challenge has been filed — a node is challenged once.
     challenged:       bool = False
+    # VULN-03: separate counter for cross-epoch slow-drift attribution.
+    drift_strikes:    int = 0
+    drift_epochs:     list[int] = field(default_factory=list)
+    # True once a slow-drift challenge has been filed.
+    drift_challenged: bool = False
 
     @property
     def at_threshold(self) -> bool:
         return self.strikes >= STRIKE_THRESHOLD
+
+    @property
+    def at_drift_threshold(self) -> bool:
+        return self.drift_strikes >= DRIFT_STRIKE_THRESHOLD
 
 
 # =============================================================================
@@ -86,7 +105,8 @@ class ByzantineChallenge:
     onto the on-chain `challenge_oracle` instruction (Day 21).
     """
     accused_node:   str
-    # ProofType.ConflictingScores wire code (0) — see Day-21 oracle_challenge.
+    # ProofType wire code — ConflictingScores (0) for per-epoch deviation,
+    # SlowDrift (1) for cross-epoch drift attribution (VULN-03).
     proof_type:     int
     strikes:        int
     flagged_epochs: tuple[int, ...]
@@ -96,6 +116,10 @@ class ByzantineChallenge:
     # The node's deviating score vs the cluster median — the conflict.
     accused_score:  int
     cluster_median: int
+    # VULN-03: when proof_type == SlowDrift, this carries the mean signed
+    # deviation across the rolling window that triggered the challenge.
+    # 0.0 for ConflictingScores challenges (no drift evidence cited).
+    drift_mean_signed_deviation: float = 0.0
 
 
 # A challenge function files a ByzantineChallenge on-chain (via the
@@ -104,8 +128,11 @@ class ByzantineChallenge:
 ChallengeFn = Callable[[ByzantineChallenge], object]
 
 
-# ProofType.ConflictingScores wire code, mirroring the on-chain enum.
+# ProofType wire codes, mirroring the on-chain enum.
 PROOF_CONFLICTING_SCORES = 0
+# VULN-03: slow-drift attribution evidence — a node consistently pushing
+# the cluster median over a rolling window of epochs.
+PROOF_SLOW_DRIFT = 1
 
 
 # =============================================================================
@@ -123,6 +150,22 @@ class EpochByzantineFlag:
     subject_agent:  str
     accused_score:  int
     cluster_median: int
+
+
+@dataclass(frozen=True, slots=True)
+class SlowDriftFlag:
+    """
+    One node's cross-epoch slow-drift attribution. The evidence is the mean
+    signed deviation across a rolling window — a value that crossed the
+    NODE_DRIFT_THRESHOLD even though no single epoch's deviation crossed
+    the 30% per-epoch gate (VULN-03).
+    """
+    node_id:               str
+    epoch:                 int
+    subject_agent:         str
+    mean_signed_deviation: float       # the rolling-window signed mean
+    drift_direction:       str         # "UP" or "DOWN"
+    epochs_observed:       int
 
 
 class ByzantineWatchdog:
@@ -217,6 +260,92 @@ class ByzantineWatchdog:
             accused_score=flag.accused_score,
             cluster_median=flag.cluster_median,
         )
+
+    # ── VULN-03 cross-epoch slow-drift attribution ─────────────────────────
+
+    def record_drift_attackers(
+        self,
+        epoch: int,
+        flags: Iterable["SlowDriftFlag"],
+        *,
+        challenge_fn: ChallengeFn | None = None,
+    ) -> list[ByzantineChallenge]:
+        """
+        Record one epoch's slow-drift attributions. Each named node gains
+        a DRIFT strike — tracked separately from per-epoch Byzantine
+        strikes. A node crossing DRIFT_STRIKE_THRESHOLD is challenged
+        once with ProofType.SlowDrift.
+
+        Drift strikes are a softer signal than per-epoch Byzantine flags
+        (the per-epoch detector caught a single big lie; drift detection
+        caught a pattern of small consistent pushes) so they accumulate
+        on their own threshold and produce a distinct on-chain proof.
+        """
+        # Dedup: a node attributed for several agents in one epoch earns
+        # ONE drift strike for that epoch.
+        flags_by_node: dict[str, "SlowDriftFlag"] = {}
+        for flag in flags:
+            if flag.epoch != epoch:
+                raise ValueError(
+                    f"drift flag epoch {flag.epoch} != record_epoch {epoch}"
+                )
+            existing = flags_by_node.get(flag.node_id)
+            if existing is None or abs(flag.mean_signed_deviation) > abs(
+                existing.mean_signed_deviation,
+            ):
+                flags_by_node[flag.node_id] = flag
+
+        filed: list[ByzantineChallenge] = []
+        for node_id, flag in sorted(flags_by_node.items()):
+            record = self._strikes.setdefault(
+                node_id, StrikeRecord(node_id=node_id),
+            )
+            if epoch in record.drift_epochs:
+                continue                              # already counted
+            record.drift_strikes += 1
+            record.drift_epochs.append(epoch)
+            logger.warning(
+                "slow-drift flag: node %s, epoch %d, drift-strike %d/%d "
+                "(mean signed dev %.3f, direction %s, agent %s)",
+                node_id, epoch, record.drift_strikes, DRIFT_STRIKE_THRESHOLD,
+                flag.mean_signed_deviation, flag.drift_direction,
+                flag.subject_agent,
+            )
+
+            if (
+                record.drift_strikes >= DRIFT_STRIKE_THRESHOLD
+                and not record.drift_challenged
+            ):
+                challenge = ByzantineChallenge(
+                    accused_node=node_id,
+                    proof_type=PROOF_SLOW_DRIFT,
+                    strikes=record.drift_strikes,
+                    flagged_epochs=tuple(record.drift_epochs),
+                    subject_epoch=flag.epoch,
+                    subject_agent=flag.subject_agent,
+                    accused_score=0,
+                    cluster_median=0,
+                    drift_mean_signed_deviation=flag.mean_signed_deviation,
+                )
+                record.drift_challenged = True
+                filed.append(challenge)
+                logger.error(
+                    "node %s reached %d drift-strikes — filing "
+                    "challenge_oracle (SlowDrift)",
+                    node_id, record.drift_strikes,
+                )
+                if challenge_fn is not None:
+                    challenge_fn(challenge)
+
+        return filed
+
+    def drift_strikes_for(self, node_id: str) -> int:
+        record = self._strikes.get(node_id)
+        return record.drift_strikes if record else 0
+
+    def is_drift_challenged(self, node_id: str) -> bool:
+        record = self._strikes.get(node_id)
+        return record.drift_challenged if record else False
 
     # ── Queries ─────────────────────────────────────────────────────────────
 
