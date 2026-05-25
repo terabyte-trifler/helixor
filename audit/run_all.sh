@@ -64,6 +64,11 @@ run "cert consumption sweep"  python3 audit/cert_consumption_check.py \
     --json audit/reports/cert_consumption.json
 
 
+# ── 1f. VULN-24 adversarial-ML sweep ────────────────────────────────────────
+run "adversarial ml sweep"  python3 audit/adversarial_ml_check.py \
+    --json audit/reports/adversarial_ml.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

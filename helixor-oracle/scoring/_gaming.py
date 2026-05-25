@@ -182,3 +182,88 @@ def apply_delta_guard_rail(
         return {"score": previous_score - MAX_SCORE_DELTA,
                 "clamped": True, "raw_delta": raw_delta}
     return {"score": new_score, "clamped": False, "raw_delta": raw_delta}
+
+
+# =============================================================================
+# VULN-24: per-dimension velocity guard rail
+# =============================================================================
+#
+# The composite-level `apply_delta_guard_rail` clamps the AGGREGATE score
+# to ±200/epoch — which catches whole-agent score manipulation. But a
+# sophisticated adversary can craft features that whipsaw ONE dimension
+# (say drift +200) while another offsets it (anomaly -200): the
+# aggregate stays flat, the composite guard rail sees nothing, but the
+# agent has demonstrably manipulated detector output.
+#
+# The per-dimension guard rail closes that gap: each dimension's raw
+# contribution is clamped to ±DIM_MAX_SCORE_DELTA from its previous-epoch
+# value. The composite scorer calls this AFTER per-dimension weighting,
+# AND emits a flag (set by the caller, since FlagBit lives in
+# detection/types and importing it here would create a cycle) when any
+# dimension was clamped.
+#
+# Calibration: the per-dimension cap is intentionally LARGER than the
+# composite cap (250 vs 200) because individual dimensions naturally
+# swing more than the weighted average. We pick a value that catches
+# pump-and-offset attacks but tolerates legitimate detector volatility.
+
+# Per-dimension maximum score swing between consecutive epochs.
+DIM_MAX_SCORE_DELTA = 250
+
+
+def apply_dimension_delta_guard_rail(
+    *,
+    new_dimensions:      dict,   # Mapping[DimensionId, int] — keyed by DimensionId
+    previous_dimensions: dict | None,
+    max_delta:           int = DIM_MAX_SCORE_DELTA,
+) -> dict:
+    """
+    Clamp each dimension's score so it cannot move more than `max_delta`
+    from its prior-epoch value.
+
+    `previous_dimensions` is None for an agent's first scored epoch — the
+    guard rail does not apply on first scoring (nothing to compare).
+
+    Returns:
+      clamped_dimensions  — Mapping[DimensionId, int], same keyset as input
+      clamped_keys        — frozenset of DimensionIds that were actually clamped
+                            (empty if no clamp fired)
+
+    Pure / deterministic. Same inputs → byte-identical outputs.
+
+    The caller is responsible for OR-ing the `ENSEMBLE_INCOMPLETE` /
+    `DIMENSION_CLAMPED` flag into the composite ScoreResult — this helper
+    does not import FlagBit (it's in `detection/types`) to avoid a
+    scoring↔detection import cycle.
+    """
+    if max_delta < 0:
+        raise ValueError(f"max_delta must be >= 0, got {max_delta}")
+
+    if previous_dimensions is None:
+        return {
+            "clamped_dimensions": dict(new_dimensions),
+            "clamped_keys":       frozenset(),
+        }
+
+    clamped: dict = {}
+    fired:   set  = set()
+    for dim, new_val in new_dimensions.items():
+        prev = previous_dimensions.get(dim)
+        if prev is None:
+            # First time this dimension fires — no prior reference.
+            clamped[dim] = new_val
+            continue
+        raw_delta = new_val - prev
+        if raw_delta > max_delta:
+            clamped[dim] = prev + max_delta
+            fired.add(dim)
+        elif raw_delta < -max_delta:
+            clamped[dim] = prev - max_delta
+            fired.add(dim)
+        else:
+            clamped[dim] = new_val
+
+    return {
+        "clamped_dimensions": clamped,
+        "clamped_keys":       frozenset(fired),
+    }

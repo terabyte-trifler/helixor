@@ -32,14 +32,29 @@ SCHEMA_VERSION = 1
 # =============================================================================
 
 class HealthResponse(BaseModel):
-    """`GET /agents/{wallet}/health` — current score for an agent."""
+    """`GET /agents/{wallet}/health` — current score for an agent.
+
+    VULN-24 NOTE on flag exposure
+    -----------------------------
+    The raw `flags` bitmask is NOT exposed at the wire. An adversarial-ML
+    attacker reading the raw bits learns exactly which detectors fired
+    and can craft the next epoch's input around them. Instead the
+    response carries:
+      - `flag_set_token` — an opaque token over (flags, wallet, epoch);
+        equal tokens within an (agent, epoch) tuple, otherwise opaque
+      - `flag_count`     — popcount; "how many detectors fired" without
+        revealing which
+      - `immediate_red`  — the ONE flag-derived signal a consumer must
+        act on (fast-path red)
+    """
     schema_version: int = Field(SCHEMA_VERSION, alias="_v")
     agent_wallet:   str
     epoch:          int
     score:          int          # 0..1000
     alert_tier:     str          # "GREEN" | "YELLOW" | "RED"
     alert_tier_code: int         # 0 | 1 | 2 (matches on-chain enum)
-    flags:          int          # u32 aggregated detection flags
+    flag_set_token: str          # VULN-24 opaque token (NOT the raw bitmask)
+    flag_count:     int          # popcount of the underlying bitmask
     immediate_red:  bool
     signer_count:   int          # how many cluster keys signed this cert
     computed_at:    datetime

@@ -55,6 +55,24 @@ file.
       `apply_delta_guard_rail` clamp AND a consumer-side velocity check
       because cert-account storage cannot carry `previous_score` without
       a backwards-incompatible migration.
+- [ ] **VULN-24 adversarial-ML sweep clean** —
+      `python3 audit/adversarial_ml_check.py --json audit/reports/adversarial_ml.json`
+      reports **0 HARD findings**. All four mitigations against
+      anomaly/drift evasion are wired:
+        1. `detection/window_jitter.py` exposes `compute_window_jitter`
+           keyed on `epoch_advance_seed` (the on-chain
+           `EpochState.last_advanced_at`), `MAX_JITTER_SECONDS = 600`
+        2. `scoring/composite.py` sets `MIN_ACTIVE_DETECTORS = 3` and
+           ORs `FlagBit.ENSEMBLE_INCOMPLETE` when fewer dimensions
+           produced a real result
+        3. `scoring/_gaming.py` exposes
+           `apply_dimension_delta_guard_rail` at `DIM_MAX_SCORE_DELTA = 250`
+           (caller ORs `FlagBit.DIMENSION_CLAMPED`)
+        4. `helixor-api/api/flag_obfuscation.py` exposes
+           `compute_flag_token` + `popcount`; `HealthResponse` exposes
+           `flag_set_token` + `flag_count` and NEVER the raw bitmask.
+      Together the four mitigations break the per-epoch read-then-craft
+      feedback loop that an RL-style adversarial-ML attacker depends on.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain
@@ -186,6 +204,18 @@ the entry gate.
       `GET /agents/{wallet}/safe_score` or the SDK's `SafeCertReader`
       over the raw `getScore()` path; raw `getScore()` is for telemetry
       only, never for gating value transfer.
+- [ ] **VULN-24 flag obfuscation live.** From an external host,
+      `curl -s $HELIXOR_API_URL/agents/<wallet>/health | jq .` returns
+      a body that contains `flag_set_token` (a 16-hex-char string) and
+      `flag_count` (an int) but **NOT** a raw `flags` field. The same
+      request issued twice for the same `(wallet, epoch)` MUST return
+      the same `flag_set_token`; the same wallet at two different
+      epochs MUST return different tokens even if the underlying
+      bitmask is identical. If `flags` reappears on the wire, an
+      adversarial-ML attacker can read back exactly which detectors
+      fired and craft the next input around them — the on-chain
+      bitmask layout stays unchanged, only the public read surface is
+      obfuscated.
 - [ ] **The first epoch on mainnet completes** end-to-end, on-chain
       cert visible via explorer
 

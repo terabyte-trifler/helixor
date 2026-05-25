@@ -68,6 +68,27 @@ YELLOW_THRESHOLD = 400
 
 
 # =============================================================================
+# VULN-24 mitigation #2: ensemble-coverage quorum
+# =============================================================================
+#
+# A sophisticated adversary can craft a feature vector that silences
+# multiple detectors at once (each falls back to an empty result with
+# INSUFFICIENT_DATA). If too many dimensions go quiet simultaneously,
+# the score reduces to one or two detectors — easy to evade together.
+#
+# `MIN_ACTIVE_DETECTORS` is the floor below which the ensemble loses
+# diversity. With 5 dimensions and a floor of 3, at most 2 may go quiet
+# before the composite raises the ENSEMBLE_INCOMPLETE flag.
+#
+# This does NOT zero the score (we want the partial reading visible for
+# diagnostics) — it raises a universal flag the consumer can see. A
+# downstream SafeCertReader / safe_score endpoint can treat it as a
+# stale-cert-equivalent rejection.
+
+MIN_ACTIVE_DETECTORS = 3
+
+
+# =============================================================================
 # ScoreResult — the composite output. Frozen + self-describing.
 # =============================================================================
 
@@ -254,11 +275,23 @@ def compute_composite_score(
     # 1. Per-dimension weighted contribution in [0, 1000 * weight].
     weighted_floats: dict[DimensionId, float] = {}
     aggregated_flags = 0
+    active_detector_count = 0
     for dim in DimensionId.ordered():
         result = dimension_results[dim]
         contribution = result.score_normalised * WEIGHTS[dim] * 1000.0
         weighted_floats[dim] = contribution
         aggregated_flags |= result.flags
+        # VULN-24: a detector that returned INSUFFICIENT_DATA is silent
+        # — does not count toward the ensemble quorum. Adversarial
+        # features that silence detectors trip the quorum guard below.
+        if not (result.flags & int(FlagBit.INSUFFICIENT_DATA)):
+            active_detector_count += 1
+
+    # 1b. VULN-24 ensemble-coverage quorum. If too few detectors are
+    # active, OR in the ENSEMBLE_INCOMPLETE universal flag so the
+    # consumer (and the SafeCertReader) can refuse the score.
+    if active_detector_count < MIN_ACTIVE_DETECTORS:
+        aggregated_flags |= int(FlagBit.ENSEMBLE_INCOMPLETE)
 
     # 2. Round each contribution to int. VULN-18: this is THE consensus-
     #    affecting float→int conversion. Every node must produce byte-

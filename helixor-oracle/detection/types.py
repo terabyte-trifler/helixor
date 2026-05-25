@@ -80,7 +80,12 @@ class FlagBit(enum.IntFlag):
     INCOMPATIBLE_INPUT   = 1 << 2     # baseline or features rejected — score is a default
     IMMEDIATE_RED        = 1 << 3     # fast-path: composite should immediately flag the agent
     DEGRADED_BASELINE    = 1 << 4     # baseline.is_provisional == True
-    # bits 5-7 reserved for future universal flags
+    # VULN-24 universals (bits 5-6):
+    ENSEMBLE_INCOMPLETE  = 1 << 5     # too few detectors produced a real result
+                                       #  (adversarial-feature evasion suspect)
+    DIMENSION_CLAMPED    = 1 << 6     # per-dimension velocity guard fired
+                                       #  (single-detector pump-and-offset suspect)
+    # bit 7 reserved for future universal flags
 
     # ── Per-dimension bits (8-31) ─────────────────────────────────────────
     # Drift (bits 8-12):    8=PSI, 9=KS, 10=CUSUM, 11=ADWIN, 12=DDM

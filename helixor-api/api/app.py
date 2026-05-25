@@ -33,6 +33,7 @@ from api import __version__
 from api.auth import ApiKey, ApiKeyRegistry, require_api_key
 from api.byzantine_repo import ByzantineRepository
 from api.cluster_health import ClusterHealthRepository
+from api.flag_obfuscation import compute_flag_token, popcount
 from api.metrics import (
     ApiMetrics, CollectorRegistry, make_registry, render_metrics,
 )
@@ -115,13 +116,20 @@ def _is_unmetered(path: str) -> bool:
 # =============================================================================
 
 def _to_health(rec: ScoreRecord) -> HealthResponse:
+    # VULN-24 mitigation #4: do NOT echo `rec.flags` directly. Map the
+    # bitmask to an opaque token + popcount so an attacker cannot read
+    # back exactly which detectors fired and craft the next input
+    # around them.
     return HealthResponse(
         agent_wallet=rec.agent_wallet,
         epoch=rec.epoch,
         score=rec.score,
         alert_tier=_tier(rec.alert_tier),
         alert_tier_code=rec.alert_tier,
-        flags=rec.flags,
+        flag_set_token=compute_flag_token(
+            flags=rec.flags, agent_wallet=rec.agent_wallet, epoch=rec.epoch,
+        ),
+        flag_count=popcount(rec.flags),
         immediate_red=rec.immediate_red,
         signer_count=rec.signer_count,
         computed_at=rec.computed_at,
