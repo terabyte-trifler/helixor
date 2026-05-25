@@ -77,6 +77,14 @@ the entry gate.
       `/etc/helixor/oracle-node-0.env`, journalctl shows the
       `network_guard: ... PRODUCTION network ... explicit
       HELIXOR_MAINNET_OK=1 opt-in` line
+- [ ] **VULN-17 Kafka auth.** Each oracle node's env file sets
+      `KAFKA_SECURITY_PROTOCOL=SASL_SSL` (or `SSL` for mTLS-only
+      brokers); journalctl shows the
+      `kafka_security: service ... starting with 'SASL_SSL'` info
+      line. NO node shows `HELIXOR_KAFKA_PLAINTEXT_OK=1` unless the
+      cluster sits behind a private-link service mesh that
+      authenticates the connection independently (record the
+      justification in `audit/reports/kafka_plaintext_optin.md`).
 - [ ] **The first epoch on mainnet completes** end-to-end, on-chain
       cert visible via explorer
 

@@ -36,8 +36,14 @@ therefore prove the same property for the real broker.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
+from eventbus.kafka_security import (
+    KafkaSecurityVerdict,
+    enforce_kafka_security,
+    password_from_env,
+)
 from eventbus.types import ConsumedRecord, DeliveryError, EventRecord
 
 logger = logging.getLogger("helixor.eventbus.confluent")
@@ -53,9 +59,16 @@ class ConfluentKafkaConfig:
 
     `bootstrap_servers` is the broker list; `acks='all'` + `enable_idempotence`
     on the producer give the strongest delivery guarantee Kafka offers.
+
+    VULN-17: a `ConfluentKafkaConfig` constructed via `from_env(...)` also
+    carries the verdict from `kafka_security.enforce_kafka_security` and
+    refuses to start in production with a plaintext / un-authenticated
+    Kafka client. The legacy constructor (used by tests and by callers
+    that already curated the `extra` dict themselves) is unchanged — the
+    guard fires when an entrypoint chooses the from-env factory.
     """
 
-    __slots__ = ("bootstrap_servers", "client_id", "extra")
+    __slots__ = ("bootstrap_servers", "client_id", "extra", "security_verdict")
 
     def __init__(
         self,
@@ -63,10 +76,57 @@ class ConfluentKafkaConfig:
         *,
         client_id: str = "helixor-eventbus",
         extra: dict[str, Any] | None = None,
+        security_verdict: KafkaSecurityVerdict | None = None,
     ) -> None:
         self.bootstrap_servers = bootstrap_servers
         self.client_id = client_id
         self.extra = extra or {}
+        self.security_verdict = security_verdict
+
+    # ── VULN-17 entry point — the only one production should use ─────────
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        client_id: str = "helixor-eventbus",
+        service: str | None = None,
+        env: dict[str, str] | None = None,
+        bootstrap_servers: str | None = None,
+    ) -> "ConfluentKafkaConfig":
+        """
+        Build a config from environment variables, applying the Kafka
+        security guard. Production refuses PLAINTEXT/SASL_PLAINTEXT
+        unless `HELIXOR_KAFKA_PLAINTEXT_OK=1` is set.
+
+        Reads (defaults):
+            KAFKA_BOOTSTRAP          (required if `bootstrap_servers` not passed)
+            KAFKA_SECURITY_PROTOCOL  (default: PLAINTEXT)
+            KAFKA_SASL_MECHANISM
+            KAFKA_SASL_USERNAME
+            KAFKA_SASL_PASSWORD
+            KAFKA_SSL_CA_LOCATION
+            KAFKA_SSL_CERTIFICATE_LOCATION
+            KAFKA_SSL_KEY_LOCATION
+            HELIXOR_NETWORK          (default: localnet)
+            HELIXOR_KAFKA_PLAINTEXT_OK    (escape hatch)
+        """
+        source = env if env is not None else os.environ
+        boot = bootstrap_servers or source.get("KAFKA_BOOTSTRAP", "").strip()
+        if not boot:
+            raise RuntimeError(
+                "ConfluentKafkaConfig.from_env: KAFKA_BOOTSTRAP is not set. "
+                "Production deployments must list at least one broker "
+                "(comma-separated host:port). See "
+                "launch/deploy/env/oracle-node-0.env.example."
+            )
+        verdict = enforce_kafka_security(service=service, env=env)
+        sec_dict = verdict.with_password_for_rdkafka(password_from_env(env))
+        return cls(
+            bootstrap_servers=boot,
+            client_id=client_id,
+            extra=sec_dict,
+            security_verdict=verdict,
+        )
 
     def producer_config(self) -> dict[str, Any]:
         """confluent-kafka producer config — idempotent, acks=all."""

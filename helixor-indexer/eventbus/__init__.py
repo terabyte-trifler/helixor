@@ -27,6 +27,17 @@ from __future__ import annotations
 
 from eventbus.broker import InMemoryBroker, MessageBroker
 from eventbus.confluent_adapter import ConfluentKafkaBroker, ConfluentKafkaConfig
+from eventbus.kafka_security import (
+    KafkaSecurityRefused,
+    KafkaSecurityVerdict,
+    MissingKafkaCredentials,
+    UnsupportedKafkaSecurity,
+    enforce_kafka_security,
+    evaluate as evaluate_kafka_security,
+    is_production_network,
+    override_kafka_security,
+    password_from_env,
+)
 from eventbus.consumer import (
     ConsumeReport,
     DetectionConsumer,
@@ -72,6 +83,10 @@ __all__ = [
     "serialize_transaction", "deserialize_transaction",
     "serialize_alert", "deserialize_alert", "SerializationError",
     "ConfluentKafkaBroker", "ConfluentKafkaConfig",
+    "KafkaSecurityRefused", "KafkaSecurityVerdict",
+    "MissingKafkaCredentials", "UnsupportedKafkaSecurity",
+    "enforce_kafka_security", "evaluate_kafka_security",
+    "is_production_network", "override_kafka_security", "password_from_env",
     "PayloadSigner", "Ed25519PayloadSigner",
     "TrustedProducer", "TrustedProducerSet",
     "PayloadSignatureError", "UntrustedProducer",
