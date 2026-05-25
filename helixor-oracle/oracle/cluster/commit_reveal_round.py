@@ -148,6 +148,14 @@ class CommitRevealRound:
         # unset (None) to preserve the legacy "wait for all committers or
         # the deadline" behaviour the pure round-state tests pin.
         min_reveals:     int | None = None,
+        # VULN-15: the agent-set snapshot hash this round is bound to. When
+        # set, every commit hash AND every reveal verification folds this
+        # in — so a verifier holding a different snapshot rejects reveals
+        # that were computed against the committer's snapshot, surfacing
+        # mid-epoch agent-set drift as a verification failure. None keeps
+        # the pre-VULN-15 wire format for back-compat (existing pure round
+        # tests do not pass a snapshot).
+        snapshot_hash:   bytes | None = None,
     ) -> None:
         if not node_ids:
             raise ValueError("a round needs at least one node")
@@ -165,12 +173,18 @@ class CommitRevealRound:
                     f"min_reveals={min_reveals} exceeds cluster size "
                     f"{len(node_ids)}"
                 )
+        if snapshot_hash is not None and len(snapshot_hash) != 32:
+            raise ValueError(
+                f"snapshot_hash must be a 32-byte sha256 digest, "
+                f"got {len(snapshot_hash)}"
+            )
         self._epoch = epoch
         self._node_ids = set(node_ids)
         self._commit_deadline = commit_deadline
         self._reveal_deadline = reveal_deadline
         self._opened_at = opened_at
         self._min_reveals = min_reveals
+        self._snapshot_hash = snapshot_hash
 
         self._commits: dict[str, CommitRecord] = {}
         self._reveals: dict[str, RevealRecord] = {}
@@ -305,8 +319,14 @@ class CommitRevealRound:
         if node_id in self._reveals:
             raise RevealRejected(f"{node_id} already revealed")
 
-        # Verify the reveal against the commit.
-        ok = verify_reveal(commit.commit_hash, scores, nonce)
+        # Verify the reveal against the commit. The snapshot_hash (VULN-15)
+        # is folded in if the round was opened with one — a verifier with
+        # a different snapshot rejects the reveal, surfacing mid-epoch
+        # agent-set drift here rather than as silent score divergence.
+        ok = verify_reveal(
+            commit.commit_hash, scores, nonce,
+            snapshot_hash=self._snapshot_hash,
+        )
         record = RevealRecord(
             node_id=node_id,
             scores=tuple(scores),
@@ -384,6 +404,16 @@ class CommitRevealRound:
     @property
     def min_reveals(self) -> int | None:
         return self._min_reveals
+
+    @property
+    def snapshot_hash(self) -> bytes | None:
+        """
+        VULN-15: the agent-set snapshot hash this round is bound to (or
+        None for a legacy round opened without one). Exposed for the
+        watchdog so it can attribute reveal failures to set-drift vs
+        score-divergence cleanly.
+        """
+        return self._snapshot_hash
 
     def verified_scores(self, now: float) -> dict[str, tuple[AgentScore, ...]]:
         """

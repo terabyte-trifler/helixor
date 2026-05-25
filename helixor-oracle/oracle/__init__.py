@@ -55,6 +55,16 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "LagGatedSubmit": ("oracle.lag_gate", "LagGatedSubmit"),
     "ConsumerLagExceeded": ("oracle.lag_gate", "ConsumerLagExceeded"),
     "CertBlocked": ("oracle.lag_gate", "CertBlocked"),
+    # agent_snapshot.py — VULN-15 epoch agent-set snapshot
+    "EpochAgentSnapshot": ("oracle.cluster.agent_snapshot", "EpochAgentSnapshot"),
+    "SnapshotMismatch": ("oracle.cluster.agent_snapshot", "SnapshotMismatch"),
+    "compute_snapshot": ("oracle.cluster.agent_snapshot", "compute_snapshot"),
+    "compute_snapshot_hash": ("oracle.cluster.agent_snapshot", "compute_snapshot_hash"),
+    # agent_set_buffer.py — VULN-15 epoch-boundary registration semantics
+    "AgentSetBuffer": ("oracle.cluster.agent_set_buffer", "AgentSetBuffer"),
+    "PendingChange": ("oracle.cluster.agent_set_buffer", "PendingChange"),
+    "PendingChangeKind": ("oracle.cluster.agent_set_buffer", "PendingChangeKind"),
+    "AppliedSnapshot": ("oracle.cluster.agent_set_buffer", "AppliedSnapshot"),
 }
 
 __all__ = list(_EXPORTS)

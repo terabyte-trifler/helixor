@@ -119,32 +119,54 @@ def canonical_scores(scores: Sequence[AgentScore]) -> bytes:
 # Commit hashing + verification
 # =============================================================================
 
-def compute_commit_hash(scores: Sequence[AgentScore], nonce: bytes) -> bytes:
+def compute_commit_hash(
+    scores:        Sequence[AgentScore],
+    nonce:         bytes,
+    *,
+    snapshot_hash: bytes | None = None,
+) -> bytes:
     """
-    The commit hash: sha256( canonical(scores) || nonce ).
+    The commit hash: sha256( [snapshot_hash ||] canonical(scores) || nonce ).
 
     Published in Phase 1; binds the node to exactly these scores without
     revealing them.
+
+    VULN-15: when `snapshot_hash` is provided, the hash is folded into the
+    commit so the commit binds to BOTH the scores AND the agent set those
+    scores were computed against. If the agent set drifts between commit
+    and reveal, honest verifiers recompute against a different snapshot
+    hash and verification fails LOCALLY — surfacing set drift as a typed
+    error instead of "your reveal didn't verify" further downstream.
+    The kwarg is optional so legacy callers (and tests pinned at the
+    pre-VULN-15 wire format) keep working unchanged.
     """
     if len(nonce) != NONCE_BYTES:
         raise ValueError(
             f"nonce must be {NONCE_BYTES} bytes, got {len(nonce)}"
         )
-    return hashlib.sha256(canonical_scores(scores) + nonce).digest()
+    prefix = snapshot_hash if snapshot_hash is not None else b""
+    return hashlib.sha256(prefix + canonical_scores(scores) + nonce).digest()
 
 
 def verify_reveal(
-    commit_hash: bytes,
-    scores:      Sequence[AgentScore],
-    nonce:       bytes,
+    commit_hash:   bytes,
+    scores:        Sequence[AgentScore],
+    nonce:         bytes,
+    *,
+    snapshot_hash: bytes | None = None,
 ) -> bool:
     """
     Verify a Phase-2 reveal against a Phase-1 commit.
 
-    Returns True iff sha256(canonical(scores) || nonce) equals the earlier
-    `commit_hash` — i.e. the revealed (scores, nonce) is exactly what the
-    node committed to. A copying node, whose commit does not match the
-    scores it copied, fails here.
+    Returns True iff sha256([snapshot_hash ||] canonical(scores) || nonce)
+    equals the earlier `commit_hash` — i.e. the revealed (scores, nonce)
+    is exactly what the node committed to. A copying node, whose commit
+    does not match the scores it copied, fails here.
+
+    VULN-15: pass `snapshot_hash` to verify against the same agent-set
+    snapshot the commit was computed against. If the verifier's snapshot
+    differs from the committer's, this returns False — exactly the
+    "set drift" signal we want surfaced.
 
     Uses a constant-time comparison — verification timing must not leak
     how close a forged reveal was.
@@ -152,7 +174,10 @@ def verify_reveal(
     if len(nonce) != NONCE_BYTES:
         return False
     try:
-        recomputed = hashlib.sha256(canonical_scores(scores) + nonce).digest()
+        prefix = snapshot_hash if snapshot_hash is not None else b""
+        recomputed = hashlib.sha256(
+            prefix + canonical_scores(scores) + nonce
+        ).digest()
     except (ValueError, AttributeError):
         return False
     return secrets.compare_digest(recomputed, commit_hash)

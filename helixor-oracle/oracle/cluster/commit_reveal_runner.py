@@ -55,6 +55,7 @@ from oracle.cluster.aggregation import (
     aggregate_scores,
     quorum_for,
 )
+from oracle.cluster.agent_snapshot import compute_snapshot
 from oracle.cluster.commit_reveal_round import RoundPhase
 from oracle.cluster.messages import AgentScore
 from oracle.cluster.transport import PeerUnreachable
@@ -175,6 +176,20 @@ def simulate_commit_reveal_epoch(
     # ── 1. SCORE — every node scores independently ──────────────────────────
     for node in nodes:
         node.score_epoch(epoch_id, agent_list, computed_at=ts)
+
+    # ── 1a. SNAPSHOT (VULN-15) — pin the agent set for this epoch ──────────
+    # Computed ONCE at the start of the epoch from the runner's view of
+    # the agent list, then bound on every node BEFORE any node opens its
+    # round. Every honest node's snapshot_hash is byte-identical (the
+    # canonical encoding is deterministic given the same wallets); a node
+    # whose set drifts later in the round will fail reveal verification
+    # against this snapshot, surfacing mid-epoch agent-set drift as the
+    # audit-specified typed failure.
+    snapshot = compute_snapshot(
+        epoch_id, (ai.agent_wallet for ai in agent_list),
+    )
+    for node in nodes:
+        node.bind_snapshot(epoch_id, snapshot)
 
     # ── 2. OPEN — every node opens its round ────────────────────────────────
     for node in nodes:

@@ -47,6 +47,7 @@ from datetime import datetime, timezone
 
 from detection import DetectorRegistry
 from oracle.cluster.identity import NodeIdentity, NodeKeypair
+from oracle.cluster.agent_snapshot import EpochAgentSnapshot
 from oracle.cluster.commit_reveal import compute_commit_hash, new_nonce
 from oracle.cluster.commit_reveal_round import (
     CommitRejected,
@@ -175,6 +176,14 @@ class OracleNode:
         # discloses only at reveal time.
         self._rounds: dict[int, "CommitRevealRound"] = {}
         self._epoch_nonces: dict[int, bytes] = {}
+        # VULN-15: the agent-set snapshot bound to each epoch's
+        # commit-reveal round. Set once via `bind_snapshot` at the start of
+        # an epoch — BEFORE any commit — so the commit hash binds to both
+        # the scores AND the agent set those scores were computed against.
+        # A round opened without a bound snapshot keeps the pre-VULN-15
+        # behaviour (no snapshot folded in) for back-compat with the
+        # 1k-test legacy round suite.
+        self._epoch_snapshots: dict[int, EpochAgentSnapshot] = {}
         # Day 25: the node's logical clock for commit-reveal. The epoch
         # orchestrator advances it as the protocol moves through phases;
         # the commit / reveal handlers stamp peer submissions with it. A
@@ -368,6 +377,36 @@ class OracleNode:
 
     # ── Day 25: commit-reveal round lifecycle ───────────────────────────────
 
+    def bind_snapshot(self, epoch: int, snapshot: EpochAgentSnapshot) -> None:
+        """
+        VULN-15: bind the agent-set snapshot this node will use for
+        `epoch`'s commit-reveal round. MUST be called BEFORE `open_round`
+        — the round picks up the bound snapshot at open time and folds
+        its hash into every commit/reveal hash for the rest of the epoch.
+
+        Idempotent only if the same snapshot hash is rebound; rebinding
+        a DIFFERENT snapshot on an epoch the node has already committed
+        is a programmer error and raises — the commit binding is
+        immutable for the duration of the round.
+        """
+        if snapshot.epoch_id != epoch:
+            raise ValueError(
+                f"snapshot epoch_id {snapshot.epoch_id} does not match "
+                f"bind target epoch {epoch}"
+            )
+        existing = self._epoch_snapshots.get(epoch)
+        if existing is not None and existing.snapshot_hash != snapshot.snapshot_hash:
+            raise RuntimeError(
+                f"node {self.node_id}: epoch {epoch} snapshot already "
+                f"bound to {existing.snapshot_hash.hex()[:16]}…; cannot "
+                f"rebind to a different snapshot mid-round"
+            )
+        self._epoch_snapshots[epoch] = snapshot
+
+    def snapshot_for(self, epoch: int) -> EpochAgentSnapshot | None:
+        """The agent-set snapshot bound to `epoch`, or None if unbound."""
+        return self._epoch_snapshots.get(epoch)
+
     def open_round(
         self,
         epoch:           int,
@@ -388,15 +427,24 @@ class OracleNode:
         without waiting on stragglers. Pass `quorum_for(cluster_size)`
         from the runner; leave unset to retain the legacy "wait for all
         committers or the timeout" behaviour.
+
+        VULN-15: if a snapshot was bound for this epoch via
+        `bind_snapshot`, its hash is propagated to the round so
+        every reveal verification folds it in.
         """
         if epoch in self._rounds:
             raise RuntimeError(f"node {self.node_id}: round {epoch} already open")
+        bound_snapshot = self._epoch_snapshots.get(epoch)
+        snapshot_hash = (
+            bound_snapshot.snapshot_hash if bound_snapshot is not None else None
+        )
         round_ = CommitRevealRound(
             epoch, node_ids,
             commit_deadline=commit_deadline,
             reveal_deadline=reveal_deadline,
             opened_at=opened_at,
             min_reveals=min_reveals,
+            snapshot_hash=snapshot_hash,
         )
         self._rounds[epoch] = round_
         # The logical round clock is per-round — opening a new round resets
@@ -440,7 +488,13 @@ class OracleNode:
         ordered = tuple(scores[w] for w in sorted(scores))
         nonce = new_nonce()
         self._epoch_nonces[epoch] = nonce
-        commit_hash = compute_commit_hash(ordered, nonce)
+        # VULN-15: fold the bound agent-set snapshot hash (if any) into the
+        # commit so the commit binds to BOTH the scores AND the agent set
+        # they were computed against. The round picks up the snapshot at
+        # open time; we read it from the round to keep one source of truth.
+        commit_hash = compute_commit_hash(
+            ordered, nonce, snapshot_hash=round_.snapshot_hash,
+        )
         # Record our own commit in our own round view.
         round_.submit_commit(self.node_id, commit_hash, now=now)
         return CommitRequest(

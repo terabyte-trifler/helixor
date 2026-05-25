@@ -17,6 +17,19 @@ the only place gRPC enters.
 
 from __future__ import annotations
 
+from oracle.cluster.agent_set_buffer import (
+    AgentSetBuffer,
+    AppliedSnapshot,
+    PendingChange,
+    PendingChangeKind,
+)
+from oracle.cluster.agent_snapshot import (
+    EpochAgentSnapshot,
+    SnapshotMismatch,
+    canonical_snapshot_bytes,
+    compute_snapshot,
+    compute_snapshot_hash,
+)
 from oracle.cluster.aggregation import (
     AggregatedScore,
     NodeScore,
@@ -183,4 +196,8 @@ __all__ = [
     "IngestedAgentBatch", "batch_transactions_by_agent", "replay_from_broker",
     "SubmittableCertificate", "PipelineAgentResult", "PipelineEpochReport",
     "OnChainSubmitFn", "run_full_pipeline_epoch",
+    # VULN-15: epoch agent-set snapshot + epoch-boundary registration semantics
+    "EpochAgentSnapshot", "SnapshotMismatch",
+    "canonical_snapshot_bytes", "compute_snapshot", "compute_snapshot_hash",
+    "AgentSetBuffer", "AppliedSnapshot", "PendingChange", "PendingChangeKind",
 ]
