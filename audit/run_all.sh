@@ -54,6 +54,11 @@ run "ed25519 strictness sweep"  python3 audit/ed25519_strictness_check.py \
     --json audit/reports/ed25519_strictness.json
 
 
+# ── 1d. VULN-22 version-pinning sweep ───────────────────────────────────────
+run "version pinning sweep"  python3 audit/version_pinning_check.py \
+    --json audit/reports/version_pinning.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

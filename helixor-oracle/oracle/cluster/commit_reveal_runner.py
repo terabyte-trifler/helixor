@@ -112,6 +112,12 @@ class CommitRevealEpochReport:
     # partial-reveal quorum, before all committers revealed. A signal
     # that one or more nodes routinely miss the reveal window.
     closed_by_quorum: bool = False
+    # VULN-22: nodes whose commit was rejected because their
+    # (scoring_algo, scoring_weights) version did not match the round's
+    # pinned version. Reported separately from `faulty_nodes` so the
+    # operator can tell "node is mid-upgrade" apart from "node is
+    # offline / Byzantine". These nodes are NOT slashed.
+    version_excluded_nodes: tuple[str, ...] = ()
 
     @property
     def agent_count(self) -> int:
@@ -270,13 +276,14 @@ def _aggregate_from_round(
     verified = round_.verified_scores(now)         # node_id -> scores tuple
     faulty = round_.faulty_nodes(now)
     non_revealers = round_.non_revealers(now)      # VULN-05
+    version_excluded = round_.version_mismatched_nodes()  # VULN-22
 
     logger.info(
         "epoch %d (node %s): %d committed, %d verified, %d faulty, "
-        "%d non-revealers, closed_by_quorum=%s",
+        "%d non-revealers, %d version-excluded, closed_by_quorum=%s",
         epoch_id, node.node_id,
         len(round_.committed_nodes()), len(verified), len(faulty),
-        len(non_revealers), round_.closed_by_quorum,
+        len(non_revealers), len(version_excluded), round_.closed_by_quorum,
     )
 
     # Index verified scores by agent for the median.
@@ -302,6 +309,7 @@ def _aggregate_from_round(
         results=tuple(results),
         non_revealers=tuple(sorted(non_revealers)),
         closed_by_quorum=round_.closed_by_quorum,
+        version_excluded_nodes=tuple(sorted(version_excluded)),
     )
 
 

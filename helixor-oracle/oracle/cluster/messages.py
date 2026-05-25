@@ -26,6 +26,38 @@ from dataclasses import dataclass, field
 
 
 # =============================================================================
+# VULN-22 — version-pair validation shared by CommitRequest + RevealRequest
+# =============================================================================
+
+def _validate_version_pair(
+    algo: int | None, weights: int | None, *, owner: str,
+) -> None:
+    """
+    Enforce the version fields are EITHER both unset (legacy pre-VULN-22
+    caller) OR both set to u32-fitting non-negatives. A half-set pair would
+    let a node ship a commit that LOOKS version-aware but binds to half a
+    version tag — the round would then have no reliable way to pin or
+    silently exclude. Catching it here keeps that ambiguity out of the
+    protocol.
+    """
+    set_count = (algo is not None) + (weights is not None)
+    if set_count == 1:
+        raise ValueError(
+            f"{owner}: scoring_algo_version and scoring_weights_version "
+            f"must be set together or both omitted "
+            f"(got algo={algo!r}, weights={weights!r})"
+        )
+    if algo is not None and not (0 <= algo <= 0xFFFFFFFF):
+        raise ValueError(
+            f"{owner}.scoring_algo_version out of u32 range: {algo}"
+        )
+    if weights is not None and not (0 <= weights <= 0xFFFFFFFF):
+        raise ValueError(
+            f"{owner}.scoring_weights_version out of u32 range: {weights}"
+        )
+
+
+# =============================================================================
 # Ping
 # =============================================================================
 
@@ -85,10 +117,25 @@ class AgentScore:
 
 @dataclass(frozen=True, slots=True)
 class CommitRequest:
-    """A node's commitment: the hash of its epoch scores (scores hidden)."""
+    """
+    A node's commitment: the hash of its epoch scores (scores hidden).
+
+    VULN-22: `scoring_algo_version` and `scoring_weights_version` are the
+    scoring algorithm + weight versions the committing node ran. They are
+    optional (default None for back-compat with the legacy round suite),
+    but the cluster runner sets them on every honest commit. The
+    `CommitRevealRound` pins to the first version it sees AND folds it
+    into the commit hash — so a mid-round version switch by a revealer is
+    caught by hash mismatch, and a mismatched commit is silently EXCLUDED
+    (not flagged Byzantine) until the node upgrades.
+    """
     node_id:     str
     epoch:       int
     commit_hash: bytes
+    # VULN-22: must EITHER both be None (legacy / pre-VULN-22 caller) OR
+    # both be set (a version-aware node). The round rejects half-set tuples.
+    scoring_algo_version:    int | None = None
+    scoring_weights_version: int | None = None
 
     def __post_init__(self) -> None:
         if not self.node_id:
@@ -100,6 +147,10 @@ class CommitRequest:
                 f"commit_hash must be 32 bytes (SHA-256), "
                 f"got {len(self.commit_hash)}"
             )
+        _validate_version_pair(
+            self.scoring_algo_version, self.scoring_weights_version,
+            owner="CommitRequest",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,11 +166,22 @@ class CommitResponse:
 
 @dataclass(frozen=True, slots=True)
 class RevealRequest:
-    """A node revealing its actual epoch scores + the commit salt."""
+    """
+    A node revealing its actual epoch scores + the commit salt.
+
+    VULN-22: carries the same (scoring_algo_version, scoring_weights_version)
+    pair the node committed under. The round folds the version into the
+    recomputed hash AND cross-checks the carried version against the
+    round's pinned version — a revealer that mutates either fails
+    verification, not silently shifts the median.
+    """
     node_id: str
     epoch:   int
     scores:  tuple[AgentScore, ...]
     salt:    bytes
+    # VULN-22: same all-or-nothing semantics as CommitRequest.
+    scoring_algo_version:    int | None = None
+    scoring_weights_version: int | None = None
 
     def __post_init__(self) -> None:
         if not self.node_id:
@@ -128,6 +190,10 @@ class RevealRequest:
             raise ValueError("RevealRequest.epoch must be >= 1")
         if not isinstance(self.scores, tuple):
             object.__setattr__(self, "scores", tuple(self.scores))
+        _validate_version_pair(
+            self.scoring_algo_version, self.scoring_weights_version,
+            owner="RevealRequest",
+        )
 
 
 @dataclass(frozen=True, slots=True)

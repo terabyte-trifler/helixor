@@ -120,6 +120,16 @@ class ByzantineEpochReport:
     # VULN-05: True iff the commit-reveal round closed early on the
     # partial-reveal quorum (rather than all-revealed or the timeout).
     closed_by_quorum: bool = False
+    # VULN-22: nodes whose commit was rejected for (scoring_algo,
+    # scoring_weights) version mismatch against the round's pinned
+    # version. These nodes are SILENTLY EXCLUDED — surfaced here for
+    # operator visibility (typically signals an in-progress rolling
+    # upgrade), but NEVER flagged as `byzantine_nodes` and NEVER fed to
+    # the watchdog's per-epoch strike track. Slashing a node for being
+    # on the wrong version of the scoring algorithm would let an
+    # adversary grief honest operators every deploy window — which is
+    # exactly the upgrade-induced-liveness-attack the audit describes.
+    version_excluded_nodes: tuple[str, ...] = ()
 
     @property
     def submitted_count(self) -> int:
@@ -199,6 +209,14 @@ def run_byzantine_epoch(
     # we are past the reveal deadline (we always are at `close_now`), this
     # set is final for the epoch.
     non_revealers = round_.non_revealers(close_now)
+    # VULN-22: surface version-mismatched nodes (commits rejected at
+    # phase 1 because their algo/weights version did not match the
+    # round's pinned version). These nodes are NOT in `verified` (no
+    # accepted commit -> no reveal -> no score), so they will NOT appear
+    # in `byzantine_this_epoch` from deviation analysis. We capture the
+    # set here purely for operator visibility; they MUST NOT be passed
+    # to the watchdog as Byzantine flags.
+    version_excluded = round_.version_mismatched_nodes()
 
     # ── 2 + 3. Per-agent deviation analysis, exclusion, re-aggregation ──────
     results: list[ByzantineAgentResult] = []
@@ -342,6 +360,7 @@ def run_byzantine_epoch(
         non_revealers=tuple(sorted(non_revealers)),
         non_reveal_challenges=tuple(non_reveal_challenges),
         closed_by_quorum=round_.closed_by_quorum,
+        version_excluded_nodes=tuple(sorted(version_excluded)),
     )
 
 

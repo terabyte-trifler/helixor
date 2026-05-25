@@ -27,6 +27,18 @@ file.
       on-chain (Solana's Ed25519 precompile = ed25519-dalek strict)
       MUST share canonical-S semantics so a signature that passes
       client-side never fails the precompile.
+- [ ] **VULN-22 scoring-algo version-pinning sweep clean** —
+      `python3 audit/version_pinning_check.py --json audit/reports/version_pinning.json`
+      reports **0 HARD findings**. `CommitRequest` and `RevealRequest`
+      both carry `scoring_algo_version` + `scoring_weights_version`;
+      `compute_commit_hash()` and `verify_reveal()` both accept an
+      `algo_version=` kwarg that is folded into the sha256 input;
+      `CommitRevealRound` exposes `pinned_algo_version` and
+      `version_mismatched_nodes()`; `ByzantineEpochReport` carries
+      `version_excluded_nodes`. A version-mismatched node MUST be
+      silently excluded (no Byzantine flag, no strike, no slash) —
+      slashing for "wrong scoring version" enables an upgrade-window
+      grief attack against honest operators.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain
@@ -139,6 +151,15 @@ the entry gate.
       aggregator-emitted signature, the transaction aborts BEFORE the
       handler runs and this log line is absent — investigate the
       off-chain / on-chain Ed25519 library symmetry before continuing.
+- [ ] **VULN-22 scoring-algo version pin live on the cluster.** Every
+      oracle node in the first mainnet epoch logs the same
+      `epoch %d (node %s): %d committed, %d verified, %d faulty,
+      %d non-revealers, %d version-excluded, closed_by_quorum=%s` line
+      with `version-excluded=0`. Any node with `version-excluded > 0`
+      means a peer is on a stale (scoring_algo, scoring_weights)
+      version — pause the rollout, finish the upgrade, do NOT slash
+      the lagging node. A future scoring-algo upgrade MUST take effect
+      at epoch N+1 via governance, not mid-epoch.
 - [ ] **The first epoch on mainnet completes** end-to-end, on-chain
       cert visible via explorer
 

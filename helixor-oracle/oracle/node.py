@@ -48,11 +48,16 @@ from datetime import datetime, timezone
 from detection import DetectorRegistry
 from oracle.cluster.identity import NodeIdentity, NodeKeypair
 from oracle.cluster.agent_snapshot import EpochAgentSnapshot
-from oracle.cluster.commit_reveal import compute_commit_hash, new_nonce
+from oracle.cluster.commit_reveal import (
+    AlgoVersion,
+    compute_commit_hash,
+    new_nonce,
+)
 from oracle.cluster.commit_reveal_round import (
     CommitRejected,
     CommitRevealRound,
     RevealRejected,
+    VersionMismatch,
 )
 from oracle.cluster.messages import (
     AgentScore,
@@ -152,6 +157,12 @@ class OracleNode:
         *,
         transport:  ClusterTransport | None = None,
         registry:   DetectorRegistry | None = None,
+        # VULN-22: this node's scoring (algo, weights) versions. Default
+        # pulls from `scoring.composite.SCORING_ALGO_VERSION` and
+        # `scoring.weights.SCORING_WEIGHTS_VERSION`. Tests override to
+        # simulate a node running a stale or in-progress upgrade.
+        scoring_algo_version:    int | None = None,
+        scoring_weights_version: int | None = None,
     ) -> None:
         if keypair.node_id != membership.self_identity.node_id:
             raise ValueError(
@@ -164,6 +175,19 @@ class OracleNode:
         self._membership = membership
         self._transport = transport
         self._registry = registry
+        # VULN-22: pull live scoring versions if the caller did not pin
+        # them. Import lazily so the node module stays usable in test
+        # contexts that do not import the full scoring stack.
+        if scoring_algo_version is None or scoring_weights_version is None:
+            from scoring.composite import SCORING_ALGO_VERSION as _ALGO
+            from scoring.weights import SCORING_WEIGHTS_VERSION as _WEIGHTS
+            if scoring_algo_version is None:
+                scoring_algo_version = _ALGO
+            if scoring_weights_version is None:
+                scoring_weights_version = _WEIGHTS
+        self._algo_version: AlgoVersion = (
+            scoring_algo_version, scoring_weights_version,
+        )
         # The node's view of the current epoch — advanced by the operator.
         self._current_epoch = 1
         # Day 24: this node's own scores, per epoch. Populated by
@@ -247,6 +271,15 @@ class OracleNode:
     def transport(self) -> ClusterTransport | None:
         """The node's cluster transport — None for a lone single node."""
         return self._transport
+
+    @property
+    def algo_version(self) -> AlgoVersion:
+        """
+        VULN-22: this node's (scoring_algo_version, scoring_weights_version).
+        Folded into every commit hash and broadcast in every CommitRequest
+        / RevealRequest so peer rounds can pin / verify version symmetry.
+        """
+        return self._algo_version
 
     def set_epoch(self, epoch: int) -> None:
         """Advance the node's view of the current epoch."""
@@ -492,13 +525,29 @@ class OracleNode:
         # commit so the commit binds to BOTH the scores AND the agent set
         # they were computed against. The round picks up the snapshot at
         # open time; we read it from the round to keep one source of truth.
+        # VULN-22: fold this node's (scoring_algo, scoring_weights) version
+        # so a peer running a different version cannot reproduce the hash —
+        # the round will silently exclude the mismatched commit.
         commit_hash = compute_commit_hash(
-            ordered, nonce, snapshot_hash=round_.snapshot_hash,
+            ordered, nonce,
+            snapshot_hash=round_.snapshot_hash,
+            algo_version=self._algo_version,
         )
-        # Record our own commit in our own round view.
-        round_.submit_commit(self.node_id, commit_hash, now=now)
+        # Record our own commit in our own round view. We also feed our
+        # algo_version to the round so it pins (or validates against an
+        # existing pin) — a mismatched LOCAL node here would raise
+        # VersionMismatch, but the local node always uses its own version,
+        # so this only fires when the round was pre-pinned to a different
+        # version (a runner-level coordination bug, surfaced loudly).
+        algo_v, weights_v = self._algo_version
+        round_.submit_commit(
+            self.node_id, commit_hash,
+            now=now, algo_version=self._algo_version,
+        )
         return CommitRequest(
             node_id=self.node_id, epoch=epoch, commit_hash=commit_hash,
+            scoring_algo_version=algo_v,
+            scoring_weights_version=weights_v,
         )
 
     def local_reveal(self, epoch: int, *, now: float) -> RevealRequest:
@@ -520,8 +569,11 @@ class OracleNode:
             )
         ordered = tuple(scores[w] for w in sorted(scores))
         round_.submit_reveal(self.node_id, ordered, nonce, now=now)
+        algo_v, weights_v = self._algo_version
         return RevealRequest(
             node_id=self.node_id, epoch=epoch, scores=ordered, salt=nonce,
+            scoring_algo_version=algo_v,
+            scoring_weights_version=weights_v,
         )
 
     # ── Serving peers — commit / reveal handlers (real, Day 25) ─────────────
@@ -542,9 +594,29 @@ class OracleNode:
                 reason=f"node {self.node_id} has no open round for "
                        f"epoch {request.epoch}",
             )
+        # VULN-22: forward the peer's (algo, weights) version into the
+        # round so it can pin / validate. A None pair (legacy commit) is
+        # passed through as None; a version-aware round will treat that as
+        # a mismatch and silently exclude. `VersionMismatch` is a subclass
+        # of `CommitRejected` so the existing fall-through catches it; we
+        # surface a clearer reason string so operators can tell the
+        # version-skew case apart at a glance.
+        peer_algo_version: AlgoVersion | None = None
+        if (request.scoring_algo_version is not None
+                and request.scoring_weights_version is not None):
+            peer_algo_version = (
+                request.scoring_algo_version,
+                request.scoring_weights_version,
+            )
         try:
             round_.submit_commit(
-                request.node_id, request.commit_hash, now=self._round_clock,
+                request.node_id, request.commit_hash,
+                now=self._round_clock,
+                algo_version=peer_algo_version,
+            )
+        except VersionMismatch as exc:
+            return CommitResponse(
+                accepted=False, reason=f"version-mismatch: {exc}",
             )
         except CommitRejected as exc:
             return CommitResponse(accepted=False, reason=str(exc))
@@ -567,6 +639,28 @@ class OracleNode:
                 reason=f"node {self.node_id} has no open round for "
                        f"epoch {request.epoch}",
             )
+        # VULN-22: defence-in-depth. The round always recomputes the hash
+        # under its PINNED algo_version (the one the commit was bound to),
+        # so a revealer that secretly switched versions is already caught
+        # by hash mismatch. But a malicious revealer might lie ONLY in the
+        # metadata (commit honestly, then publish a RevealRequest with a
+        # different `scoring_*_version` tag). Reject early so the lie does
+        # not propagate through the audit trail.
+        if (request.scoring_algo_version is not None
+                and request.scoring_weights_version is not None
+                and round_.pinned_algo_version is not None):
+            carried = (
+                request.scoring_algo_version,
+                request.scoring_weights_version,
+            )
+            if carried != round_.pinned_algo_version:
+                return RevealResponse(
+                    verified=False,
+                    reason=(
+                        f"version-mismatch in reveal: carried={carried!r}, "
+                        f"round pinned to {round_.pinned_algo_version!r}"
+                    ),
+                )
         try:
             record = round_.submit_reveal(
                 request.node_id, request.scores, request.salt,

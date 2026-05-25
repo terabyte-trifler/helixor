@@ -1,7 +1,71 @@
 {
   "hard_count": 0,
-  "soft_count": 4,
+  "soft_count": 12,
   "findings": [
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/health-oracle/src/errors.rs",
+      "line": 96,
+      "text": "proposal \u2014 double-voting is not permitted\")]",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/health-oracle/src/instructions/enact_oracle_key_rotation.rs",
+      "line": 106,
+      "text": "for j in (i + 1)..new_keys.len() {",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/health-oracle/src/instructions/propose_oracle_key_rotation.rs",
+      "line": 99,
+      "text": "for j in (i + 1)..new_keys.len() {",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/health-oracle/src/instructions/propose_oracle_key_rotation.rs",
+      "line": 161,
+      "text": "min_confidence={}, enact_after={}, pre-attestations={}\",",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/health-oracle/src/state/pending_oracle_rotation.rs",
+      "line": 141,
+      "text": "let threshold = cluster_len / 2 + 1;",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/health-oracle/src/state/pending_oracle_rotation.rs",
+      "line": 149,
+      "text": "let threshold = cluster_len / 2 + 1;",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 64,
+      "text": "only a direct top-level call or a CPI from the configured \\",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/instructions/initialize_config.rs",
+      "line": 93,
+      "text": "CPI allow-list {}\",",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
     {
       "category": "design-intent-no-signer-constraint",
       "severity": "SOFT",

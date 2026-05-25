@@ -119,14 +119,64 @@ def canonical_scores(scores: Sequence[AgentScore]) -> bytes:
 # Commit hashing + verification
 # =============================================================================
 
+# =============================================================================
+# VULN-22 — scoring-algo version pin
+# =============================================================================
+#
+# A node running a different (scoring_algo, scoring_weights) version computes
+# legitimately different scores for the same inputs — version v2.7 may
+# normalise an anomaly score differently than v2.8. If two such nodes are in
+# the same epoch, the version-mismatched node's score will sit far from the
+# majority median; the Byzantine deviation detector would flag it and the
+# watchdog would slash it for what is really a deploy-window delay.
+#
+# The fix is two-layered:
+#
+#   1. **Bind version into the commit hash.** A reveal whose (algo, weights)
+#      version differs from the commit's version fails hash verification —
+#      so a node cannot quietly switch versions mid-round.
+#   2. **Pin one version per round** (in commit_reveal_round.py): the first
+#      commit pins (algo, weights); subsequent commits with a different
+#      version are SILENTLY EXCLUDED, not flagged Byzantine.
+#
+# `algo_version` is a (scoring_algo_version, scoring_weights_version) tuple.
+# Callers may omit it (kwarg is optional) — when omitted, no version bytes
+# are folded in and the pre-VULN-22 wire format is preserved for tests that
+# pin the legacy hash.
+
+AlgoVersion = tuple[int, int]
+
+
+def _version_tag_bytes(algo_version: AlgoVersion | None) -> bytes:
+    """
+    Render the algo-version as 8 deterministic bytes (4 + 4 big-endian
+    unsigned ints) to fold into the commit hash. Empty when omitted, so
+    the pre-VULN-22 wire format is unchanged for legacy callers.
+    """
+    if algo_version is None:
+        return b""
+    algo, weights = algo_version
+    if not (0 <= algo <= 0xFFFFFFFF):
+        raise ValueError(
+            f"scoring_algo_version out of u32 range: {algo}"
+        )
+    if not (0 <= weights <= 0xFFFFFFFF):
+        raise ValueError(
+            f"scoring_weights_version out of u32 range: {weights}"
+        )
+    return algo.to_bytes(4, "big") + weights.to_bytes(4, "big")
+
+
 def compute_commit_hash(
     scores:        Sequence[AgentScore],
     nonce:         bytes,
     *,
     snapshot_hash: bytes | None = None,
+    algo_version:  AlgoVersion | None = None,
 ) -> bytes:
     """
-    The commit hash: sha256( [snapshot_hash ||] canonical(scores) || nonce ).
+    The commit hash:
+        sha256( [snapshot_hash ||] [algo_version ||] canonical(scores) || nonce )
 
     Published in Phase 1; binds the node to exactly these scores without
     revealing them.
@@ -137,7 +187,11 @@ def compute_commit_hash(
     and reveal, honest verifiers recompute against a different snapshot
     hash and verification fails LOCALLY — surfacing set drift as a typed
     error instead of "your reveal didn't verify" further downstream.
-    The kwarg is optional so legacy callers (and tests pinned at the
+
+    VULN-22: when `algo_version=(scoring_algo, scoring_weights)` is
+    provided, both ints are folded in (4 + 4 big-endian bytes) so a
+    revealing node cannot change versions between commit and reveal.
+    Both kwargs are optional so legacy callers (and tests pinned at the
     pre-VULN-15 wire format) keep working unchanged.
     """
     if len(nonce) != NONCE_BYTES:
@@ -145,7 +199,10 @@ def compute_commit_hash(
             f"nonce must be {NONCE_BYTES} bytes, got {len(nonce)}"
         )
     prefix = snapshot_hash if snapshot_hash is not None else b""
-    return hashlib.sha256(prefix + canonical_scores(scores) + nonce).digest()
+    version_bytes = _version_tag_bytes(algo_version)
+    return hashlib.sha256(
+        prefix + version_bytes + canonical_scores(scores) + nonce
+    ).digest()
 
 
 def verify_reveal(
@@ -154,11 +211,13 @@ def verify_reveal(
     nonce:         bytes,
     *,
     snapshot_hash: bytes | None = None,
+    algo_version:  AlgoVersion | None = None,
 ) -> bool:
     """
     Verify a Phase-2 reveal against a Phase-1 commit.
 
-    Returns True iff sha256([snapshot_hash ||] canonical(scores) || nonce)
+    Returns True iff
+        sha256([snapshot_hash ||] [algo_version ||] canonical(scores) || nonce)
     equals the earlier `commit_hash` — i.e. the revealed (scores, nonce)
     is exactly what the node committed to. A copying node, whose commit
     does not match the scores it copied, fails here.
@@ -168,6 +227,11 @@ def verify_reveal(
     differs from the committer's, this returns False — exactly the
     "set drift" signal we want surfaced.
 
+    VULN-22: pass `algo_version` to verify against the same scoring
+    (algo, weights) versions the commit was computed against. A revealer
+    that switched versions between commit and reveal fails here — no
+    silent version drift in-flight.
+
     Uses a constant-time comparison — verification timing must not leak
     how close a forged reveal was.
     """
@@ -175,8 +239,9 @@ def verify_reveal(
         return False
     try:
         prefix = snapshot_hash if snapshot_hash is not None else b""
+        version_bytes = _version_tag_bytes(algo_version)
         recomputed = hashlib.sha256(
-            prefix + canonical_scores(scores) + nonce
+            prefix + version_bytes + canonical_scores(scores) + nonce
         ).digest()
     except (ValueError, AttributeError):
         return False

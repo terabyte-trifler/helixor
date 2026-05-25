@@ -46,6 +46,7 @@ from oracle.cluster.cluster_runner import (
 )
 from oracle.cluster.commit_reveal import (
     NONCE_BYTES,
+    AlgoVersion,
     canonical_scores,
     compute_commit_hash,
     new_nonce,
@@ -58,6 +59,7 @@ from oracle.cluster.commit_reveal_round import (
     RevealRecord,
     RevealRejected,
     RoundPhase,
+    VersionMismatch,
 )
 from oracle.cluster.commit_reveal_runner import (
     CommitRevealAgentResult,
@@ -169,10 +171,11 @@ __all__ = [
     "aggregate_scores", "quorum_for",
     "ClusterEpochRunner", "ClusterEpochReport", "ClusterAgentResult",
     "ClusterSubmitFn", "simulate_cluster_epoch",
-    "NONCE_BYTES", "canonical_scores", "compute_commit_hash",
+    "NONCE_BYTES", "AlgoVersion",
+    "canonical_scores", "compute_commit_hash",
     "new_nonce", "verify_reveal",
     "CommitRevealRound", "RoundPhase", "CommitRecord", "RevealRecord",
-    "CommitRejected", "RevealRejected",
+    "CommitRejected", "RevealRejected", "VersionMismatch",
     "CommitRevealEpochReport", "CommitRevealAgentResult",
     "simulate_commit_reveal_epoch",
     "BYZANTINE_DEVIATION_THRESHOLD", "DeviationReport", "NodeDeviation",
