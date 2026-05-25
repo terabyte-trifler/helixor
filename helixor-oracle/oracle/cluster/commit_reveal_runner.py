@@ -53,6 +53,7 @@ from oracle.cluster.aggregation import (
     NodeScore,
     QuorumNotMet,
     aggregate_scores,
+    quorum_for,
 )
 from oracle.cluster.commit_reveal_round import RoundPhase
 from oracle.cluster.messages import AgentScore
@@ -101,6 +102,15 @@ class CommitRevealEpochReport:
     verified_nodes:  tuple[str, ...]
     faulty_nodes:    tuple[str, ...]
     results:         tuple[CommitRevealAgentResult, ...]
+    # VULN-05: nodes that COMMITTED but never produced a reveal by the
+    # reveal-deadline timeout. Distinct from `faulty_nodes` (which also
+    # captures missed commits and failed verifications) — surfaced so the
+    # watchdog can attribute PROOF_NON_REVEAL strikes per epoch.
+    non_revealers:   tuple[str, ...] = ()
+    # VULN-05: True iff the cluster closed the reveal phase early via the
+    # partial-reveal quorum, before all committers revealed. A signal
+    # that one or more nodes routinely miss the reveal window.
+    closed_by_quorum: bool = False
 
     @property
     def agent_count(self) -> int:
@@ -155,6 +165,12 @@ def simulate_commit_reveal_epoch(
 
     commit_deadline = commit_window
     reveal_deadline = commit_window + reveal_window
+    # VULN-05: open every round with a partial-reveal quorum so a single
+    # committed-but-silent node cannot force the cluster to wait the full
+    # reveal window. Quorum mirrors the median aggregator's quorum
+    # (floor(n/2)+1) — once that many verified reveals are in, the
+    # cluster can produce a result and proceed.
+    min_reveals = quorum_for(len(nodes)) if nodes else None
 
     # ── 1. SCORE — every node scores independently ──────────────────────────
     for node in nodes:
@@ -167,6 +183,7 @@ def simulate_commit_reveal_epoch(
             commit_deadline=commit_deadline,
             reveal_deadline=reveal_deadline,
             opened_at=0.0,
+            min_reveals=min_reveals,
         )
         node.advance_round_clock(0.0)
 
@@ -237,11 +254,14 @@ def _aggregate_from_round(
     cluster_size = node.membership.size
     verified = round_.verified_scores(now)         # node_id -> scores tuple
     faulty = round_.faulty_nodes(now)
+    non_revealers = round_.non_revealers(now)      # VULN-05
 
     logger.info(
-        "epoch %d (node %s): %d committed, %d verified, %d faulty",
+        "epoch %d (node %s): %d committed, %d verified, %d faulty, "
+        "%d non-revealers, closed_by_quorum=%s",
         epoch_id, node.node_id,
         len(round_.committed_nodes()), len(verified), len(faulty),
+        len(non_revealers), round_.closed_by_quorum,
     )
 
     # Index verified scores by agent for the median.
@@ -265,6 +285,8 @@ def _aggregate_from_round(
         verified_nodes=tuple(sorted(round_.verified_nodes())),
         faulty_nodes=tuple(sorted(faulty)),
         results=tuple(results),
+        non_revealers=tuple(sorted(non_revealers)),
+        closed_by_quorum=round_.closed_by_quorum,
     )
 
 

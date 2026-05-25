@@ -66,6 +66,17 @@ STRIKE_THRESHOLD = 3
 DRIFT_STRIKE_THRESHOLD = 3
 
 
+# VULN-05: non-reveal strikes are accumulated per epoch a node committed
+# to a commit-reveal round but failed to produce a verified reveal before
+# the reveal-deadline timeout. This is the slash-points-per-epoch
+# penalty the audit asks for — the only credible deterrent to a node
+# stalling the protocol by sitting on its reveal. Three epochs of
+# non-reveal is enough that a transient network or restart blip cannot
+# trigger slashing, few enough that a node engineered to grief the
+# protocol is challenged quickly.
+NON_REVEAL_STRIKE_THRESHOLD = 3
+
+
 # =============================================================================
 # Strike record
 # =============================================================================
@@ -73,17 +84,22 @@ DRIFT_STRIKE_THRESHOLD = 3
 @dataclass(slots=True)
 class StrikeRecord:
     """A node's Byzantine-strike history."""
-    node_id:          str
-    strikes:          int = 0
+    node_id:               str
+    strikes:               int = 0
     # The epochs in which this node was flagged Byzantine.
-    flagged_epochs:   list[int] = field(default_factory=list)
+    flagged_epochs:        list[int] = field(default_factory=list)
     # True once a challenge has been filed — a node is challenged once.
-    challenged:       bool = False
+    challenged:            bool = False
     # VULN-03: separate counter for cross-epoch slow-drift attribution.
-    drift_strikes:    int = 0
-    drift_epochs:     list[int] = field(default_factory=list)
+    drift_strikes:         int = 0
+    drift_epochs:          list[int] = field(default_factory=list)
     # True once a slow-drift challenge has been filed.
-    drift_challenged: bool = False
+    drift_challenged:      bool = False
+    # VULN-05: separate counter for committed-but-did-not-reveal epochs.
+    non_reveal_strikes:    int = 0
+    non_reveal_epochs:     list[int] = field(default_factory=list)
+    # True once a non-reveal challenge has been filed.
+    non_reveal_challenged: bool = False
 
     @property
     def at_threshold(self) -> bool:
@@ -92,6 +108,10 @@ class StrikeRecord:
     @property
     def at_drift_threshold(self) -> bool:
         return self.drift_strikes >= DRIFT_STRIKE_THRESHOLD
+
+    @property
+    def at_non_reveal_threshold(self) -> bool:
+        return self.non_reveal_strikes >= NON_REVEAL_STRIKE_THRESHOLD
 
 
 # =============================================================================
@@ -133,6 +153,11 @@ PROOF_CONFLICTING_SCORES = 0
 # VULN-03: slow-drift attribution evidence — a node consistently pushing
 # the cluster median over a rolling window of epochs.
 PROOF_SLOW_DRIFT = 1
+# VULN-05: committed-but-did-not-reveal evidence — a node that
+# repeatedly enters the reveal phase with a commit and then sits silent,
+# forcing the cluster onto the partial-reveal early-close path and
+# threatening protocol liveness if it had ever held a hostage majority.
+PROOF_NON_REVEAL = 2
 
 
 # =============================================================================
@@ -150,6 +175,21 @@ class EpochByzantineFlag:
     subject_agent:  str
     accused_score:  int
     cluster_median: int
+
+
+@dataclass(frozen=True, slots=True)
+class NonRevealFlag:
+    """
+    VULN-05: one node's "committed but never revealed" attribution for
+    one commit-reveal epoch. Carries enough context for the watchdog to
+    accumulate strikes deterministically and cite the offending epoch in
+    a challenge.
+    """
+    node_id:        str
+    epoch:          int
+    # The reveal-deadline that lapsed — for the audit citation. Logical
+    # clock value (the commit-reveal protocol's `now` units).
+    reveal_deadline: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -346,6 +386,92 @@ class ByzantineWatchdog:
     def is_drift_challenged(self, node_id: str) -> bool:
         record = self._strikes.get(node_id)
         return record.drift_challenged if record else False
+
+    # ── VULN-05 non-reveal attribution ─────────────────────────────────────
+
+    def record_non_revealers(
+        self,
+        epoch: int,
+        flags: Iterable["NonRevealFlag"],
+        *,
+        challenge_fn: ChallengeFn | None = None,
+    ) -> list[ByzantineChallenge]:
+        """
+        Record one commit-reveal epoch's NON-REVEALERS — nodes that
+        committed but failed to produce a verified reveal before the
+        reveal-deadline timeout. Each named node gains a NON-REVEAL
+        strike, tracked on its own counter (separate from per-epoch
+        Byzantine and slow-drift strikes). A node crossing
+        `NON_REVEAL_STRIKE_THRESHOLD` is challenged once with
+        ProofType.NonReveal.
+
+        Mirrors `record_drift_attackers`: dedup by node within an epoch,
+        idempotent across re-runs of the same epoch (a node already
+        struck for that epoch is not double-struck), and the first
+        threshold-crossing files exactly one challenge through the
+        injected `ChallengeFn`.
+        """
+        # Dedup: a node listed multiple times for one epoch earns ONE
+        # non-reveal strike for that epoch.
+        flags_by_node: dict[str, "NonRevealFlag"] = {}
+        for flag in flags:
+            if flag.epoch != epoch:
+                raise ValueError(
+                    f"non-reveal flag epoch {flag.epoch} != "
+                    f"record_epoch {epoch}"
+                )
+            flags_by_node.setdefault(flag.node_id, flag)
+
+        filed: list[ByzantineChallenge] = []
+        for node_id, flag in sorted(flags_by_node.items()):
+            record = self._strikes.setdefault(
+                node_id, StrikeRecord(node_id=node_id),
+            )
+            if epoch in record.non_reveal_epochs:
+                continue                              # already counted
+            record.non_reveal_strikes += 1
+            record.non_reveal_epochs.append(epoch)
+            logger.warning(
+                "non-reveal flag: node %s, epoch %d, non-reveal-strike "
+                "%d/%d (reveal_deadline=%.3f)",
+                node_id, epoch,
+                record.non_reveal_strikes, NON_REVEAL_STRIKE_THRESHOLD,
+                flag.reveal_deadline,
+            )
+
+            if (
+                record.non_reveal_strikes >= NON_REVEAL_STRIKE_THRESHOLD
+                and not record.non_reveal_challenged
+            ):
+                challenge = ByzantineChallenge(
+                    accused_node=node_id,
+                    proof_type=PROOF_NON_REVEAL,
+                    strikes=record.non_reveal_strikes,
+                    flagged_epochs=tuple(record.non_reveal_epochs),
+                    subject_epoch=flag.epoch,
+                    subject_agent="",        # non-reveal is round-wide, no agent
+                    accused_score=0,
+                    cluster_median=0,
+                )
+                record.non_reveal_challenged = True
+                filed.append(challenge)
+                logger.error(
+                    "node %s reached %d non-reveal-strikes — filing "
+                    "challenge_oracle (NonReveal)",
+                    node_id, record.non_reveal_strikes,
+                )
+                if challenge_fn is not None:
+                    challenge_fn(challenge)
+
+        return filed
+
+    def non_reveal_strikes_for(self, node_id: str) -> int:
+        record = self._strikes.get(node_id)
+        return record.non_reveal_strikes if record else 0
+
+    def is_non_reveal_challenged(self, node_id: str) -> bool:
+        record = self._strikes.get(node_id)
+        return record.non_reveal_challenged if record else False
 
     # ── Queries ─────────────────────────────────────────────────────────────
 

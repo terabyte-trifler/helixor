@@ -376,11 +376,18 @@ class OracleNode:
         commit_deadline: float,
         reveal_deadline: float,
         opened_at:       float = 0.0,
+        min_reveals:     int | None = None,
     ) -> "CommitRevealRound":
         """
         Open this node's commit-reveal round for an epoch. The round tracks
         every cluster node's commit and reveal. Must be called before this
         node — or any peer — can commit.
+
+        `min_reveals` (VULN-05) enables the partial-reveal early-close
+        gate: once that many VERIFIED reveals are in, the round closes
+        without waiting on stragglers. Pass `quorum_for(cluster_size)`
+        from the runner; leave unset to retain the legacy "wait for all
+        committers or the timeout" behaviour.
         """
         if epoch in self._rounds:
             raise RuntimeError(f"node {self.node_id}: round {epoch} already open")
@@ -389,6 +396,7 @@ class OracleNode:
             commit_deadline=commit_deadline,
             reveal_deadline=reveal_deadline,
             opened_at=opened_at,
+            min_reveals=min_reveals,
         )
         self._rounds[epoch] = round_
         # The logical round clock is per-round — opening a new round resets

@@ -53,6 +53,7 @@ from oracle.cluster.byzantine_watchdog import (
     ByzantineWatchdog,
     ChallengeFn,
     EpochByzantineFlag,
+    NonRevealFlag,
     SlowDriftFlag,
 )
 from oracle.cluster.drift_detector import (
@@ -110,6 +111,15 @@ class ByzantineEpochReport:
     drift_attackers:  tuple[str, ...] = ()
     # VULN-03: drift-specific challenges filed this epoch (proof_type=SlowDrift).
     drift_challenges: tuple[ByzantineChallenge, ...] = ()
+    # VULN-05: nodes that COMMITTED but never produced a verified reveal
+    # before the reveal-deadline timeout. Surfaced to operators and fed
+    # into the watchdog's PROOF_NON_REVEAL strike track.
+    non_revealers:    tuple[str, ...] = ()
+    # VULN-05: non-reveal challenges filed this epoch (proof_type=NonReveal).
+    non_reveal_challenges: tuple[ByzantineChallenge, ...] = ()
+    # VULN-05: True iff the commit-reveal round closed early on the
+    # partial-reveal quorum (rather than all-revealed or the timeout).
+    closed_by_quorum: bool = False
 
     @property
     def submitted_count(self) -> int:
@@ -183,7 +193,12 @@ def run_byzantine_epoch(
     primary = nodes[0]
     round_ = primary.round_for(epoch_id)
     assert round_ is not None
-    verified = round_.verified_scores(close_time(round_))   # node -> scores
+    close_now = close_time(round_)
+    verified = round_.verified_scores(close_now)            # node -> scores
+    # VULN-05: surface committed-but-silent nodes for the watchdog. Once
+    # we are past the reveal deadline (we always are at `close_now`), this
+    # set is final for the epoch.
+    non_revealers = round_.non_revealers(close_now)
 
     # ── 2 + 3. Per-agent deviation analysis, exclusion, re-aggregation ──────
     results: list[ByzantineAgentResult] = []
@@ -296,6 +311,24 @@ def run_byzantine_epoch(
             epoch_id, drift_flags_for_watchdog, challenge_fn=challenge_fn,
         )
 
+    # VULN-05: non-reveal strikes are accumulated per-epoch a node
+    # committed to the commit-reveal round and then failed to produce a
+    # verified reveal before the deadline. Routed through the same
+    # challenge_fn seam as the other strike tracks so production wires
+    # the on-chain instruction and tests pass a recording stub.
+    non_reveal_challenges: list[ByzantineChallenge] = []
+    if non_revealers:
+        non_reveal_flags = [
+            NonRevealFlag(
+                node_id=nid, epoch=epoch_id,
+                reveal_deadline=round_.reveal_deadline,
+            )
+            for nid in sorted(non_revealers)
+        ]
+        non_reveal_challenges = watchdog.record_non_revealers(
+            epoch_id, non_reveal_flags, challenge_fn=challenge_fn,
+        )
+
     return ByzantineEpochReport(
         epoch_id=epoch_id,
         computed_at=ts,
@@ -306,6 +339,9 @@ def run_byzantine_epoch(
         results=tuple(results),
         drift_attackers=tuple(sorted(drift_attackers_this_epoch)),
         drift_challenges=tuple(drift_challenges),
+        non_revealers=tuple(sorted(non_revealers)),
+        non_reveal_challenges=tuple(non_reveal_challenges),
+        closed_by_quorum=round_.closed_by_quorum,
     )
 
 

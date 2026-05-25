@@ -14,8 +14,9 @@ PHASES
                     committed, OR the commit deadline passes.
     OPEN_REVEAL  -> collecting reveals. A reveal is accepted only if it
                     verifies against that node's commit. Closes when every
-                    committed node has revealed, OR the reveal deadline
-                    passes.
+                    committed node has revealed, when a partial-reveal
+                    QUORUM of VERIFIED reveals has arrived (VULN-05), OR
+                    the reveal deadline passes.
     CLOSED       -> the round is done. The verified reveals are the score
                     set the cluster aggregates (Day-24 median).
 
@@ -28,10 +29,35 @@ offline node got in Day 24; commit-reveal just adds "committed but failed
 to reveal" as another way to be faulty. As long as a quorum of nodes
 reveal validly, the round still produces a score.
 
+VULN-05 — partial reveals + reveal timeout
+------------------------------------------
+A node that commits but never reveals previously forced the cluster to
+wait the FULL reveal window before producing a result. A single bribed or
+network-disrupted node could therefore induce a per-epoch latency burn
+on the whole cluster — the "reveal phase has no timeout" livelock.
+
+Two guarantees are now pinned in this module:
+
+  1. **Partial-reveal early close.** If the round was opened with a
+     `min_reveals` quorum (typically `floor(n/2)+1`), the OPEN_REVEAL
+     phase closes as soon as that many VERIFIED reveals are in — the
+     cluster no longer waits on stragglers once it can produce a result.
+     Late VERIFIED reveals that arrive after early-close but before the
+     reveal deadline are still ACCEPTED for the audit trail and to keep
+     the late-but-honest node out of the non-revealers set; the cluster
+     just doesn't block on them.
+
+  2. **Reveal timeout is hard.** Once `now >= reveal_deadline`, no
+     reveal is accepted, regardless of phase. The non-revealers
+     (committed but never produced a verified reveal) are surfaced via
+     `non_revealers(now)` so the upstream watchdog can attribute slash
+     strikes (`PROOF_NON_REVEAL`) per epoch they refused to reveal.
+
 A node may NOT:
   - commit twice (the first commit binds),
   - reveal before the commit phase closes (no peeking head start),
-  - reveal a (scores, nonce) that does not hash to its commit (a copier).
+  - reveal a (scores, nonce) that does not hash to its commit (a copier),
+  - reveal once the reveal-deadline timeout has elapsed.
 
 DETERMINISM
 -----------
@@ -116,6 +142,12 @@ class CommitRevealRound:
         commit_deadline: float,
         reveal_deadline: float,
         opened_at:       float = 0.0,
+        # VULN-05: when set, the OPEN_REVEAL phase closes as soon as this
+        # many VERIFIED reveals are in — the partial-reveal quorum that
+        # kills the "one node holds the cluster hostage" livelock. Leave
+        # unset (None) to preserve the legacy "wait for all committers or
+        # the deadline" behaviour the pure round-state tests pin.
+        min_reveals:     int | None = None,
     ) -> None:
         if not node_ids:
             raise ValueError("a round needs at least one node")
@@ -125,15 +157,28 @@ class CommitRevealRound:
             raise ValueError(
                 "deadlines must satisfy opened_at <= commit <= reveal"
             )
+        if min_reveals is not None:
+            if min_reveals < 1:
+                raise ValueError("min_reveals must be >= 1")
+            if min_reveals > len(node_ids):
+                raise ValueError(
+                    f"min_reveals={min_reveals} exceeds cluster size "
+                    f"{len(node_ids)}"
+                )
         self._epoch = epoch
         self._node_ids = set(node_ids)
         self._commit_deadline = commit_deadline
         self._reveal_deadline = reveal_deadline
         self._opened_at = opened_at
+        self._min_reveals = min_reveals
 
         self._commits: dict[str, CommitRecord] = {}
         self._reveals: dict[str, RevealRecord] = {}
         self._phase = RoundPhase.OPEN_COMMIT
+        # VULN-05: True once the round closed via the partial-reveal quorum
+        # gate (as opposed to all-revealed or the timeout). Surfaced for
+        # observability — the runner reports an early-close to operators.
+        self._closed_by_quorum = False
 
     # ── Phase ───────────────────────────────────────────────────────────────
 
@@ -157,10 +202,25 @@ class CommitRevealRound:
                 self._phase = RoundPhase.OPEN_REVEAL
         if self._phase is RoundPhase.OPEN_REVEAL:
             # Every node that COMMITTED has either revealed or is moot;
-            # the round closes when all committers revealed, or time is up.
+            # the round closes when all committers revealed, when the
+            # partial-reveal quorum (VULN-05) of VERIFIED reveals has
+            # arrived, or time is up.
             committers = set(self._commits)
             all_revealed = committers.issubset(set(self._reveals))
-            if (committers and all_revealed) or now >= self._reveal_deadline:
+            verified_count = sum(1 for r in self._reveals.values() if r.verified)
+            quorum_close = (
+                self._min_reveals is not None
+                and verified_count >= self._min_reveals
+            )
+            if (
+                (committers and all_revealed)
+                or quorum_close
+                or now >= self._reveal_deadline
+            ):
+                if quorum_close and not (committers and all_revealed):
+                    # The cluster proceeded on partial reveals — record
+                    # the reason so the runner can report it.
+                    self._closed_by_quorum = True
                 self._phase = RoundPhase.CLOSED
 
     # ── Phase 1: commit ─────────────────────────────────────────────────────
@@ -226,9 +286,16 @@ class CommitRevealRound:
                 f"{node_id} tried to reveal during the commit phase — "
                 f"reveals are not accepted until all commits are in"
             )
-        if self._phase is RoundPhase.CLOSED:
+        # VULN-05: the reveal-deadline timeout is the hard gate. A reveal
+        # that arrives at-or-after `reveal_deadline` is rejected as "too
+        # late" regardless of phase. A reveal that arrives BEFORE the
+        # deadline is accepted even if the round already closed early on
+        # the partial-reveal quorum — late honest reveals are still
+        # recorded so the late-but-honest node is not falsely struck as a
+        # non-revealer, even though the cluster did not block on them.
+        if now >= self._reveal_deadline:
             raise RevealRejected(
-                f"the round has closed — {node_id} revealed too late"
+                f"the reveal window has closed — {node_id} revealed too late"
             )
         commit = self._commits.get(node_id)
         if commit is None:
@@ -282,6 +349,41 @@ class CommitRevealRound:
             if reveal is None or not reveal.verified:
                 faulty.add(nid)
         return frozenset(faulty)
+
+    def non_revealers(self, now: float) -> frozenset[str]:
+        """
+        VULN-05: nodes that COMMITTED but have not yet produced a reveal
+        record at time `now`. Distinct from `faulty_nodes`, which also
+        captures missed commits and failed verifications — non-revealers
+        are specifically the "committed and went silent" attack vector
+        the audit asks the watchdog to penalise.
+
+        Intended to be called once the reveal window has elapsed (`now`
+        past `reveal_deadline`); calling earlier returns whichever
+        committed nodes have not yet revealed at that moment, which may
+        include nodes still within their valid reveal window.
+        """
+        self._advance(now)
+        revealed = set(self._reveals)
+        return frozenset(nid for nid in self._commits if nid not in revealed)
+
+    @property
+    def closed_by_quorum(self) -> bool:
+        """
+        VULN-05: True iff the round closed via the partial-reveal quorum
+        gate rather than all-revealed or the timeout. Surfaced for
+        operator observability — repeated quorum closes mean stragglers
+        are routinely missing the reveal window.
+        """
+        return self._closed_by_quorum
+
+    @property
+    def reveal_deadline(self) -> float:
+        return self._reveal_deadline
+
+    @property
+    def min_reveals(self) -> int | None:
+        return self._min_reveals
 
     def verified_scores(self, now: float) -> dict[str, tuple[AgentScore, ...]]:
         """
