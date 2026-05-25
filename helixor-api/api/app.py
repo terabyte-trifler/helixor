@@ -41,6 +41,10 @@ from api.rate_limit import (
     SlidingWindowLimiter,
     client_ip,
 )
+from api.safe_score import (
+    SafeScoreOk,
+    compute_safe_score,
+)
 from api.schemas import (
     SCHEMA_VERSION,
     ByzantineFlagEntry,
@@ -56,6 +60,8 @@ from api.schemas import (
     HistoryResponse,
     PerNodeRevealEntry,
     PerNodeRevealsResponse,
+    SafeScoreResponse,
+    SafeScoreVelocityWindow,
     StrikeEntry,
     StrikeSummaryResponse,
     VersionResponse,
@@ -311,6 +317,47 @@ def create_app(
             raise HTTPException(404, f"no score for {wallet} at epoch {epoch}")
         response.headers["Cache-Control"] = SCORE_CACHE_CONTROL
         return _to_health(rec)
+
+    @app.get("/agents/{wallet}/safe_score", response_model=SafeScoreResponse)
+    def agent_safe_score(wallet: str, response: Response) -> SafeScoreResponse:
+        """VULN-23 guard-railed score read.
+
+        The DeFi-protocol-friendly endpoint: returns the agent's current
+        score ONLY IF the cert is fresh (<= 48h) and the score has not
+        swung > 200 points across the rolling 3-epoch window. Otherwise
+        returns a structured rejection with a machine-readable `reason`.
+
+        Status code is always 200 — the rejection is in the body so a
+        thin client doesn't need to distinguish HTTP failure from a
+        guard-rail trip.
+        """
+        wallet = validate_wallet(wallet)
+        result = compute_safe_score(score_repo, wallet)
+        # Do not CDN-cache safe-score reads: the freshness boundary moves
+        # second-by-second, and a cached "ok" past its `issued_at + 48h`
+        # window would silently defeat the guard.
+        response.headers["Cache-Control"] = OPERATIONAL_CACHE_CONTROL
+        if isinstance(result, SafeScoreOk):
+            return SafeScoreResponse(
+                agent_wallet=wallet,
+                ok=True,
+                score=result.score,
+                alert_tier=result.alert_tier,
+                alert_tier_code=result.alert_tier_code,
+                epoch=result.epoch,
+                issued_at_unix=result.issued_at_unix,
+                velocity_window=SafeScoreVelocityWindow(
+                    min_score=result.velocity_min,
+                    max_score=result.velocity_max,
+                    epochs=list(result.window_epochs),
+                ),
+            )
+        return SafeScoreResponse(
+            agent_wallet=wallet,
+            ok=False,
+            reason=result.reason,
+            detail=result.detail,
+        )
 
     @app.get("/agents/{wallet}/history", response_model=HistoryResponse)
     def agent_history(

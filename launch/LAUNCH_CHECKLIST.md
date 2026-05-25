@@ -39,6 +39,22 @@ file.
       silently excluded (no Byzantine flag, no strike, no slash) —
       slashing for "wrong scoring version" enables an upgrade-window
       grief attack against honest operators.
+- [ ] **VULN-23 cert-consumption sweep clean** —
+      `python3 audit/cert_consumption_check.py --json audit/reports/cert_consumption.json`
+      reports **0 HARD findings**. The SDK exports `SafeCertReader` with
+      `CERT_MAX_AGE_SECONDS = 48*60*60`, `MAX_SCORE_VELOCITY = 200`,
+      `VELOCITY_WINDOW_EPOCHS = 3`, `MIN_HISTORY_REQUIRED = 2`, and
+      enumerates `STALE_CERT` / `VELOCITY_EXCEEDED` /
+      `INSUFFICIENT_HISTORY` reject reasons; the API exposes
+      `compute_safe_score()` at the same constants and the
+      `/agents/{wallet}/safe_score` route. A DeFi consumer that
+      `import { SafeCertReader }` or `GET /agents/{wallet}/safe_score`
+      gets freshness (≤ 48h) AND velocity (≤ 200/3 epochs) guards for
+      free — the underlying VULN-23 attack chain (flash-loan score
+      manipulation + DeFi drain) requires BOTH the off-chain
+      `apply_delta_guard_rail` clamp AND a consumer-side velocity check
+      because cert-account storage cannot carry `previous_score` without
+      a backwards-incompatible migration.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain
@@ -160,6 +176,16 @@ the entry gate.
       version — pause the rollout, finish the upgrade, do NOT slash
       the lagging node. A future scoring-algo upgrade MUST take effect
       at epoch N+1 via governance, not mid-epoch.
+- [ ] **VULN-23 safe_score endpoint live.** From an external host,
+      `curl -i $HELIXOR_API_URL/agents/<wallet>/safe_score` returns
+      `200 OK` with a JSON body whose `ok` field is the discriminator.
+      For a brand-new agent the body MUST be
+      `{"ok": false, "reason": "INSUFFICIENT_HISTORY", ...}` — NOT a
+      404, NOT a default-allow. The DeFi-integrator runbook
+      (`launch/RUNBOOK_defi_integration.md`) MUST recommend
+      `GET /agents/{wallet}/safe_score` or the SDK's `SafeCertReader`
+      over the raw `getScore()` path; raw `getScore()` is for telemetry
+      only, never for gating value transfer.
 - [ ] **The first epoch on mainnet completes** end-to-end, on-chain
       cert visible via explorer
 

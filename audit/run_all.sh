@@ -59,6 +59,11 @@ run "version pinning sweep"  python3 audit/version_pinning_check.py \
     --json audit/reports/version_pinning.json
 
 
+# ── 1e. VULN-23 cert-consumption sweep ──────────────────────────────────────
+run "cert consumption sweep"  python3 audit/cert_consumption_check.py \
+    --json audit/reports/cert_consumption.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

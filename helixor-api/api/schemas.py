@@ -68,6 +68,47 @@ class HistoryResponse(BaseModel):
 
 
 # =============================================================================
+# Safe-score endpoint (VULN-23) — DeFi consumer guard rails over REST
+# =============================================================================
+#
+# This shape mirrors the SDK's `SafeScoreResult` discriminated union. The
+# `ok` field is the discriminator a protocol switches on; when `ok=false`
+# the protocol MUST refuse the operation — never default-allow.
+
+class SafeScoreVelocityWindow(BaseModel):
+    min_score: int
+    max_score: int
+    epochs:    list[int]
+
+
+class SafeScoreResponse(BaseModel):
+    """`GET /agents/{wallet}/safe_score` — guarded current score.
+
+    The discriminator is `ok`:
+      - ok=true  → `score` + `alert_tier` + `velocity_window` populated
+      - ok=false → `reason` + `detail` populated; `score` is null
+
+    `reason` is the machine-readable signal a DeFi protocol switches on:
+      STALE_CERT, VELOCITY_EXCEEDED, INSUFFICIENT_HISTORY
+    """
+    schema_version:    int = Field(SCHEMA_VERSION, alias="_v")
+    agent_wallet:      str
+    ok:                bool
+    # populated when ok=True
+    score:             int | None              = None
+    alert_tier:        str | None              = None
+    alert_tier_code:   int | None              = None
+    epoch:             int | None              = None
+    issued_at_unix:    int | None              = None
+    velocity_window:   SafeScoreVelocityWindow | None = None
+    # populated when ok=False
+    reason:            str | None              = None
+    detail:            str | None              = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+# =============================================================================
 # Byzantine — what runbooks query
 # =============================================================================
 

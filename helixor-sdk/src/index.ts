@@ -39,3 +39,19 @@ export {
   type DecodedHealthCertificate,
   type DecodedEpochState,
 } from "./decode";
+
+// VULN-23 consumer-side guard rails — wraps any ChainReader and refuses
+// stale or velocity-pumped certs before a DeFi protocol acts on them.
+export {
+  SafeCertReader,
+  RejectReason,
+  CERT_MAX_AGE_SECONDS,
+  MAX_SCORE_VELOCITY,
+  VELOCITY_WINDOW_EPOCHS,
+  MIN_HISTORY_REQUIRED,
+  type ChainReader,
+  type SafeCertReaderOptions,
+  type SafeScoreOk,
+  type SafeScoreRejected,
+  type SafeScoreResult,
+} from "./safe_reader";
