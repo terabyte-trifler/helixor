@@ -359,9 +359,27 @@ def _retarget_agent_input(agent_input, wallet: str, profile_name: str):
     return dataclasses.replace(agent_input, agent_wallet=wallet)
 
 
+_BASE58_DIGITS = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def _b58_index(n: int, width: int = 2) -> str:
+    if n == 0:
+        out = _BASE58_DIGITS[0]
+    else:
+        out = ""
+        while n > 0:
+            n, r = divmod(n, 58)
+            out = _BASE58_DIGITS[r] + out
+    return out.rjust(width, _BASE58_DIGITS[0])
+
+
 def _synthetic_wallet(index: int, profile_name: str) -> str:
-    safe = "".join(c for c in profile_name if c.isalnum())[:14]
-    return f"HxSynth{index:02d}{safe}".ljust(44, "x")[:44]
+    # Wallet must be base58 (VULN-20): no 0/O/I/l and 32..44 chars long.
+    safe = "".join(
+        c for c in profile_name
+        if c.isalnum() and c not in "0OIl"
+    )[:14]
+    return f"HxSynth{_b58_index(index)}{safe}".ljust(44, "x")[:44]
 
 
 def _history_offset(index: int, offset: int) -> int:

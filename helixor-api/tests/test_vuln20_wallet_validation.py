@@ -206,6 +206,10 @@ class TestRepositoryGuard:
     is safe. This pins the defense-in-depth guard."""
 
     def test_fetch_transactions_refuses_bad_wallet(self):
+        pytest.importorskip(
+            "db.timescale_repo",
+            reason="helixor-oracle not on sys.path; run with PYTHONPATH=.:../helixor-oracle",
+        )
         from db.timescale_repo import (
             TimescaleTransactionRepo, WalletValidationError as RepoErr,
         )
@@ -230,6 +234,10 @@ class TestRepositoryGuard:
         assert conn.calls == [], "the repo must NOT issue a query for a bad wallet"
 
     def test_fetch_daily_rollup_refuses_bad_wallet(self):
+        pytest.importorskip(
+            "db.timescale_repo",
+            reason="helixor-oracle not on sys.path; run with PYTHONPATH=.:../helixor-oracle",
+        )
         from db.timescale_repo import (
             TimescaleTransactionRepo, WalletValidationError as RepoErr,
         )
