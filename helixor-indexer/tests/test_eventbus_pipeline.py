@@ -16,10 +16,14 @@ import pytest
 from eventbus import (
     AlertProducer,
     DetectionConsumer,
+    Ed25519PayloadSigner,
     InMemoryBroker,
     PoisonMessage,
     Topic,
     TransactionProducer,
+    TrustedProducer,
+    TrustedProducerSet,
+    attach_signature,
 )
 from eventbus.serialization import (
     SerializationError,
@@ -33,6 +37,24 @@ from features.types import Transaction
 
 CONF = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
 PROG = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+
+
+# VULN-07: every test producer needs a signer + every consumer needs a
+# matching trusted-producer set. These helpers build a paired (signer,
+# trusted-set) so tests can drop them into the call sites unchanged.
+def _make_signer() -> Ed25519PayloadSigner:
+    return Ed25519PayloadSigner.from_seed(b"helixor-test-producer-seed-01")
+
+
+def _trusted_for(signer: Ed25519PayloadSigner) -> TrustedProducerSet:
+    return TrustedProducerSet([
+        TrustedProducer(name="indexer-test", public_key=signer.public_key),
+    ])
+
+
+def _sign_value_for(broker: InMemoryBroker, value: bytes) -> dict:
+    """Build signed headers for a raw payload (used by direct-broker tests)."""
+    return attach_signature(value, _make_signer())
 
 
 def _tx(i: int) -> Transaction:
@@ -99,13 +121,13 @@ class TestProducer:
 
     def test_produces_to_transactions_topic(self):
         broker = InMemoryBroker()
-        producer = TransactionProducer(broker, clock=lambda: CONF)
+        producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         producer.produce(_agent(0), _tx(0))
         assert broker.total_records(Topic.TRANSACTIONS.value) == 1
 
     def test_produce_count(self):
         broker = InMemoryBroker()
-        producer = TransactionProducer(broker, clock=lambda: CONF)
+        producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         for i in range(15):
             producer.produce(_agent(i % 3), _tx(i))
         assert producer.produced_count == 15
@@ -113,7 +135,7 @@ class TestProducer:
     def test_keyed_by_agent_wallet(self):
         # All of one agent's transactions land on a single partition.
         broker = InMemoryBroker()
-        producer = TransactionProducer(broker, clock=lambda: CONF)
+        producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         for i in range(20):
             producer.produce(_agent(0), _tx(i))
         topic = Topic.TRANSACTIONS.value
@@ -133,7 +155,7 @@ class TestDoneWhenBasicFlow:
     def test_transaction_flows_through_the_bus(self):
         """A transaction flows Geyser -> Kafka -> detection consumer."""
         broker = InMemoryBroker()
-        producer = TransactionProducer(broker, clock=lambda: CONF)
+        producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         # The "Geyser indexer" produces.
         producer.produce(_agent(0), _tx(0))
 
@@ -141,6 +163,7 @@ class TestDoneWhenBasicFlow:
         delivered = []
         consumer = DetectionConsumer(
             broker, group="detection", consumer_id="c1",
+            trusted_producers=_trusted_for(_make_signer()),
             processor=lambda aw, tx: delivered.append((aw, tx)),
         )
         report = consumer.consume_until_empty()
@@ -152,13 +175,14 @@ class TestDoneWhenBasicFlow:
 
     def test_all_transactions_delivered(self):
         broker = InMemoryBroker()
-        producer = TransactionProducer(broker, clock=lambda: CONF)
+        producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         for i in range(50):
             producer.produce(_agent(i % 5), _tx(i))
 
         delivered = []
         consumer = DetectionConsumer(
             broker, group="detection", consumer_id="c1",
+            trusted_producers=_trusted_for(_make_signer()),
             processor=lambda aw, tx: delivered.append(tx.signature),
         )
         consumer.consume_until_empty()
@@ -168,13 +192,14 @@ class TestDoneWhenBasicFlow:
         # A record delivered twice (the consumer dedups on signature) is
         # processed once. at-least-once delivery + idempotent consumer.
         broker = InMemoryBroker()
-        producer = TransactionProducer(broker, clock=lambda: CONF)
+        producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         tx = _tx(0)
         producer.produce(_agent(0), tx)
 
         delivered = []
         consumer = DetectionConsumer(
             broker, group="detection", consumer_id="c1",
+            trusted_producers=_trusted_for(_make_signer()),
             processor=lambda aw, t: delivered.append(t.signature),
         )
         consumer.consume_until_empty()
@@ -195,13 +220,14 @@ class TestDoneWhenConsumerCrash:
     def test_crash_after_commit_loses_nothing(self):
         # c1 processes + commits some, then leaves. c2 processes the rest.
         broker = InMemoryBroker()
-        producer = TransactionProducer(broker, clock=lambda: CONF)
+        producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         for i in range(30):
             producer.produce(_agent(i % 3), _tx(i))
 
         c1_seen = []
         c1 = DetectionConsumer(
             broker, group="detection", consumer_id="c1",
+            trusted_producers=_trusted_for(_make_signer()),
             processor=lambda aw, t: c1_seen.append(t.signature),
         )
         c1.join()
@@ -211,6 +237,7 @@ class TestDoneWhenConsumerCrash:
         c2_seen = []
         c2 = DetectionConsumer(
             broker, group="detection", consumer_id="c2",
+            trusted_producers=_trusted_for(_make_signer()),
             processor=lambda aw, t: c2_seen.append(t.signature),
         )
         c2.consume_until_empty()
@@ -223,7 +250,7 @@ class TestDoneWhenConsumerCrash:
         # nothing is lost.
         broker = InMemoryBroker()
         broker.create_topic(Topic.TRANSACTIONS.value, 1)   # 1 partition
-        producer = TransactionProducer(broker, clock=lambda: CONF)
+        producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         for i in range(10):
             producer.produce(_agent(0), _tx(i))
 
@@ -231,6 +258,7 @@ class TestDoneWhenConsumerCrash:
         # NEVER calling consume() (which commits). It just leaves.
         c1 = DetectionConsumer(
             broker, group="detection", consumer_id="c1",
+            trusted_producers=_trusted_for(_make_signer()),
             processor=lambda aw, t: None,
         )
         c1.join()
@@ -242,6 +270,7 @@ class TestDoneWhenConsumerCrash:
         c2_seen = []
         c2 = DetectionConsumer(
             broker, group="detection", consumer_id="c2",
+            trusted_producers=_trusted_for(_make_signer()),
             processor=lambda aw, t: c2_seen.append(t.signature),
         )
         c2.consume_until_empty()
@@ -252,13 +281,14 @@ class TestDoneWhenConsumerCrash:
     def test_partial_commit_redelivers_only_uncommitted(self):
         broker = InMemoryBroker()
         broker.create_topic(Topic.TRANSACTIONS.value, 1)
-        producer = TransactionProducer(broker, clock=lambda: CONF)
+        producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         for i in range(10):
             producer.produce(_agent(0), _tx(i))
 
         c1_seen = []
         c1 = DetectionConsumer(
             broker, group="detection", consumer_id="c1",
+            trusted_producers=_trusted_for(_make_signer()),
             processor=lambda aw, t: c1_seen.append(t.signature),
         )
         c1.join()
@@ -268,6 +298,7 @@ class TestDoneWhenConsumerCrash:
         c2_seen = []
         c2 = DetectionConsumer(
             broker, group="detection", consumer_id="c2",
+            trusted_producers=_trusted_for(_make_signer()),
             processor=lambda aw, t: c2_seen.append(t.signature),
         )
         c2.consume_until_empty()
@@ -295,6 +326,7 @@ class TestDeadLetter:
 
         consumer = DetectionConsumer(
             broker, group="detection", consumer_id="c1",
+            trusted_producers=_trusted_for(_make_signer()),
             processor=lambda aw, t: None,
         )
         report = consumer.consume_until_empty()
@@ -305,7 +337,7 @@ class TestDeadLetter:
         # A poison record between two good ones: the good ones still process.
         broker = InMemoryBroker()
         broker.create_topic(Topic.TRANSACTIONS.value, 1)
-        producer = TransactionProducer(broker, clock=lambda: CONF)
+        producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         producer.produce(_agent(0), _tx(0))
         broker.produce(Topic.TRANSACTIONS.value,
                        EventRecord(key=_agent(0), value=b"poison"))
@@ -314,6 +346,7 @@ class TestDeadLetter:
         delivered = []
         consumer = DetectionConsumer(
             broker, group="detection", consumer_id="c1",
+            trusted_producers=_trusted_for(_make_signer()),
             processor=lambda aw, t: delivered.append(t.signature),
         )
         report = consumer.consume_until_empty()
@@ -322,7 +355,7 @@ class TestDeadLetter:
 
     def test_transient_failure_retried_then_succeeds(self):
         broker = InMemoryBroker()
-        producer = TransactionProducer(broker, clock=lambda: CONF)
+        producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         producer.produce(_agent(0), _tx(0))
 
         attempts = {"n": 0}
@@ -334,6 +367,7 @@ class TestDeadLetter:
 
         consumer = DetectionConsumer(
             broker, group="detection", consumer_id="c1", processor=flaky,
+            trusted_producers=_trusted_for(_make_signer()),
         )
         report = consumer.consume_until_empty()
         assert attempts["n"] == 3                # failed twice, then succeeded
@@ -342,7 +376,7 @@ class TestDeadLetter:
 
     def test_persistent_failure_exhausts_retries_then_dead_letters(self):
         broker = InMemoryBroker()
-        producer = TransactionProducer(broker, clock=lambda: CONF)
+        producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         producer.produce(_agent(0), _tx(0))
 
         def always_fails(aw, tx):
@@ -350,6 +384,7 @@ class TestDeadLetter:
 
         consumer = DetectionConsumer(
             broker, group="detection", consumer_id="c1",
+            trusted_producers=_trusted_for(_make_signer()),
             processor=always_fails, max_retries=3,
         )
         report = consumer.consume_until_empty()
@@ -359,7 +394,7 @@ class TestDeadLetter:
     def test_processor_can_flag_poison_directly(self):
         # A processor that raises PoisonMessage skips retries -> straight DLQ.
         broker = InMemoryBroker()
-        producer = TransactionProducer(broker, clock=lambda: CONF)
+        producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         producer.produce(_agent(0), _tx(0))
 
         def reject(aw, tx):
@@ -367,6 +402,7 @@ class TestDeadLetter:
 
         consumer = DetectionConsumer(
             broker, group="detection", consumer_id="c1", processor=reject,
+            trusted_producers=_trusted_for(_make_signer()),
         )
         report = consumer.consume_until_empty()
         assert report.dead_lettered == 1
@@ -381,7 +417,7 @@ class TestAlertsTopic:
 
     def test_alert_produced_to_alerts_topic(self):
         broker = InMemoryBroker()
-        producer = AlertProducer(broker, clock=lambda: CONF)
+        producer = AlertProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         producer.produce_alert(
             agent_wallet=_agent(0), score=120, alert_tier="RED",
             immediate_red=True, aggregated_flags=0x08,
@@ -391,7 +427,7 @@ class TestAlertsTopic:
 
     def test_alert_round_trips(self):
         broker = InMemoryBroker()
-        producer = AlertProducer(broker, clock=lambda: CONF)
+        producer = AlertProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         producer.produce_alert(
             agent_wallet=_agent(0), score=120, alert_tier="RED",
             immediate_red=True, aggregated_flags=0x08, reason="sybil",
@@ -406,8 +442,8 @@ class TestAlertsTopic:
         # The fast-path alerts topic is distinct from the bulk transactions
         # topic — so a slow detection consumer never delays an alert.
         broker = InMemoryBroker()
-        tx_producer = TransactionProducer(broker, clock=lambda: CONF)
-        alert_producer = AlertProducer(broker, clock=lambda: CONF)
+        tx_producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
+        alert_producer = AlertProducer(broker, signer=_make_signer(), clock=lambda: CONF)
         tx_producer.produce(_agent(0), _tx(0))
         alert_producer.produce_alert(
             agent_wallet=_agent(0), score=100, alert_tier="RED",
@@ -426,12 +462,13 @@ class TestDeterminism:
     def test_pipeline_deterministic(self):
         def _run():
             broker = InMemoryBroker()
-            producer = TransactionProducer(broker, clock=lambda: CONF)
+            producer = TransactionProducer(broker, signer=_make_signer(), clock=lambda: CONF)
             for i in range(40):
                 producer.produce(_agent(i % 4), _tx(i))
             delivered = []
             consumer = DetectionConsumer(
                 broker, group="detection", consumer_id="c1",
+                trusted_producers=_trusted_for(_make_signer()),
                 processor=lambda aw, t: delivered.append(t.signature),
             )
             consumer.consume_until_empty()

@@ -18,6 +18,9 @@ Public API:
     serialize_transaction, deserialize_transaction       the wire format
     serialize_alert, deserialize_alert
     ConfluentKafkaBroker, ConfluentKafkaConfig           the production edge
+    PayloadSigner, Ed25519PayloadSigner                  VULN-07 signing
+    TrustedProducer, TrustedProducerSet                  VULN-07 trust
+    SignatureError, UntrustedProducer                    VULN-07 errors
 """
 
 from __future__ import annotations
@@ -38,6 +41,16 @@ from eventbus.serialization import (
     serialize_alert,
     serialize_transaction,
 )
+from eventbus.signing import (
+    Ed25519PayloadSigner,
+    PayloadSigner,
+    SignatureError as PayloadSignatureError,
+    TrustedProducer,
+    TrustedProducerSet,
+    UntrustedProducer,
+    attach_signature,
+    verify_record_headers,
+)
 from eventbus.types import (
     ConsumedRecord,
     DeliveryError,
@@ -54,4 +67,8 @@ __all__ = [
     "serialize_transaction", "deserialize_transaction",
     "serialize_alert", "deserialize_alert", "SerializationError",
     "ConfluentKafkaBroker", "ConfluentKafkaConfig",
+    "PayloadSigner", "Ed25519PayloadSigner",
+    "TrustedProducer", "TrustedProducerSet",
+    "PayloadSignatureError", "UntrustedProducer",
+    "attach_signature", "verify_record_headers",
 ]

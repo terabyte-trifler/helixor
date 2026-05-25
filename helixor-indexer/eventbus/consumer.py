@@ -27,6 +27,16 @@ undecodable) — must not block its partition forever. After
 `max_retries` failures the consumer routes it to `agent.deadletter` and
 commits past it, so the partition advances. Genuine transient failures
 get the retries; genuine poison gets quarantined.
+
+VULN-07 MITIGATION
+------------------
+Every record is signature-verified BEFORE the decoder runs. The consumer
+holds a `TrustedProducerSet` (the indexer/oracle-node pubkeys allowed to
+produce on this topic). A record that is unsigned, signed by an
+untrusted producer, or whose signature does not verify against the
+payload is FORGERY — straight to the dead-letter topic, never retried,
+never decoded. A network-adjacent attacker who manages to publish onto
+the bus without a trusted private key cannot inject data into scoring.
 """
 
 from __future__ import annotations
@@ -37,6 +47,12 @@ from dataclasses import dataclass, field
 
 from eventbus.broker import InMemoryBroker, MessageBroker
 from eventbus.serialization import SerializationError, deserialize_transaction
+from eventbus.signing import (
+    SignatureError,
+    TrustedProducerSet,
+    UntrustedProducer,
+    verify_record_headers,
+)
 from eventbus.types import (
     ConsumedRecord,
     EventRecord,
@@ -108,14 +124,21 @@ class DetectionConsumer:
         group:       str,
         consumer_id: str,
         processor:   RecordProcessor,
+        trusted_producers: TrustedProducerSet,
         topic:       str = Topic.TRANSACTIONS.value,
         dead_letter_topic: str = Topic.DEAD_LETTER.value,
         max_retries: int = DEFAULT_MAX_RETRIES,
     ) -> None:
+        if trusted_producers is None:
+            raise ValueError(
+                "DetectionConsumer requires a TrustedProducerSet — VULN-07 "
+                "forbids consuming unsigned records"
+            )
         self._broker = broker
         self._group = group
         self._consumer_id = consumer_id
         self._processor = processor
+        self._trusted = trusted_producers
         self._topic = topic
         self._dlq = dead_letter_topic
         self._max_retries = max_retries
@@ -269,6 +292,31 @@ class DetectionConsumer:
           retried       — retry attempts made on this call (0 or 1).
         """
         record = consumed.record
+
+        # ── VULN-07: verify provenance BEFORE decoding. ─────────────────────
+        # An unsigned / untrusted / tampered record is forgery, not malformed
+        # data — it never enters the decoder, never enters the processor, and
+        # is never retried. Straight to dead-letter, every time. Forgery
+        # retries help nothing and burn partition progress.
+        try:
+            verify_record_headers(
+                record.value, record.headers, self._trusted,
+            )
+        except UntrustedProducer as exc:
+            logger.error(
+                "VULN-07: untrusted producer at %s/%d — %s; dead-lettering",
+                consumed.topic, consumed.offset, exc,
+            )
+            self._dead_letter(record, reason=f"untrusted producer: {exc}")
+            return {"done": True, "dead_lettered": True, "retried": 0}
+        except SignatureError as exc:
+            logger.error(
+                "VULN-07: signature verification failed at %s/%d — %s; "
+                "dead-lettering",
+                consumed.topic, consumed.offset, exc,
+            )
+            self._dead_letter(record, reason=f"bad signature: {exc}")
+            return {"done": True, "dead_lettered": True, "retried": 0}
 
         # ── Decode. A decode failure is POISON — never retried. ─────────────
         try:

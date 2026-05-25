@@ -110,8 +110,13 @@ class ConfluentKafkaBroker:
 
         config = ConfluentKafkaConfig(bootstrap_servers="kafka:9092")
         broker = ConfluentKafkaBroker(config)
-        producer = TransactionProducer(broker)
-        consumer = DetectionConsumer(broker, group="detection", ...)
+        # VULN-07: producer/consumer require signer + trusted-set.
+        signer = Ed25519PayloadSigner.from_node_keypair(node_kp)
+        trusted = TrustedProducerSet([TrustedProducer("indexer", signer.public_key)])
+        producer = TransactionProducer(broker, signer=signer)
+        consumer = DetectionConsumer(
+            broker, group="detection", trusted_producers=trusted, ...
+        )
 
     `confluent_kafka` is imported in `__init__`, never at module load.
     """
