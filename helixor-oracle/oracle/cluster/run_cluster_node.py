@@ -210,6 +210,26 @@ def main(argv: list[str] | None = None) -> int:
         logger.error(str(exc))
         return 2
 
+    # ── VULN-18: scoring determinism pin ────────────────────────────────────
+    # The cluster's commit-reveal protocol depends on every honest node
+    # producing the byte-identical ScoreResult for the same input. That
+    # contract holds only on the audited Python runtime with the audited
+    # math backends. Refuse to start on mainnet against a non-pinned
+    # runtime, unless HELIXOR_SCORING_DETERMINISM_OK=1 is set as an audited
+    # emergency bypass (see audit/reports/scoring_determinism_optin.md).
+    from scoring.determinism import (
+        enforce_scoring_determinism,
+        ScoringDeterminismRefused,
+    )
+    try:
+        enforce_scoring_determinism(
+            service=f"oracle-node:{args.node_id}",
+            is_production=verdict.is_production,
+        )
+    except ScoringDeterminismRefused as exc:
+        logger.error(str(exc))
+        return 2
+
     try:
         tls = _read_tls_material_from_env()
         if verdict.is_production and tls is None:

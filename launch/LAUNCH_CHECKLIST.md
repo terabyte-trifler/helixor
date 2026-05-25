@@ -85,6 +85,17 @@ the entry gate.
       cluster sits behind a private-link service mesh that
       authenticates the connection independently (record the
       justification in `audit/reports/kafka_plaintext_optin.md`).
+- [ ] **VULN-18 scoring determinism.** Every oracle node runs on a
+      Python interpreter in `SUPPORTED_PYTHON_VERSIONS` (currently
+      `{(3, 12), (3, 13)}` — see `helixor-oracle/scoring/determinism.py`);
+      journalctl shows the
+      `scoring_determinism: service ... starting on PRODUCTION with
+      pinned runtime python=...` warning line at startup. NO node
+      shows `HELIXOR_SCORING_DETERMINISM_OK=1` unless the audited
+      runtime has a CVE and the bypass is justified in
+      `audit/reports/scoring_determinism_optin.md`. No node has
+      `numpy`/`scipy`/`pandas`/`sklearn` in `sys.modules` at startup
+      (the guard scans on every entrypoint).
 - [ ] **The first epoch on mainnet completes** end-to-end, on-chain
       cert visible via explorer
 

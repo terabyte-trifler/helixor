@@ -47,6 +47,7 @@ from scoring._gaming import (
     compute_confidence,
     detect_entropy_gaming,
 )
+from scoring.determinism import quantize_to_int
 from features import FEATURE_SCHEMA_VERSION, FeatureVector
 from scoring.weights import SCORING_WEIGHTS_VERSION, WEIGHTS, scoring_schema_fingerprint
 
@@ -259,9 +260,14 @@ def compute_composite_score(
         weighted_floats[dim] = contribution
         aggregated_flags |= result.flags
 
-    # 2. Round each contribution to int (banker's rounding via int(round(...))).
+    # 2. Round each contribution to int. VULN-18: this is THE consensus-
+    #    affecting float→int conversion. Every node must produce byte-
+    #    identical bytes here. quantize_to_int wraps Python's banker's-
+    #    rounding (round-half-to-even) and is the single approved path;
+    #    enforce_scoring_determinism() at startup pins the runtime that
+    #    makes the rounding contract reproducible across nodes.
     weighted_contributions = {
-        dim: int(round(value)) for dim, value in weighted_floats.items()
+        dim: quantize_to_int(value) for dim, value in weighted_floats.items()
     }
 
     # 3. Composite score = sum of rounded contributions, clamped to [0, 1000].

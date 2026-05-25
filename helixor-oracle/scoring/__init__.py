@@ -31,6 +31,16 @@ from scoring._gaming import (
     compute_confidence,
     detect_entropy_gaming,
 )
+from scoring.determinism import (
+    BANNED_MATH_BACKENDS,
+    SUPPORTED_PYTHON_VERSIONS,
+    DeterminismVerdict,
+    ScoringDeterminismRefused,
+    enforce_scoring_determinism,
+    evaluate as evaluate_scoring_determinism,
+    quantize_to_int,
+    scan_source_for_banned_imports,
+)
 
 __all__ = [
     "compute_composite_score",
@@ -48,4 +58,13 @@ __all__ = [
     "apply_delta_guard_rail",
     "GAMING_ENTROPY_DROP_THRESHOLD",
     "MAX_SCORE_DELTA",
+    # VULN-18 — scoring determinism guard
+    "quantize_to_int",
+    "enforce_scoring_determinism",
+    "evaluate_scoring_determinism",
+    "scan_source_for_banned_imports",
+    "DeterminismVerdict",
+    "ScoringDeterminismRefused",
+    "SUPPORTED_PYTHON_VERSIONS",
+    "BANNED_MATH_BACKENDS",
 ]
