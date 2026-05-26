@@ -1,0 +1,13 @@
+{
+  "checked": [
+    "SOL-1 cluster-liveness signal",
+    "SOL-2 per-agent staleness escalator",
+    "SOL-3 per-operation freshness floors"
+  ],
+  "findings": [],
+  "summary": {
+    "checks": 3,
+    "hard_findings": 0,
+    "soft_findings": 0
+  }
+}

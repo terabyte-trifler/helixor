@@ -1,0 +1,14 @@
+{
+  "checked": [
+    "DBP-1a[example_safe_partner.json]",
+    "DBP-1b[VULN-23 anchor]",
+    "DBP-1c[SOL-3 anchor]",
+    "DBP-1d[AW-01-EXT anchor]"
+  ],
+  "findings": [],
+  "summary": {
+    "checks": 4,
+    "hard_findings": 0,
+    "soft_findings": 0
+  }
+}
