@@ -145,6 +145,20 @@ run "centralization gate"  python3 audit/centralization_check.py \
     --json audit/reports/centralization.json
 
 
+# ── 1n. Protocol Death Spiral audit gate ────────────────────────────────────
+# Architectural fix for catastrophic Scenario A from the audit: attacker
+# compromises 2 oracle nodes, runs VULN-03 slow drift for 30 epochs, all
+# agent scores reach 900+, DeFi protocols issue max loans against the
+# inflated scores, attacker triggers mass agent failures, every loan
+# defaults at once. Closed by three real mechanisms — cluster
+# saturation gate (PDS-1), SDK score-velocity contract (PDS-2),
+# multi-epoch correlated-movement + mass-failure detector (PDS-3). This
+# gate greps each marker so a refactor that quietly removes a
+# mitigation lights red BEFORE mainnet.
+run "death spiral gate"  python3 audit/death_spiral_check.py \
+    --json audit/reports/death_spiral.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

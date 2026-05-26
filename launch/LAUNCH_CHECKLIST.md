@@ -282,6 +282,42 @@ file.
       org owns >= threshold pubkeys). A regression that removes any of
       these mitigations lights the gate red BEFORE the change reaches
       mainnet.
+- [ ] **Protocol Death Spiral audit gate clean** —
+      `python3 audit/death_spiral_check.py --json audit/reports/death_spiral.json`
+      reports **0 HARD findings**. The gate is the mechanical
+      regression alarm for the catastrophic Scenario A
+      "Protocol Death Spiral" attack chain in
+      `launch/design/death_spiral_resolution.md` — attacker
+      compromises two oracle nodes, runs VULN-03 slow-drift inflation
+      for ~30 epochs until the agent universe lives in the 900+
+      band, DeFi protocols issue maximum loans against the saturated
+      scores, attacker triggers mass agent failures, every loan
+      defaults at once. Closed by three orthogonal mitigations: PDS-1
+      cluster score-band saturation gate
+      (`verify_saturation` + `HIGH_BAND_FLOOR=700`,
+      `MAX_HIGH_BAND_MIGRATION_FRACTION=0.40`,
+      `ABSOLUTE_HIGH_BAND_CEILING=0.80`,
+      `VARIANCE_COLLAPSE_THRESHOLD=0.50` — refuses cert batch when
+      the agent distribution saturates HIGH band in one epoch),
+      PDS-2 SDK-consumer score-velocity contract
+      (`verify_score_velocity` + `MAX_SCORE_DELTA_PER_EPOCH=200` in
+      lockstep with `scoring/_gaming.MAX_SCORE_DELTA=200`,
+      `MAX_SCORE_VELOCITY_PER_HOUR=100`,
+      `ABSURD_VELOCITY_PER_HOUR=500` — caps adjacent-epoch cert pairs
+      so the DeFi consumer refuses inflated scores even if the
+      cluster is captured), PDS-3 multi-epoch correlated-movement +
+      mass-failure detector
+      (`verify_correlated_movement` + `verify_mass_failure` +
+      `CORRELATION_WINDOW=5`, `MAX_DIRECTIONAL_SHARE=0.85`,
+      `MASS_FAILURE_DROP=200`, `MASS_FAILURE_AGENT_FRACTION=0.50` —
+      rolling-window directional + crash tally with deterministic
+      SHA-256 evidence hash that any honest cluster member can
+      reproduce). The gate ALSO cross-checks
+      `scoring/_gaming.MAX_SCORE_DELTA = 200` against
+      `score_velocity.MAX_SCORE_DELTA_PER_EPOCH = 200` so the
+      internal clamp and the SDK cap cannot drift out of lockstep
+      silently. A regression that removes any of these mitigations
+      lights the gate red BEFORE the change reaches mainnet.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain

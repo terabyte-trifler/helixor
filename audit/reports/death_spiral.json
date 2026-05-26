@@ -1,0 +1,13 @@
+{
+  "checked": [
+    "PDS-1 cluster saturation gate",
+    "PDS-2 SDK score-velocity contract",
+    "PDS-3 correlated-inflation detector"
+  ],
+  "findings": [],
+  "summary": {
+    "checks": 3,
+    "hard_findings": 0,
+    "soft_findings": 0
+  }
+}
