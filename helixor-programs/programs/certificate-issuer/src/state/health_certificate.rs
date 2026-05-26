@@ -27,8 +27,20 @@
 //   bump                     1   (u8)
 //   layout_version           1   (u8)
 //   signer_count             1   (u8    — how many cluster keys signed this cert)
-//   _reserved               47   (zeroed cushion for future fields)
-//   TOTAL (without discriminator): 170 bytes
+//   input_commitment        32   ([u8;32] — AW-01 cluster-majority input commitment)
+//   slot_anchor_slot         8   (u64    — AW-01-EXT Solana slot the cluster pinned)
+//   slot_anchor_hash        32   ([u8;32]— AW-01-EXT Solana block hash for that slot)
+//   challenge_state          1   (u8    — AW-01-EXT.6: None / Upheld / Rejected)
+//   _reserved               14   (zeroed cushion for future fields)
+//   TOTAL (without discriminator): 210 bytes
+//
+// AW-01: `input_commitment` is the 32-byte SHA-256 cluster-majority commitment
+// over the canonical input transactions + windows the cluster scored. It is
+// folded into the cert-payload digest (signing.rs), so the Ed25519 signature
+// cryptographically attests to the INPUTS — not just to cluster agreement on
+// a derived score. Storing it on the certificate lets an SDK consumer
+// re-derive the commitment from observable on-chain transactions and refuse
+// certs whose declared inputs do not match what they see.
 //
 // A certificate is WRITE-ONCE: once issued for (agent, epoch) the account
 // exists and is never mutated. A re-issue attempt fails at account `init`
@@ -45,6 +57,45 @@ pub enum AlertTier {
     Green  = 0,
     Yellow = 1,
     Red    = 2,
+}
+
+/// AW-01-EXT.6: the lifecycle state of a certificate's challenge.
+///   None     — never challenged. The healthy default.
+///   Upheld   — a `challenge_certificate` succeeded; the cert is now
+///              REPUDIATED. Downstream consumers must treat the cert as
+///              invalid. The on-chain `ChallengeRecord` carries the
+///              proof.
+///   Rejected — a `challenge_certificate` was filed but rejected as
+///              frivolous (the challenger's `true_block_hash` equalled
+///              the cert's `slot_anchor_hash`). The cert is now
+///              PROVABLY honest at the slot-anchor layer; the ix's
+///              init-once guard prevents re-challenges.
+///
+/// Stored as a single u8 in `HealthCertificate._reserved` so the
+/// layout grows from v4 → v5 without a realloc.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[borsh(use_discriminant = true)]
+pub enum ChallengeState {
+    None     = 0,
+    Upheld   = 1,
+    Rejected = 2,
+}
+
+impl ChallengeState {
+    /// Decode a raw u8. Used by external decoders + tests.
+    pub fn from_u8(v: u8) -> Option<ChallengeState> {
+        match v {
+            0 => Some(ChallengeState::None),
+            1 => Some(ChallengeState::Upheld),
+            2 => Some(ChallengeState::Rejected),
+            _ => None,
+        }
+    }
+    pub fn as_u8(self) -> u8 { self as u8 }
+}
+
+impl Default for ChallengeState {
+    fn default() -> Self { ChallengeState::None }
 }
 
 impl AlertTier {
@@ -95,25 +146,61 @@ pub struct HealthCertificate {
     /// certificate was issued. Stored on-chain for post-issuance audits:
     /// consumers can verify the signing quorum without replaying the tx.
     pub signer_count:   u8,
+    /// AW-01: cluster-majority commitment over the canonical input
+    /// transactions + windows the cluster scored. Folded into the
+    /// cert-payload digest so the Ed25519 signature attests to inputs,
+    /// not just to agreement on a derived score. SDK consumers re-derive
+    /// the commitment from observable on-chain transactions and refuse
+    /// certs whose declared inputs do not match.
+    pub input_commitment: [u8; 32],
+    /// AW-01-EXT: the Solana slot the cluster pinned at scoring time.
+    /// Paired with `slot_anchor_hash` to verify against the SlotHashes
+    /// sysvar — Solana itself attests that this slot existed and had
+    /// that hash. Defends against COORDINATED upstream poisoning where
+    /// every node in the cluster reads from the same compromised RPC
+    /// fleet.
+    pub slot_anchor_slot: u64,
+    /// AW-01-EXT: the Solana block hash for `slot_anchor_slot`. Verified
+    /// against the SlotHashes sysvar at issue time. SDK consumers can
+    /// re-verify against `getSlotHashes()` on any RPC.
+    pub slot_anchor_hash: [u8; 32],
+    /// AW-01-EXT.6: lifecycle state of any filed challenge against this
+    /// cert. `None` is the only state at issue time; flipped to `Upheld`
+    /// or `Rejected` by `challenge_certificate`. Stored as a u8 so the
+    /// layout grows v4 → v5 without realloc — consumes 1 byte of the
+    /// previous `_reserved`.
+    pub challenge_state: u8,
     /// Zero-padded reserve for small future fields without a realloc.
-    pub _reserved:      [u8; 47],
+    pub _reserved:      [u8; 14],
 }
 
 impl HealthCertificate {
     /// The current layout version.
     /// v2: added signer_count field (consumes 1 byte of previously reserved space;
     /// total account size is unchanged at 170 bytes + 8-byte discriminator).
-    pub const CURRENT_LAYOUT_VERSION: u8 = 2;
+    /// v3: AW-01 — added input_commitment [u8;32] (consumes 32 bytes of
+    /// previously reserved space; total account size unchanged at 170 + 8).
+    /// v4: AW-01-EXT — added slot_anchor_slot (u64) and slot_anchor_hash
+    /// ([u8;32]). 40 bytes appended; total account size grows from 170 to
+    /// 210 (the previous _reserved was only 15 bytes so a realloc is
+    /// implicit in the new space constant).
+    /// v5: AW-01-EXT.6 — added challenge_state (1 byte, from _reserved).
+    /// Total account size UNCHANGED at 210 — the byte was reserved.
+    pub const CURRENT_LAYOUT_VERSION: u8 = 5;
 
     /// The highest valid composite score. Mirrors the off-chain 0..1000 range.
     pub const MAX_SCORE: u16 = 1000;
 
     /// Data size in bytes, WITHOUT the 8-byte Anchor discriminator.
     ///   32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1  = 123
-    /// + 47 reserved                                         =  47
-    ///   = 170
+    /// + 32 input_commitment                                =  32  (AW-01)
+    /// +  8 slot_anchor_slot                                =   8  (AW-01-EXT)
+    /// + 32 slot_anchor_hash                                =  32  (AW-01-EXT)
+    /// +  1 challenge_state                                 =   1  (AW-01-EXT.6)
+    /// + 14 reserved                                        =  14
+    ///   = 210
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
-        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1 + 47;
+        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1 + 32 + 8 + 32 + 1 + 14;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;

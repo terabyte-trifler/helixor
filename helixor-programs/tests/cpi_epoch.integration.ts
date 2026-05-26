@@ -16,7 +16,9 @@
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
+import {
+  PublicKey, Keypair, SystemProgram, SYSVAR_SLOT_HASHES_PUBKEY,
+} from "@solana/web3.js";
 import { assert } from "chai";
 
 const { BN } = anchor;
@@ -32,6 +34,8 @@ describe("health-oracle <-> certificate-issuer CPI (Day 19)", () => {
 
   const agent = Keypair.generate().publicKey;
   const baselineHash = Buffer.alloc(32, 9);
+  // AW-01: fixed test input-provenance commitment for the CPI path.
+  const inputCommitment = Buffer.alloc(32, 0x55);
 
   // ── PDA helpers ────────────────────────────────────────────────────────────
   const epochStatePda = () =>
@@ -62,6 +66,27 @@ describe("health-oracle <-> certificate-issuer CPI (Day 19)", () => {
       certProgram.programId
     )[0];
 
+  // AW-01-EXT — capture a LIVE `(slot, block_hash)` from the validator.
+  // The on-chain `verify_slot_anchor` walks SlotHashes and refuses
+  // anything outside the ~512-slot window, so the anchor must be fresh.
+  async function captureSlotAnchor(): Promise<{
+    slot: bigint; hash: Buffer;
+  }> {
+    const slot = await provider.connection.getSlot("finalized");
+    const block = await provider.connection.getBlock(slot, {
+      maxSupportedTransactionVersion: 0,
+    });
+    if (!block) {
+      throw new Error(`failed to fetch block ${slot} for slot anchor capture`);
+    }
+    return {
+      slot: BigInt(slot),
+      hash: Buffer.from(
+        anchor.utils.bytes.bs58.decode(block.blockhash),
+      ),
+    };
+  }
+
   // ── 1. submit_score writes the certificate by CPI ──────────────────────────
   it("writes an epoch-1 certificate via CPI from health_oracle", async () => {
     // Read the current epoch (1, freshly initialised).
@@ -71,9 +96,16 @@ describe("health-oracle <-> certificate-issuer CPI (Day 19)", () => {
     const epoch = epochState.currentEpoch.toNumber();
     assert.equal(epoch, 1);
 
+    const slotAnchor = await captureSlotAnchor();
+
     // submit_score on health_oracle — internally CPIs issue_certificate.
     await oracleProgram.methods
-      .submitScore(new BN(epoch), 916, 0 /* GREEN */, 0, false)
+      .submitScore(
+        new BN(epoch), 916, 0 /* GREEN */, 0, false,
+        [...inputCommitment],            // AW-01
+        new BN(slotAnchor.slot.toString()),   // AW-01-EXT slot
+        [...slotAnchor.hash],                 // AW-01-EXT block hash
+      )
       .accounts({
         agentRegistration: /* derived elsewhere */ undefined as any,
         oracleConfig: undefined as any,
@@ -84,6 +116,7 @@ describe("health-oracle <-> certificate-issuer CPI (Day 19)", () => {
         issuerConfig: issuerConfigPda(),
         certificateIssuerProgram: certProgram.programId,
         instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        slotHashesSysvar: SYSVAR_SLOT_HASHES_PUBKEY,
         systemProgram: SystemProgram.programId,
       })
       .rpc();
@@ -99,13 +132,30 @@ describe("health-oracle <-> certificate-issuer CPI (Day 19)", () => {
 
   // ── 2. epoch history — advance, submit again, both persist ─────────────────
   it("keeps epoch history queryable on-chain", async () => {
-    // Advance the epoch (the test validator's clock makes this possible;
-    // in production the 24h guard applies).
+    // AW-02: advance_epoch now needs the OracleConfig + instructions
+    // sysvar accounts AND M-of-N cluster Ed25519 attestations carried in
+    // the same tx. The integration test scaffold uses a 1-node cluster
+    // (provider.wallet is the sole oracle key, so threshold=1). The
+    // Tier-2 liveness-fallback path is what makes this single
+    // `.rpc()` shape still work in the test validator — the local
+    // validator's clock advances past the 2× duration during normal test
+    // setup, opening the fallback window. For a production-shape M-of-N
+    // test, see tests/aw02_threshold_advance.integration.ts.
+    //
+    // For the historical-coverage end of this test we exercise the
+    // fallback path with the wallet acting as a cluster member.
+    const oracleConfig = PublicKey.findProgramAddressSync(
+      [enc("oracle_config")],
+      oracleProgram.programId,
+    )[0];
+
     await oracleProgram.methods
       .advanceEpoch()
       .accounts({
         epochState: epochStatePda(),
+        oracleConfig,
         advancer: oracle.publicKey,
+        instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
       })
       .rpc();
 
@@ -115,8 +165,14 @@ describe("health-oracle <-> certificate-issuer CPI (Day 19)", () => {
     assert.equal(epochState.currentEpoch.toNumber(), 2);
 
     // Submit an epoch-2 score — a NEW certificate PDA.
+    const slotAnchor2 = await captureSlotAnchor();
     await oracleProgram.methods
-      .submitScore(new BN(2), 720, 0, 0, false)
+      .submitScore(
+        new BN(2), 720, 0, 0, false,
+        [...inputCommitment],            // AW-01
+        new BN(slotAnchor2.slot.toString()),  // AW-01-EXT slot
+        [...slotAnchor2.hash],                // AW-01-EXT block hash
+      )
       .accounts({
         agentRegistration: undefined as any,
         oracleConfig: undefined as any,
@@ -127,6 +183,7 @@ describe("health-oracle <-> certificate-issuer CPI (Day 19)", () => {
         issuerConfig: issuerConfigPda(),
         certificateIssuerProgram: certProgram.programId,
         instructionsSysvar: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+        slotHashesSysvar: SYSVAR_SLOT_HASHES_PUBKEY,
         systemProgram: SystemProgram.programId,
       })
       .rpc();

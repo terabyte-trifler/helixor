@@ -101,11 +101,18 @@ class CommitRecord:
 
 @dataclass(frozen=True, slots=True)
 class RevealRecord:
-    """A node's Phase-2 reveal — and whether it verified."""
+    """A node's Phase-2 reveal — and whether it verified.
+
+    AW-01: `input_commitments` carries the per-agent input-provenance
+    commitments the node revealed (one (agent_wallet, 32-byte SHA-256)
+    pair per agent it scored). None for pre-AW-01 callers / tests that
+    do not supply input commitments. Exposed to the aggregator so the
+    cross-node agreement check can compare each node's reveal."""
     node_id:    str
     scores:     tuple[AgentScore, ...]
     verified:   bool
     revealed_at: float
+    input_commitments: tuple[tuple[str, bytes], ...] | None = None
     reason:     str = ""
 
 
@@ -362,6 +369,7 @@ class CommitRevealRound:
         nonce:   bytes,
         *,
         now:     float,
+        input_commitments: Sequence[tuple[str, bytes]] | None = None,
     ) -> RevealRecord:
         """
         Record a node's Phase-2 reveal.
@@ -403,21 +411,27 @@ class CommitRevealRound:
         if node_id in self._reveals:
             raise RevealRejected(f"{node_id} already revealed")
 
-        # Verify the reveal against the commit. The snapshot_hash (VULN-15)
-        # AND the pinned algo_version (VULN-22) are folded in if the round
-        # was opened / pinned with them — a verifier with a different
-        # snapshot or version rejects the reveal, surfacing mid-epoch
-        # drift here rather than as silent score divergence.
+        # Verify the reveal against the commit. The snapshot_hash (VULN-15),
+        # the pinned algo_version (VULN-22), AND the per-agent input
+        # commitments (AW-01) are folded in if the round was opened /
+        # bound with them — a verifier with different inputs at any of
+        # those layers rejects the reveal, surfacing mid-epoch drift here
+        # rather than as silent score divergence.
         ok = verify_reveal(
             commit.commit_hash, scores, nonce,
             snapshot_hash=self._snapshot_hash,
             algo_version=self._pinned_algo_version,
+            input_commitments=input_commitments,
         )
         record = RevealRecord(
             node_id=node_id,
             scores=tuple(scores),
             verified=ok,
             revealed_at=now,
+            input_commitments=(
+                tuple(input_commitments) if input_commitments is not None
+                else None
+            ),
             reason="" if ok else (
                 "hash mismatch — revealed scores do not match the commit "
                 "(node did not compute these scores independently)"

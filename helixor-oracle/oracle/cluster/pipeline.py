@@ -70,6 +70,7 @@ from oracle.cluster.cert_signing import (
     sign_cert_digest,
 )
 from oracle.cluster.identity import NodeKeypair
+from oracle.cluster.input_commitment import SlotAnchor
 from oracle.epoch_runner import AgentEpochInput
 
 if TYPE_CHECKING:
@@ -92,17 +93,27 @@ class SubmittableCertificate:
     the threshold-satisfying signature set, and the pre-built Ed25519
     precompile instruction data blobs (one per signature).
     """
-    agent_wallet:    str
-    epoch:           int
-    score:           int
-    alert_tier:      int
-    flags:           int
-    baseline_hash:   bytes
-    immediate_red:   bool
-    digest:          bytes
-    signatures:      AggregatedSignatures
-    ed25519_ixs:     tuple[dict, ...]
-    aggregated:      AggregatedScore
+    agent_wallet:     str
+    epoch:            int
+    score:            int
+    alert_tier:       int
+    flags:            int
+    baseline_hash:    bytes
+    immediate_red:    bool
+    # AW-01: the 32-byte cluster-majority input-provenance commitment
+    # folded into the digest. Stored on-chain so consumers can re-derive
+    # and verify.
+    input_commitment: bytes
+    # AW-01-EXT: the Solana SlotAnchor (slot + block_hash) the cluster
+    # pinned at scoring time. Submitted as a separate parameter to the
+    # on-chain `issue_certificate` so the handler can verify the anchor
+    # against the SlotHashes sysvar — Solana's own ledger becomes the
+    # independent third source of truth.
+    slot_anchor:      "SlotAnchor"
+    digest:           bytes
+    signatures:       AggregatedSignatures
+    ed25519_ixs:      tuple[dict, ...]
+    aggregated:       AggregatedScore
 
     @property
     def signer_count(self) -> int:
@@ -189,6 +200,12 @@ def run_full_pipeline_epoch(
     computed_at:     datetime | None = None,
     drop_commit:     Sequence[str] = (),
     drop_reveal:     Sequence[str] = (),
+    # AW-01-EXT: the Solana SlotAnchor the cluster pinned at scoring time.
+    # Folded into both `compute_input_commitment` (per-node binding) AND
+    # `cert_payload_digest` (on-chain attestation). The on-chain handler
+    # verifies the anchor against the SlotHashes sysvar — Solana itself
+    # becomes a third source of truth, beyond the cluster's own RPC fleet.
+    slot_anchor:     SlotAnchor | None = None,
 ) -> PipelineEpochReport:
     """
     Drive one epoch through the full Phase-4 pipeline.
@@ -235,6 +252,7 @@ def run_full_pipeline_epoch(
         computed_at=ts,
         drop_commit=drop_commit,
         drop_reveal=drop_reveal,
+        slot_anchor=slot_anchor,
     )
 
     # ── 6-7. CERT PAYLOAD + THRESHOLD SIGNATURES per agent ──────────────────
@@ -368,6 +386,39 @@ def _sign_and_submit(
             error=f"bad agent wallet: {exc}",
         )
 
+    # AW-01: the input_commitment is the cluster-majority input-provenance
+    # commitment for this agent — every honest node computed and agreed on
+    # this exact 32-byte hash over the canonical input transactions +
+    # windows. Folding it into the on-chain digest binds the Ed25519
+    # signature to the INPUTS, not just to cluster agreement on a derived
+    # score. The agent_input feeds in through the byzantine_runner; the
+    # commitment travels alongside the AggregatedScore.
+    input_commitment = byz_result.input_commitment
+    if input_commitment is None or len(input_commitment) != 32:
+        return PipelineAgentResult(
+            agent_wallet=wallet, aggregated=aggregated,
+            excluded_nodes=byz_result.excluded_nodes,
+            certificate=None, submitted=False,
+            error="missing input_commitment — AW-01 requires cross-node "
+                  "agreement on inputs before issuing a cert",
+        )
+
+    # AW-01-EXT: the SlotAnchor the cluster pinned at scoring time. Refused
+    # when missing — a cert without an anchor cannot be verified against
+    # Solana's own ledger, defeating the AW-01-EXT defence-in-depth bind.
+    # `SlotAnchor.zero()` is also refused so a misconfigured stub-anchor
+    # cannot silently slip past the on-chain SlotHashes check.
+    slot_anchor = byz_result.slot_anchor
+    if slot_anchor is None or slot_anchor == SlotAnchor.zero():
+        return PipelineAgentResult(
+            agent_wallet=wallet, aggregated=aggregated,
+            excluded_nodes=byz_result.excluded_nodes,
+            certificate=None, submitted=False,
+            error="missing slot_anchor — AW-01-EXT requires a SlotAnchor "
+                  "pinned at scoring time so the cert can be verified "
+                  "against Solana's SlotHashes sysvar",
+        )
+
     digest = cert_payload_digest(
         agent_pk,
         epoch=epoch_id,
@@ -376,6 +427,8 @@ def _sign_and_submit(
         flags=aggregated.flags,
         baseline_hash=baseline_hash,
         immediate_red=aggregated.immediate_red,
+        input_commitment=input_commitment,
+        slot_anchor=slot_anchor,
     )
 
     # ── COLLECT signatures from every verified cluster node ─────────────────
@@ -406,6 +459,8 @@ def _sign_and_submit(
         flags=aggregated.flags,
         baseline_hash=baseline_hash,
         immediate_red=aggregated.immediate_red,
+        input_commitment=input_commitment,
+        slot_anchor=slot_anchor,
         digest=digest,
         signatures=agg_sigs,
         ed25519_ixs=tuple(ed25519_ixs),

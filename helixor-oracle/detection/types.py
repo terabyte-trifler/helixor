@@ -85,7 +85,28 @@ class FlagBit(enum.IntFlag):
                                        #  (adversarial-feature evasion suspect)
     DIMENSION_CLAMPED    = 1 << 6     # per-dimension velocity guard fired
                                        #  (single-detector pump-and-offset suspect)
-    # bit 7 reserved for future universal flags
+    # AW-01: input-provenance divergence — set on the aggregated cert when at
+    # least one node's input commitment differed from the cluster majority for
+    # this agent. The cert STILL issues (a majority of nodes agreed on inputs
+    # AND on the score), but the bit surfaces the minority for operator review
+    # and watchdog strike attribution. A cert with this bit indicates an
+    # upstream-data drift (Geyser/Kafka/indexer skew between nodes) — a DeFi
+    # consumer can treat it as a softer signal of input integrity.
+    INPUT_DIVERGENCE     = 1 << 7
+    # AW-01-EXT: per-node source-disagreement — set on the aggregated cert
+    # when at least one node committed in degraded mode after its internal
+    # multi-source attestation primitive reported < M-of-N upstream
+    # agreement. The cluster's CROSS-node check (INPUT_DIVERGENCE) still
+    # runs, but this bit surfaces an EARLIER warning: a single node already
+    # saw its own RPC fleet disagreeing. DeFi consumers can treat this as a
+    # stricter integrity signal than INPUT_DIVERGENCE alone. See
+    # oracle.cluster.source_attestation for the per-node primitive.
+    #
+    # Bit position 29 — the universal block (0-7) is full and the
+    # per-dimension bits (8-28, 30-31) are claimed by drift / performance
+    # / anomaly / consistency / security. 29 is the only free slot in u32
+    # and is reserved here for cross-cutting per-node attestation signals.
+    SOURCE_DISAGREEMENT  = 1 << 29
 
     # ── Per-dimension bits (8-31) ─────────────────────────────────────────
     # Drift (bits 8-12):    8=PSI, 9=KS, 10=CUSUM, 11=ADWIN, 12=DDM

@@ -4,7 +4,13 @@
 // initialize_epoch — one-time creation of the EpochState singleton.
 //
 // Run once after deployment. Sets current_epoch = 1 (epochs are 1-indexed)
-// and records the advance authority + the nominal 24h cycle length.
+// and records the nominal 24h cycle length.
+//
+// AW-02 NOTE: `advance_authority` is initialised to the OracleConfig's
+// `oracle_node` for layout/back-compat, but it is no longer a sole-signer
+// authority on the Tier-1 advance path. Tier 1 requires M-of-N cluster
+// Ed25519 attestations (see `advance_epoch.rs`). This field is now a
+// non-authoritative HINT.
 // =============================================================================
 
 use anchor_lang::prelude::*;

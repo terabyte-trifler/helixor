@@ -25,7 +25,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import {
   PublicKey, Keypair, SystemProgram, TransactionInstruction,
-  SYSVAR_INSTRUCTIONS_PUBKEY, Ed25519Program,
+  SYSVAR_INSTRUCTIONS_PUBKEY, SYSVAR_SLOT_HASHES_PUBKEY, Ed25519Program,
 } from "@solana/web3.js";
 import * as nacl from "tweetnacl";
 import { createHash } from "crypto";
@@ -47,10 +47,21 @@ function certPayloadDigest(
   flags: number,
   baselineHash: Buffer,
   immediateRed: boolean,
+  inputCommitment: Buffer,        // AW-01 — must match on-chain digest order
+  slotAnchorSlot: bigint,         // AW-01-EXT — Solana slot pinned at scoring
+  slotAnchorHash: Buffer,         // AW-01-EXT — block hash for that slot
 ): Buffer {
   const epochBuf = Buffer.alloc(8);  epochBuf.writeBigUInt64BE(BigInt(epoch));
   const scoreBuf = Buffer.alloc(2);  scoreBuf.writeUInt16BE(score);
   const flagsBuf = Buffer.alloc(4);  flagsBuf.writeUInt32BE(flags);
+  if (inputCommitment.length !== 32) {
+    throw new Error("inputCommitment must be 32 bytes (AW-01)");
+  }
+  if (slotAnchorHash.length !== 32) {
+    throw new Error("slotAnchorHash must be 32 bytes (AW-01-EXT)");
+  }
+  const anchorSlotBuf = Buffer.alloc(8);
+  anchorSlotBuf.writeBigUInt64BE(slotAnchorSlot);
   const payload = Buffer.concat([
     agent.toBuffer(),                            // 32
     epochBuf,                                    //  8
@@ -59,6 +70,9 @@ function certPayloadDigest(
     flagsBuf,                                    //  4
     baselineHash,                                // 32
     Buffer.from([immediateRed ? 1 : 0]),         //  1
+    inputCommitment,                             // 32  ← AW-01
+    anchorSlotBuf,                               //  8  ← AW-01-EXT
+    slotAnchorHash,                              // 32  ← AW-01-EXT
   ]);
   return createHash("sha256").update(payload).digest();
 }
@@ -108,6 +122,32 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
   const agentBad = agentBadKp.publicKey;
   const agentReplay = agentReplayKp.publicKey;
   const baselineHash = Buffer.alloc(32, 7);
+  // AW-01: a fixed test input-provenance commitment. Real commitments are
+  // produced by the off-chain helixor-oracle pipeline.
+  const inputCommitment = Buffer.alloc(32, 0x99);
+
+  // AW-01-EXT — capture a LIVE `(slot, block_hash)` from the validator
+  // for each test that needs one. The on-chain `verify_slot_anchor`
+  // walks SlotHashes and refuses anything not present in the ~512-slot
+  // window, so the anchor must be fresh — defer to each test rather
+  // than capture once at module load.
+  async function captureSlotAnchor(): Promise<{
+    slot: bigint; hash: Buffer;
+  }> {
+    const slot = await provider.connection.getSlot("finalized");
+    const block = await provider.connection.getBlock(slot, {
+      maxSupportedTransactionVersion: 0,
+    });
+    if (!block) {
+      throw new Error(`failed to fetch block ${slot} for slot anchor capture`);
+    }
+    return {
+      slot: BigInt(slot),
+      hash: Buffer.from(
+        anchor.utils.bytes.bs58.decode(block.blockhash),
+      ),
+    };
+  }
 
   // ── PDA helpers ──────────────────────────────────────────────────────────
   const issuerConfigPda = () =>
@@ -135,6 +175,13 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
         // direct calls still work because the guard accepts caller_pid ==
         // certificate_issuer.programId regardless of allow-list state.
         PublicKey.default,                       // health_oracle_program_id
+        // AW-01-EXT.6: this test does not exercise the on-chain
+        // `challenge_certificate` path; an empty Vec + 0 leaves the
+        // challenge ix DISABLED at the program level. The verifier
+        // logic + digest properties are covered by the Rust unit tests
+        // in `programs/certificate-issuer/src/instructions/challenge_certificate.rs`.
+        [],                                      // challenge_attester_keys
+        0,                                       // challenge_threshold
       )
       .accounts({
         issuerConfig: issuerConfigPda(),
@@ -281,8 +328,12 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
     const epoch = 1, score = 916, alertTier = 0 /* GREEN */, flags = 0,
           immediateRed = false;
 
+    const slotAnchor = await captureSlotAnchor();
+
     const digest = certPayloadDigest(
       agentOk, epoch, score, alertTier, flags, baselineHash, immediateRed,
+      inputCommitment,
+      slotAnchor.slot, slotAnchor.hash,
     );
 
     // Pick three of the five cluster keys to sign.
@@ -294,13 +345,19 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
     ));
 
     const issueIx = await program.methods
-      .issueCertificate(new BN(epoch), score, alertTier, flags, immediateRed)
+      .issueCertificate(
+        new BN(epoch), score, alertTier, flags, immediateRed,
+        [...inputCommitment],
+        new BN(slotAnchor.slot.toString()),  // slotAnchorSlot
+        [...slotAnchor.hash],                // slotAnchorHash
+      )
       .accounts({
         certificate: certPda(agentOk, epoch),
         baselineStats: baselinePda(agentOk),
         issuerConfig: issuerConfigPda(),
         issuer: submitter.publicKey,
         instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+        slotHashesSysvar: SYSVAR_SLOT_HASHES_PUBKEY,
         systemProgram: SystemProgram.programId,
       })
       .instruction();
@@ -322,8 +379,11 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
   // ── DONE-WHEN HALF 2 — 2 signatures are rejected ─────────────────────────
   it("REJECTS a certificate write with only 2 signatures", async () => {
     const epoch = 1, score = 800, alertTier = 0, flags = 0, immediateRed = false;
+    const slotAnchor = await captureSlotAnchor();
     const digest = certPayloadDigest(
       agentBad, epoch, score, alertTier, flags, baselineHash, immediateRed,
+      inputCommitment,
+      slotAnchor.slot, slotAnchor.hash,
     );
 
     // Only TWO signers — below the threshold of 3.
@@ -335,13 +395,19 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
     ));
 
     const issueIx = await program.methods
-      .issueCertificate(new BN(epoch), score, alertTier, flags, immediateRed)
+      .issueCertificate(
+        new BN(epoch), score, alertTier, flags, immediateRed,
+        [...inputCommitment],
+        new BN(slotAnchor.slot.toString()),
+        [...slotAnchor.hash],
+      )
       .accounts({
         certificate: certPda(agentBad, epoch),
         baselineStats: baselinePda(agentBad),
         issuerConfig: issuerConfigPda(),
         issuer: submitter.publicKey,
         instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+        slotHashesSysvar: SYSVAR_SLOT_HASHES_PUBKEY,
         systemProgram: SystemProgram.programId,
       })
       .instruction();
@@ -362,8 +428,11 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
   // ── A non-cluster signer is filtered out by the on-chain check ───────────
   it("REJECTS when a third signer is not a cluster key", async () => {
     const epoch = 1, score = 800, alertTier = 0, flags = 0, immediateRed = false;
+    const slotAnchor = await captureSlotAnchor();
     const digest = certPayloadDigest(
       agentBad, epoch, score, alertTier, flags, baselineHash, immediateRed,
+      inputCommitment,
+      slotAnchor.slot, slotAnchor.hash,
     );
 
     const cluster2 = clusterKps.slice(0, 2);
@@ -383,13 +452,19 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
     ];
 
     const issueIx = await program.methods
-      .issueCertificate(new BN(epoch), score, alertTier, flags, immediateRed)
+      .issueCertificate(
+        new BN(epoch), score, alertTier, flags, immediateRed,
+        [...inputCommitment],
+        new BN(slotAnchor.slot.toString()),
+        [...slotAnchor.hash],
+      )
       .accounts({
         certificate: certPda(agentBad, epoch),
         baselineStats: baselinePda(agentBad),
         issuerConfig: issuerConfigPda(),
         issuer: submitter.publicKey,
         instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+        slotHashesSysvar: SYSVAR_SLOT_HASHES_PUBKEY,
         systemProgram: SystemProgram.programId,
       })
       .instruction();
@@ -410,16 +485,21 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
   // ── VULN-01 regression — old/historical signatures cannot be replayed ────
   it("REJECTS 3 valid cluster signatures over a historical/mismatched digest", async () => {
     const epoch = 1, score = 916, alertTier = 0, flags = 0, immediateRed = false;
+    const slotAnchor = await captureSlotAnchor();
 
     // This is the digest the issue_certificate instruction will recompute
     // from its current accounts + args.
     const expectedDigest = certPayloadDigest(
       agentReplay, epoch, score, alertTier, flags, baselineHash, immediateRed,
+      inputCommitment,
+      slotAnchor.slot, slotAnchor.hash,
     );
 
     // This is what the attacker tries to replay: three real cluster-key
     // signatures, but over a different payload. The signatures are valid
     // Ed25519 precompile inputs, yet they MUST NOT count toward this cert.
+    // The historical anchor differs too — a real replay of an old cert
+    // would also bring an old slot anchor along for the ride.
     const historicalDigest = certPayloadDigest(
       agentReplay,
       epoch + 8,        // old / different epoch
@@ -428,6 +508,9 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
       flags,
       baselineHash,
       immediateRed,
+      inputCommitment,
+      slotAnchor.slot + 1n,                // different slot
+      Buffer.alloc(32, 0x55),              // different anchor hash
     );
     assert.notDeepEqual(
       [...historicalDigest],
@@ -442,13 +525,19 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
     ));
 
     const issueIx = await program.methods
-      .issueCertificate(new BN(epoch), score, alertTier, flags, immediateRed)
+      .issueCertificate(
+        new BN(epoch), score, alertTier, flags, immediateRed,
+        [...inputCommitment],
+        new BN(slotAnchor.slot.toString()),
+        [...slotAnchor.hash],
+      )
       .accounts({
         certificate: certPda(agentReplay, epoch),
         baselineStats: baselinePda(agentReplay),
         issuerConfig: issuerConfigPda(),
         issuer: submitter.publicKey,
         instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+        slotHashesSysvar: SYSVAR_SLOT_HASHES_PUBKEY,
         systemProgram: SystemProgram.programId,
       })
       .instruction();

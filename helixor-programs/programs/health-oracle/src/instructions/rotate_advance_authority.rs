@@ -10,12 +10,24 @@
 // admin (oracle_config.authority) replace the key at any time, restoring the
 // normal advancement path without requiring a program redeploy.
 //
+// AW-02 STATUS — DEPRECATED-BUT-RETAINED
+// --------------------------------------
+// AW-02 made `EpochState.advance_authority` a NON-AUTHORITATIVE primary-
+// advancer HINT (see `epoch_state.rs` and `advance_epoch.rs`). Tier-1
+// epoch advance now requires M-of-N cluster Ed25519 attestations, and the
+// Tier-2 liveness fallback gates on cluster membership — neither path
+// reads `advance_authority`.
+//
+// This instruction is kept so operators can still keep the hint field
+// current for off-chain monitoring conventions. Calling it does NOT
+// affect who can advance the epoch, and a stale value will never block
+// progression. New deployments may safely leave the field at its initial
+// value.
+//
 // AUTHORITY GATE
 // --------------
 // Only oracle_config.authority (the admin, held by the Squads multisig in
-// production) can rotate the key. This keeps the rotation path under
-// governance control — a compromised oracle node cannot self-promote its own
-// key as the new advance_authority.
+// production) can rotate the key.
 //
 // GUARDS
 //   - new_authority != Pubkey::default()   (no rotation to the zero key)

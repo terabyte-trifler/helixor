@@ -17,11 +17,14 @@ from oracle.cluster.cert_signing import (
     sign_cert_digest,
 )
 from oracle.cluster.identity import NodeKeypair
+from oracle.cluster.input_commitment import SlotAnchor
 from oracle.cluster.signer import HSMSigner, InProcessSigner, Signer
 
 
 AGENT_PK      = b"\x11" * 32
 BASELINE_HASH = b"\x33" * 32
+INPUT_COMMITMENT = b"\x77" * 32     # AW-01: fixed test commitment
+SLOT_ANCHOR = SlotAnchor(slot=250_000_000, block_hash=b"\x99" * 32)  # AW-01-EXT
 
 
 def _digest() -> bytes:
@@ -29,6 +32,8 @@ def _digest() -> bytes:
         agent_wallet_bytes=AGENT_PK,
         epoch=42, score=500, alert_tier=1, flags=0,
         baseline_hash=BASELINE_HASH, immediate_red=False,
+        input_commitment=INPUT_COMMITMENT,
+        slot_anchor=SLOT_ANCHOR,
     )
 
 

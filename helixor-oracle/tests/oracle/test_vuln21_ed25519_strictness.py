@@ -44,14 +44,20 @@ from oracle.cluster.cert_signing import (
     _ED25519_GROUP_ORDER_L,
 )
 from oracle.cluster.identity import NodeKeypair
+from oracle.cluster.input_commitment import SlotAnchor
 
 
 AGENT_PK = b"\x11" * 32
 BASELINE_HASH = b"\x33" * 32
+INPUT_COMMITMENT = b"\x77" * 32     # AW-01: fixed test commitment
+SLOT_ANCHOR = SlotAnchor(slot=250_000_000, block_hash=b"\x99" * 32)  # AW-01-EXT
 
 
 def _digest() -> bytes:
-    return cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
+    return cert_payload_digest(
+        AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+        SLOT_ANCHOR,
+    )
 
 
 def _cluster(n: int = 5) -> list[NodeKeypair]:

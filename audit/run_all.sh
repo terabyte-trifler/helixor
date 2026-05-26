@@ -74,6 +74,15 @@ run "supply chain sweep"  python3 audit/supply_chain_check.py \
     --json audit/reports/supply_chain.json
 
 
+# ── 1h. AW-01 input-provenance pin sweep ────────────────────────────────────
+# Architectural fix for trust-transitivity: every cluster-signing /
+# certificate-issuing / score-submission callsite must bind the AW-01
+# input commitment. A regression that drops the arg would let an attacker
+# poison upstream inputs without the on-chain signature catching it.
+run "aw01 input provenance sweep"  python3 audit/input_provenance_check.py \
+    --json audit/reports/aw01_input_provenance.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

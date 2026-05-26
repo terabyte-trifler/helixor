@@ -174,6 +174,15 @@ class RevealRequest:
     recomputed hash AND cross-checks the carried version against the
     round's pinned version — a revealer that mutates either fails
     verification, not silently shifts the median.
+
+    AW-01: `input_commitments` carries the per-agent input-provenance
+    commitments the node bound into its commit hash — one (agent_wallet,
+    32-byte SHA-256 commitment) pair per agent the node scored. Peers
+    verify the reveal by folding these exact bytes into the recomputed
+    hash; the aggregator additionally requires a cross-node MAJORITY to
+    agree on each commitment before issuing a cert. Optional for
+    back-compat with pre-AW-01 callers and tests; honest cluster nodes
+    set it on every reveal.
     """
     node_id: str
     epoch:   int
@@ -182,6 +191,9 @@ class RevealRequest:
     # VULN-22: same all-or-nothing semantics as CommitRequest.
     scoring_algo_version:    int | None = None
     scoring_weights_version: int | None = None
+    # AW-01: per-agent input-provenance commitments. None preserves the
+    # pre-AW-01 wire format; honest nodes populate it.
+    input_commitments: tuple[tuple[str, bytes], ...] | None = None
 
     def __post_init__(self) -> None:
         if not self.node_id:
@@ -194,6 +206,22 @@ class RevealRequest:
             self.scoring_algo_version, self.scoring_weights_version,
             owner="RevealRequest",
         )
+        if self.input_commitments is not None:
+            if not isinstance(self.input_commitments, tuple):
+                object.__setattr__(
+                    self, "input_commitments",
+                    tuple(self.input_commitments),
+                )
+            for wallet, commitment in self.input_commitments:
+                if not wallet:
+                    raise ValueError(
+                        "RevealRequest.input_commitments: empty wallet"
+                    )
+                if len(commitment) != 32:
+                    raise ValueError(
+                        f"RevealRequest.input_commitments[{wallet!r}]: "
+                        f"commitment must be 32 bytes, got {len(commitment)}"
+                    )
 
 
 @dataclass(frozen=True, slots=True)

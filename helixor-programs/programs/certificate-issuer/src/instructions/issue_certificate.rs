@@ -22,12 +22,21 @@
 // =============================================================================
 
 use anchor_lang::prelude::*;
+use solana_program::sysvar::slot_hashes;
 
 use crate::errors::CertificateError;
 use crate::events::CertificateIssued;
+use crate::slot_anchor::{verify_slot_anchor, ZERO_SLOT_ANCHOR_HASH};
 use crate::state::{
     AlertTier, BaselineStats, HealthCertificate, IssuerConfig,
 };
+
+// Re-export to satisfy the `address = solana_program::sysvar::slot_hashes::ID`
+// constraint above — anchor-lang's `prelude` does not re-export
+// `solana_program::sysvar` directly, so we name it explicitly. Keeping the
+// `use` here documents the dependency at the instruction layer.
+#[allow(dead_code)]
+const _SLOT_HASHES_ID_REF: &solana_program::pubkey::Pubkey = &slot_hashes::ID;
 
 /// The score thresholds the on-chain consistency check uses. These mirror
 /// the off-chain scoring thresholds (scoring/composite.py: GREEN >= 700,
@@ -91,16 +100,40 @@ pub struct IssueCertificate<'info> {
     #[account(address = solana_instructions_sysvar::ID)]
     pub instructions_sysvar: UncheckedAccount<'info>,
 
+    /// CHECK: the SlotHashes sysvar — read inside the handler to verify
+    /// the AW-01-EXT slot anchor. Anchor's `Sysvar` wrapper cannot load
+    /// SlotHashes (it exceeds the 10 KB Sysvar cap), so the handler reads
+    /// the AccountInfo's raw bytes directly. The `address` constraint
+    /// pins the expected sysvar pubkey at the Anchor layer; the handler
+    /// re-checks it inside `verify_slot_anchor` as defence in depth.
+    #[account(address = solana_program::sysvar::slot_hashes::ID)]
+    pub slot_hashes_sysvar: UncheckedAccount<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
 pub fn handler(
-    ctx:           Context<IssueCertificate>,
-    epoch:         u64,
-    score:         u16,
-    alert_tier:    u8,
-    flags:         u32,
-    immediate_red: bool,
+    ctx:              Context<IssueCertificate>,
+    epoch:            u64,
+    score:            u16,
+    alert_tier:       u8,
+    flags:            u32,
+    immediate_red:    bool,
+    // AW-01: the 32-byte cluster-majority commitment over the canonical
+    // input transactions + windows. The cluster only signs a cert if a
+    // quorum agreed on this commitment; folding it into the digest binds
+    // the threshold signatures to the INPUTS. Refused as zero — a
+    // zero commitment would let a misconfigured submitter skip the
+    // input-provenance binding.
+    input_commitment: [u8; 32],
+    // AW-01-EXT: the Solana `(slot, block_hash)` the cluster pinned at
+    // scoring time. Folded into the cert-payload digest AND verified
+    // against the SlotHashes sysvar — Solana's own ledger is the third
+    // independent source of truth beyond the cluster's RPC fleet.
+    // Refused as zero hash, refused if not present in the sysvar window,
+    // refused if hash mismatches what Solana itself recorded.
+    slot_anchor_slot: u64,
+    slot_anchor_hash: [u8; 32],
 ) -> Result<()> {
     // ── VULN-16: refuse a CPI from anything but the canonical health-oracle ─
     // BEFORE we touch the inputs, before we hit the threshold-sig check,
@@ -130,6 +163,34 @@ pub fn handler(
         CertificateError::BaselineNotRecorded,
     );
 
+    // AW-01: refuse a zero input_commitment. A SHA-256 over real inputs is
+    // statistically never zero; a literal zero here means the off-chain
+    // submitter skipped the per-node + cross-node input-provenance step
+    // — which is the entire AW-01 fix. We MUST fail the write loudly so
+    // a misconfigured deploy never silently bypasses the binding.
+    require!(
+        input_commitment != [0u8; 32],
+        CertificateError::MissingInputCommitment,
+    );
+
+    // AW-01-EXT: refuse a zero slot-anchor hash, and verify the
+    // `(slot, hash)` pair against the SlotHashes sysvar. A failure here
+    // means EITHER the cluster's entire upstream view was forged (the
+    // anchor it computed differs from Solana's own record) OR the cluster
+    // submitted too late (the slot has aged out of the sysvar window).
+    // In both cases the cert MUST NOT issue — re-pin a fresher anchor
+    // and resubmit. This is the third source-of-truth check beyond the
+    // off-chain per-node and cross-node commitment binding.
+    require!(
+        slot_anchor_hash != ZERO_SLOT_ANCHOR_HASH,
+        CertificateError::MissingSlotAnchor,
+    );
+    verify_slot_anchor(
+        &ctx.accounts.slot_hashes_sysvar.to_account_info(),
+        slot_anchor_slot,
+        &slot_anchor_hash,
+    )?;
+
     // ── Verify the (score, alert) pair is consistent ────────────────────────
     // A certificate carries both the numeric score and the categorical
     // tier; storing an inconsistent pair would be a malformed attestation.
@@ -150,6 +211,9 @@ pub fn handler(
         epoch, score, alert_tier, flags,
         &ctx.accounts.baseline_stats.baseline_hash,
         immediate_red,
+        &input_commitment,        // AW-01: binds the cluster's input view
+        slot_anchor_slot,         // AW-01-EXT: binds the Solana slot anchor
+        &slot_anchor_hash,
     );
     let valid_signers = crate::signing::verify_threshold_signatures(
         &digest,
@@ -161,18 +225,21 @@ pub fn handler(
     let clock = Clock::get()?;
     let cert = &mut ctx.accounts.certificate;
 
-    cert.agent_wallet   = ctx.accounts.baseline_stats.agent_wallet;
-    cert.epoch          = epoch;
-    cert.score          = score;
-    cert.alert_tier     = tier.as_u8();
-    cert.flags          = flags;
-    cert.issued_at      = clock.unix_timestamp;
-    cert.issuer         = ctx.accounts.issuer.key();
-    cert.baseline_hash  = ctx.accounts.baseline_stats.baseline_hash;
-    cert.immediate_red  = immediate_red;
-    cert.bump           = ctx.bumps.certificate;
-    cert.layout_version = HealthCertificate::CURRENT_LAYOUT_VERSION;
-    cert.signer_count   = valid_signers;
+    cert.agent_wallet      = ctx.accounts.baseline_stats.agent_wallet;
+    cert.epoch             = epoch;
+    cert.score             = score;
+    cert.alert_tier        = tier.as_u8();
+    cert.flags             = flags;
+    cert.issued_at         = clock.unix_timestamp;
+    cert.issuer            = ctx.accounts.issuer.key();
+    cert.baseline_hash     = ctx.accounts.baseline_stats.baseline_hash;
+    cert.immediate_red     = immediate_red;
+    cert.bump              = ctx.bumps.certificate;
+    cert.layout_version    = HealthCertificate::CURRENT_LAYOUT_VERSION;
+    cert.signer_count      = valid_signers;
+    cert.input_commitment  = input_commitment;       // AW-01
+    cert.slot_anchor_slot  = slot_anchor_slot;       // AW-01-EXT
+    cert.slot_anchor_hash  = slot_anchor_hash;       // AW-01-EXT
 
     emit!(CertificateIssued {
         agent_wallet:  cert.agent_wallet,

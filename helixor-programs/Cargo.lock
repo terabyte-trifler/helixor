@@ -693,6 +693,8 @@ dependencies = [
  "anchor-lang",
  "certificate-issuer",
  "solana-instructions-sysvar",
+ "solana-program",
+ "solana-sdk-ids",
 ]
 
 [[package]]

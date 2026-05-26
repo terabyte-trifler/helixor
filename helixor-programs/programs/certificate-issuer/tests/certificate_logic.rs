@@ -26,10 +26,14 @@ use certificate_issuer::state::{AlertTier, BaselineStats, HealthCertificate, Iss
 #[test]
 fn health_certificate_size_constants_are_correct() {
     //   32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1 = 123  (signer_count added v2)
-    // + 47 reserved                                       =  47
-    // = 170
-    assert_eq!(HealthCertificate::SIZE_WITHOUT_DISCRIMINATOR, 170);
-    assert_eq!(HealthCertificate::SPACE, 178);          // + 8 discriminator
+    // + 32 input_commitment (AW-01, v3)                  =  32
+    // +  8 slot_anchor_slot (AW-01-EXT, v4)              =   8
+    // + 32 slot_anchor_hash (AW-01-EXT, v4)              =  32
+    // +  1 challenge_state  (AW-01-EXT.6, v5)            =   1
+    // + 14 reserved                                       =  14
+    // = 210 (size unchanged from v4 — challenge_state came out of _reserved)
+    assert_eq!(HealthCertificate::SIZE_WITHOUT_DISCRIMINATOR, 210);
+    assert_eq!(HealthCertificate::SPACE, 218);          // + 8 discriminator
 }
 
 #[test]
@@ -44,21 +48,27 @@ fn baseline_stats_size_constants_are_correct() {
 #[test]
 fn issuer_config_size_is_correct() {
     // Day 27 extends IssuerConfig with cluster_keys + threshold.
-    // VULN-16 extends it further with health_oracle_program_id:
+    // VULN-16 extends it further with health_oracle_program_id.
+    // AW-01-EXT.6 extends it again with challenge_attester_keys + threshold:
     //   8 disc + 32 authority + 32 issuer_node
-    // + 4 Vec prefix + 32*5 reserved key slots + 1 threshold + 1 bump
-    // + 32 health_oracle_program_id                                  = 270
+    // + 4 Vec prefix + 32*5 cluster_keys reserved + 1 threshold + 1 bump
+    // + 32 health_oracle_program_id
+    // + 4 Vec prefix + 32*5 challenge_attester_keys reserved + 1 challenge_threshold
+    // = 435
     assert_eq!(
         IssuerConfig::SPACE,
-        8 + 32 + 32 + 4 + (32 * 5) + 1 + 1 + 32,
+        8 + 32 + 32 + 4 + (32 * 5) + 1 + 1 + 32 + 4 + (32 * 5) + 1,
     );
-    assert_eq!(IssuerConfig::SPACE, 270);
+    assert_eq!(IssuerConfig::SPACE, 435);
 }
 
 #[test]
 fn layout_versions_are_current() {
     // v2: signer_count added to HealthCertificate (1 byte from reserved).
-    assert_eq!(HealthCertificate::CURRENT_LAYOUT_VERSION, 2);
+    // v3: AW-01 — input_commitment added (32 bytes from reserved).
+    // v4: AW-01-EXT — slot_anchor (40 bytes: 8B slot + 32B hash).
+    // v5: AW-01-EXT.6 — challenge_state (1 byte, from reserved; same size as v4).
+    assert_eq!(HealthCertificate::CURRENT_LAYOUT_VERSION, 5);
     assert_eq!(BaselineStats::CURRENT_LAYOUT_VERSION, 1);
 }
 
@@ -164,6 +174,10 @@ fn cfg_with(cluster_keys: Vec<Pubkey>) -> IssuerConfig {
         // VULN-16: tests for VULN-06 baseline-writer logic do not touch
         // the CPI path, so a zero allow-list is the right default.
         health_oracle_program_id: Pubkey::default(),
+        // AW-01-EXT.6: baseline-writer tests are orthogonal to challenges
+        // — leave the attester cluster empty + threshold 0.
+        challenge_attester_keys:  Vec::new(),
+        challenge_threshold:      0,
     }
 }
 

@@ -99,4 +99,23 @@ pub enum HelixorError {
            referenced by the pending rotation — refusing to apply to a \
            different cluster")]
     OracleConfigMismatch = 6068,
+
+    // ── AW-02: M-of-N threshold-attested epoch advance ──────────────────────
+    #[msg("insufficient cluster Ed25519 attestations for advance_epoch — \
+           the transaction must carry ≥ consensus_threshold(cluster) \
+           signatures over the canonical advance digest")]
+    InsufficientAdvanceAttestations = 6070,
+    #[msg("Ed25519 precompile instruction passed to advance_epoch is \
+           malformed — header, offsets, or buffer lengths are invalid")]
+    MalformedAdvanceEd25519Instruction = 6071,
+    #[msg("Ed25519 precompile passed to advance_epoch references signature \
+           or message data outside its own instruction — refusing to \
+           verify cross-instruction data")]
+    AdvanceCrossInstructionReference = 6072,
+    #[msg("Ed25519 precompile passed to advance_epoch carries a signed \
+           message whose length is not the expected 32-byte digest")]
+    WrongAdvanceDigestLength = 6073,
+    #[msg("the instructions sysvar account passed to advance_epoch is not \
+           the canonical Sysvar1nstructions1111111111111111111111111 pubkey")]
+    WrongAdvanceInstructionsSysvar = 6074,
 }

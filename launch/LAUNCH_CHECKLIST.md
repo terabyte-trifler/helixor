@@ -99,6 +99,66 @@ file.
            `flag_set_token` + `flag_count` and NEVER the raw bitmask.
       Together the four mitigations break the per-epoch read-then-craft
       feedback loop that an RL-style adversarial-ML attacker depends on.
+- [ ] **AW-01 + AW-01-EXT input-provenance + slot-anchor sweep clean** —
+      `python3 audit/input_provenance_check.py --json audit/reports/aw01_input_provenance.json`
+      reports **0 HARD findings**. The sweep enforces that every cluster
+      signing / certificate-issuing / score-submission callsite binds
+      BOTH the AW-01 cluster-majority input commitment AND the
+      AW-01-EXT Solana slot anchor (third source of truth), so a
+      refactor cannot silently drop either binding and let an attacker
+      poison upstream inputs without the on-chain signature catching it.
+      Specifically:
+        1. `oracle.cluster.cert_signing.cert_payload_digest` — every
+           call passes the `input_commitment` AND the new
+           `slot_anchor` positional (or the explicit
+           `slot_anchor=` kwarg).
+        2. `oracle.cluster.input_commitment.compute_input_commitment` —
+           every call passes the new `slot_anchor` argument; the v2
+           commitment folds the 40-byte `(slot, block_hash)` after the
+           cross-node binding bytes.
+        3. `health_oracle::submit_score` Anchor instruction — every
+           TS `.submitScore(...)` callsite passes the
+           `inputCommitment`, `slotAnchorSlot`, and `slotAnchorHash`
+           arguments AND includes `slotHashesSysvar` in `.accounts({...})`.
+        4. `certificate_issuer::issue_certificate` — every TS
+           `.issueCertificate(...)` callsite passes the
+           `inputCommitment`, `slotAnchorSlot`, and `slotAnchorHash`
+           arguments AND includes `slotHashesSysvar` in `.accounts({...})`.
+        5. Rust `cpi_issue_certificate(...)` callsite (the
+           health-oracle → certificate-issuer CPI) supplies
+           `input_commitment`, `slot_anchor_slot`, `slot_anchor_hash`
+           verbatim AND forwards `slot_hashes_sysvar`.
+      The on-chain `HealthCertificate` is at `layout_version = 4`;
+      `signing.cert_payload_digest` in `certificate-issuer` folds
+      BOTH the commitment AND the slot anchor into the signed digest;
+      `verifyInputProvenance` + `verifyAgainstSolanaLedger` in
+      `@helixor/sdk` reproduce them byte-for-byte from observable
+      transactions and from the live SlotHashes sysvar. A DeFi
+      consumer can detect a Geyser/Kafka/indexer poisoning attack
+      AND a coordinated upstream RPC-fleet poisoning attack without
+      trusting the cluster at all.
+- [ ] **AW-01-EXT on-chain SlotHashes verification gate** —
+      `certificate_issuer::slot_anchor::verify_slot_anchor` is wired
+      into `issue_certificate::handler` and unit-tested for: matching
+      anchor → accept; slot present but hash mismatched →
+      `SlotAnchorHashMismatch` (12073); slot outside sysvar window →
+      `SlotAnchorTooOld` (12072); zero-sentinel anchor →
+      `MissingSlotAnchor` (12070); wrong sysvar account →
+      `WrongSlotHashesSysvar` (12071). `cargo test --lib` for
+      certificate-issuer must show 5 passing `slot_anchor::tests::*`
+      entries. This is the write-time defence-in-depth check; the SDK
+      `verifyAgainstSolanaLedger` is the read-time analogue.
+- [ ] **AW-01-EXT SDK-side ledger re-verification** — at least one
+      integration partner has wired `verifyAgainstSolanaLedger(cert,
+      provider)` from `@helixor/sdk` and confirmed it returns `ok:
+      true` for a fresh production cert. The partner's `provider` is
+      either `Connection.getSlotHashes()` or an equivalent — and is
+      pointed at an RPC INDEPENDENT from the cluster's RPC fleet
+      (any of: a friendly validator's RPC, an exchange ops RPC, the
+      partner's own validator). Wiring a provider that reads from
+      one of the cluster's own RPCs defeats the third-source-of-truth
+      guarantee. Document the chosen provider RPC in the partner's
+      integration policy.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain
@@ -253,6 +313,86 @@ the entry gate.
       fired and craft the next input around them — the on-chain
       bitmask layout stays unchanged, only the public read surface is
       obfuscated.
+- [ ] **AW-01 input-provenance bound on the first live cert.** Decode
+      the first mainnet cert via the SDK and verify
+      `cert.layoutVersion === 4` AND
+      `cert.inputCommitment` is non-zero (32 bytes of `0x00` would
+      mean the cert was issued before the AW-01 plumbing landed —
+      that must NEVER happen on mainnet). One integration partner
+      MUST run `verifyInputProvenance(cert, observedInputs)` against
+      the first cert and report `ok: true`; a `Mismatch` here blocks
+      promotion. The cert-issuer program rejects a zero
+      `input_commitment` at write time
+      (`CertificateError::MissingInputCommitment`), so a zero
+      commitment on chain would only mean the program itself was
+      somehow deployed pre-AW-01 — investigate before issuing more
+      certs. Runbook: `launch/runbooks/input_provenance.md`.
+- [ ] **AW-01-EXT slot anchor bound on the first live cert.** From the
+      SAME decoded cert above, verify
+      `cert.slotAnchorSlot !== 0n` AND
+      `cert.slotAnchorHash` is not 32 bytes of `0x00`. The cert-issuer
+      program rejects a zero anchor at write time
+      (`CertificateError::MissingSlotAnchor` 12070) AND verifies the
+      pair against the SlotHashes sysvar
+      (`SlotAnchorHashMismatch` 12073 / `SlotAnchorTooOld` 12072),
+      so a non-zero anchor on a live cert is by-construction a
+      Solana-verified `(slot, block_hash)`. One integration partner
+      MUST also run
+      `verifyAgainstSolanaLedger(cert, provider)` (provider pointed
+      at an INDEPENDENT RPC, see audit gate above) and report
+      `ok: true` while the cert's slot is still inside the
+      ~512-slot SlotHashes window (~3.4 min). After that window,
+      the cert is "best-effort verified at write time"; the
+      `challenge_certificate` on-chain ix (AW-01-EXT.6) is the
+      post-window dispute path — a third-party M-of-N attester
+      cluster can file a challenge with their independently
+      observed `true_block_hash`, the handler compares to the
+      cert's pinned `slot_anchor_hash`, and on divergence flips
+      `cert.challenge_state` to `Upheld` (REPUDIATED) and emits
+      `CertificateRepudiated`. See design at
+      `launch/design/aw01_ext_discrepancy_challenge.md`. Runbook
+      addendum: `launch/runbooks/input_provenance.md`
+      "AW-01-EXT — slot-anchor divergence".
+- [ ] **AW-02 M-of-N epoch-advance is the only Tier-1 path.** The
+      deployed `advance_epoch` instruction REQUIRES
+      `consensus_threshold(OracleConfig.oracle_keys)` Ed25519
+      precompile attestations over the canonical advance digest
+      (`sha256("helixor-epoch-advance" || current_epoch ||
+      target_epoch || last_advanced_at)`) for every Tier-1 tick.
+      The legacy single-key `advance_authority` Tier-1 path is
+      GONE — the field is a non-authoritative hint, retained for
+      layout compatibility. The Tier-2 liveness fallback (any
+      single cluster member after 2× duration) remains for
+      catastrophic-failure recovery. Confirm by inspecting any
+      production `EpochAdvanced` event: it MUST be accompanied
+      by an `EpochAdvancedByThreshold` event whose
+      `attester_count >= consensus_threshold(cluster)`. An
+      `EpochAdvancedByFallback` event in steady state is a P0
+      (the cluster failed to assemble quorum for >= 2× duration —
+      see `launch/runbooks/epoch_advance_stalled.md`).
+- [ ] **AW-02 cluster signer rotation runbook in place.** Each
+      cluster operator has tested signing the advance digest
+      with their HSM / KMS / Squads setup at least once on
+      devnet. The off-chain signer pipeline produces an Ed25519
+      program instruction the on-chain verifier accepts (use the
+      SDK helper `advancePayloadDigest` from `@helixor/sdk` to
+      compute the digest — it is byte-for-byte identical to the
+      on-chain `advance_payload_digest`). The cluster's daily
+      "advance coordinator" rotation is documented in
+      `launch/runbooks/epoch_advance_stalled.md`.
+- [ ] **AW-01-EXT.6 challenge cluster wired or DELIBERATELY left
+      disabled.** `initialize_config` was called with EITHER:
+      (a) `challenge_attester_keys` containing >= 1 DISJOINT
+      third-party validator pubkeys + `challenge_threshold >= 1`
+      (the active configuration — challenge ix is live), OR
+      (b) `[]` + `0` (the safe deferred configuration — challenge
+      ix rejects every call with `NoAttesterCluster` 12080; the
+      write-time slot-anchor check remains the only defence).
+      Document the choice in `audit/reports/challenge_cluster.md`
+      with the attester operator names and the rotation policy.
+      A wired attester cluster MUST NOT overlap `cluster_keys`
+      — the program's `initialize_config` validator rejects
+      overlap with `AttesterOverlapsCluster` (12088).
 - [ ] **The first epoch on mainnet completes** end-to-end, on-chain
       cert visible via explorer
 
@@ -261,6 +401,59 @@ the entry gate.
 - [ ] Daily review of `helixor_byzantine_flags_total` — flag count should
       be 0 or near 0 in steady state
 - [ ] Daily review of `helixor_cert_submit_failures_total`
+- [ ] **Daily review of `helixor_input_divergence_flags_total`** — any
+      epoch where this is non-zero means at least one node disagreed
+      with the cluster on what its upstream pipeline delivered (AW-01).
+      Steady state is 0. A persistent non-zero on the same node
+      indicates a poisoned or misconfigured upstream — follow
+      `launch/runbooks/input_provenance.md`. ANY epoch where the
+      aggregator reports `input_commitment is None` (no AW-01 quorum
+      → no cert issued for that agent) is a P0.
+- [ ] **Daily review of `helixor_slot_anchor_writetime_rejections_total`
+      (AW-01-EXT).** Any non-zero count for either
+      `SlotAnchorHashMismatch` (12073) or `SlotAnchorTooOld` (12072)
+      means a write-time slot-anchor rejection landed on chain.
+      `SlotAnchorTooOld` in steady state is a latency regression
+      (page if sustained — see `launch/runbooks/latency_regression.md`).
+      `SlotAnchorHashMismatch` is a P0 — at least one cluster RPC
+      returned a fake block hash for the slot the cluster pinned;
+      follow the SOURCE_DISAGREEMENT triage in
+      `launch/runbooks/input_provenance.md`.
+- [ ] **Daily review of AW-02 epoch-advance events.** EVERY
+      `EpochAdvanced` event in steady state MUST be paired with
+      an `EpochAdvancedByThreshold` event whose `attester_count
+      >= consensus_threshold(cluster)`. A SINGLE
+      `EpochAdvancedByFallback` event is a P0 — the cluster could
+      not assemble M-of-N attestations for the prior 2× duration
+      window, meaning > N - threshold cluster nodes were silent
+      AND the previous tick's primary signer also missed. Follow
+      `launch/runbooks/epoch_advance_stalled.md`. A trend of
+      declining `attester_count` toward the threshold (e.g. 5/5
+      → 4/5 → 3/5 over a week) is an early-warning P1 even
+      without a fallback event — it indicates a node is silently
+      dropping out of the daily ceremony.
+- [ ] **Daily review of AW-01-EXT.6 challenge events.** Any
+      `CertificateRepudiated` event emitted on chain is a P0 —
+      a cert was provably wrong at the slot-anchor layer and
+      the third-party attester cluster signed off on the
+      divergence. Downstream consumers MUST treat the cert as
+      invalid; the slash-authority off-chain plumbing should
+      have already triggered the cluster-side slashing flow.
+      `ChallengeRejected` events are not P0 (the challenge was
+      frivolous — the cluster was right; the challenger's rent
+      was consumed as the anti-spam cost) but a SUSTAINED rate
+      of `ChallengeRejected` from the same challenger pubkey
+      indicates either a misconfigured attester operator or a
+      DOS attempt — investigate and consider rotating the
+      attester cluster.
+- [ ] **Weekly external-RPC ledger re-verification.** A scheduled job
+      decodes the previous day's certs and runs
+      `verifyAgainstSolanaLedger` against an RPC NOT in the cluster's
+      RPC fleet. For each cert still inside the SlotHashes window,
+      the job must report `ok: true`. Any `AnchorHashMismatch`
+      finding from this job is a P0 (the cluster's RPCs and the
+      external RPC disagree — at least one is lying). Output:
+      `audit/reports/slot_anchor_weekly_<YYYY-MM-DD>.json`.
 - [ ] Weekly rolling restart of one node at a time (confirms cluster
       tolerates planned restarts the same way it tolerates failures)
 - [ ] Monthly cert byte-match re-verification — deployed `.so` still

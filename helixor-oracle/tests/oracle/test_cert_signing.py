@@ -26,6 +26,7 @@ from oracle.cluster.cert_signing import (
     sign_cert_digest,
 )
 from oracle.cluster.identity import NodeKeypair
+from oracle.cluster.input_commitment import SlotAnchor
 
 
 # =============================================================================
@@ -34,6 +35,8 @@ from oracle.cluster.identity import NodeKeypair
 
 AGENT_PK = b"\x11" * 32
 BASELINE_HASH = b"\x33" * 32
+INPUT_COMMITMENT = b"\x77" * 32     # AW-01: fixed test commitment
+SLOT_ANCHOR = SlotAnchor(slot=250_000_000, block_hash=b"\x99" * 32)  # AW-01-EXT
 
 
 def _cluster(n: int = 5) -> list[NodeKeypair]:
@@ -52,60 +55,92 @@ def _keys_of(kps):
 class TestCertPayloadDigest:
 
     def test_digest_is_32_bytes(self):
-        d = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
+        d = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         assert len(d) == 32
 
     def test_digest_is_deterministic(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
-        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
+        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         assert a == b
 
     def test_digest_changes_with_score(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
-        b = cert_payload_digest(AGENT_PK, 1, 852, 2, 8, BASELINE_HASH, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
+        b = cert_payload_digest(AGENT_PK, 1, 852, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         assert a != b
 
     def test_digest_changes_with_epoch(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
-        b = cert_payload_digest(AGENT_PK, 2, 851, 2, 8, BASELINE_HASH, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
+        b = cert_payload_digest(AGENT_PK, 2, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         assert a != b
 
     def test_digest_changes_with_alert_tier(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 0, 8, BASELINE_HASH, True)
-        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 0, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
+        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         assert a != b
 
     def test_digest_changes_with_flags(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 0, BASELINE_HASH, True)
-        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 0, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
+        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         assert a != b
 
     def test_digest_changes_with_baseline_hash(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, b"\x33" * 32, True)
-        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, b"\x44" * 32, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, b"\x33" * 32, True, INPUT_COMMITMENT, SLOT_ANCHOR)
+        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, b"\x44" * 32, True, INPUT_COMMITMENT, SLOT_ANCHOR)
+        assert a != b
+
+    def test_digest_changes_with_input_commitment(self):
+        # AW-01: a different input commitment must yield a different digest
+        # — without this, an attacker could submit a cert with the same
+        # score over different (poisoned) inputs.
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, b"\x77" * 32, SLOT_ANCHOR)
+        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, b"\x88" * 32, SLOT_ANCHOR)
+        assert a != b
+
+    def test_digest_changes_with_slot_anchor_slot(self):
+        # AW-01-EXT: a different slot in the SlotAnchor must yield a
+        # different digest — the on-chain handler verifies (slot, hash)
+        # against the SlotHashes sysvar, so an attacker that swaps the
+        # slot post-hoc would also break the signature.
+        anchor_a = SlotAnchor(slot=250_000_000, block_hash=b"\x99" * 32)
+        anchor_b = SlotAnchor(slot=250_000_001, block_hash=b"\x99" * 32)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, anchor_a)
+        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, anchor_b)
+        assert a != b
+
+    def test_digest_changes_with_slot_anchor_hash(self):
+        # AW-01-EXT: a different block_hash in the SlotAnchor must yield
+        # a different digest — symmetric to the slot case; both halves of
+        # the anchor are folded in.
+        anchor_a = SlotAnchor(slot=250_000_000, block_hash=b"\x99" * 32)
+        anchor_b = SlotAnchor(slot=250_000_000, block_hash=b"\xaa" * 32)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, anchor_a)
+        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, anchor_b)
         assert a != b
 
     def test_digest_changes_with_immediate_red(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
-        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, False)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
+        b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, False, INPUT_COMMITMENT, SLOT_ANCHOR)
         assert a != b
 
     def test_digest_changes_with_agent(self):
-        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
-        b = cert_payload_digest(b"\x22" * 32, 1, 851, 2, 8, BASELINE_HASH, True)
+        a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
+        b = cert_payload_digest(b"\x22" * 32, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         assert a != b
 
     def test_bad_agent_length_rejected(self):
         with pytest.raises(ValueError):
-            cert_payload_digest(b"short", 1, 851, 2, 8, BASELINE_HASH, True)
+            cert_payload_digest(b"short", 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         with pytest.raises(ValueError):
-            cert_payload_digest(AGENT_PK, 1, 851, 2, 8, b"short", True)
+            cert_payload_digest(AGENT_PK, 1, 851, 2, 8, b"short", True, INPUT_COMMITMENT, SLOT_ANCHOR)
+        with pytest.raises(ValueError, match="input_commitment"):
+            # AW-01: short input_commitment must be rejected.
+            cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, b"short", SLOT_ANCHOR)
 
     def test_out_of_range_inputs_rejected(self):
         with pytest.raises(ValueError):
-            cert_payload_digest(AGENT_PK, 1, 1 << 17, 2, 8, BASELINE_HASH, True)
+            cert_payload_digest(AGENT_PK, 1, 1 << 17, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         with pytest.raises(ValueError):
-            cert_payload_digest(AGENT_PK, 1, 851, 1 << 9, 8, BASELINE_HASH, True)
+            cert_payload_digest(AGENT_PK, 1, 851, 1 << 9, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
 
 
 # =============================================================================
@@ -116,7 +151,7 @@ class TestSignCertDigest:
 
     def test_signature_is_64_bytes(self):
         kp = _cluster()[0]
-        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
+        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         sig = sign_cert_digest(kp, digest)
         assert len(sig.signature) == 64
         assert sig.signer_pubkey == kp.public_key
@@ -126,7 +161,7 @@ class TestSignCertDigest:
         # The off-chain pre-check is the same check the on-chain
         # precompile does — sanity here.
         kp = _cluster()[0]
-        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
+        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         sig = sign_cert_digest(kp, digest)
         assert kp.identity.verify(digest, sig.signature)
 
@@ -145,7 +180,7 @@ class TestAggregateSignatures:
     def _setup(self, signers: int = 3, threshold: int = 3):
         kps = _cluster(5)
         cluster_keys = _keys_of(kps)
-        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
+        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         sigs = [sign_cert_digest(kps[i], digest) for i in range(signers)]
         return cluster_keys, digest, sigs, kps
 
@@ -177,7 +212,7 @@ class TestAggregateSignatures:
         # A signature over a DIFFERENT digest must not count toward the
         # threshold. This is exactly what stops a replay across cert payloads.
         cluster_keys, digest, sigs, kps = self._setup(2, 3)
-        wrong_digest = cert_payload_digest(AGENT_PK, 1, 999, 2, 8, BASELINE_HASH, True)
+        wrong_digest = cert_payload_digest(AGENT_PK, 1, 999, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         wrong_sig = sign_cert_digest(kps[2], wrong_digest)
         with pytest.raises(InsufficientSignatures):
             aggregate_signatures(
@@ -245,7 +280,7 @@ class TestEd25519InstructionBuilder:
 
     def test_data_blob_layout(self):
         kp = _cluster()[0]
-        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
+        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         sig = sign_cert_digest(kp, digest)
         data = build_ed25519_ix_data(sig)
 
@@ -273,7 +308,7 @@ class TestEd25519InstructionBuilder:
 
     def test_builds_one_ix_per_signature(self):
         kps = _cluster(5)
-        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True)
+        digest = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         sigs = [sign_cert_digest(kp, digest) for kp in kps[:3]]
         agg = aggregate_signatures(
             digest, sigs, cluster_keys=_keys_of(kps), threshold=3,

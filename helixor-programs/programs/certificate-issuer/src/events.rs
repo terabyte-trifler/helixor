@@ -53,3 +53,39 @@ pub struct CertificateRead {
     pub immediate_red: bool,
     pub issued_at:    i64,
 }
+
+/// AW-01-EXT.6: emitted when `challenge_certificate` UPHOLDS a challenge —
+/// the cert's slot anchor was provably wrong. Downstream consumers should
+/// treat the cert as REPUDIATED. The slash-authority program reads this
+/// event (off-chain plumbing) to slash the cert-signing cluster.
+#[event]
+pub struct CertificateRepudiated {
+    /// The cert PDA — for cheap off-chain lookup.
+    pub certificate:        Pubkey,
+    pub agent_wallet:       Pubkey,
+    pub epoch:              u64,
+    pub challenger:         Pubkey,
+    /// The cluster's pinned anchor (now provably wrong).
+    pub cluster_anchor_slot: u64,
+    pub cluster_anchor_hash: [u8; 32],
+    /// The challenger's attested ground-truth hash.
+    pub true_block_hash:    [u8; 32],
+    /// How many distinct attester signatures the handler counted.
+    pub attester_count:     u8,
+    pub filed_at:           i64,
+}
+
+/// AW-01-EXT.6: emitted when `challenge_certificate` REJECTS a challenge —
+/// the challenger's `true_block_hash` equalled the cert's
+/// `slot_anchor_hash`, meaning the cert is provably honest at the slot-
+/// anchor layer. The challenger's stake (rent on the ChallengeRecord
+/// PDA) is consumed — this is the spam-deterrence cost.
+#[event]
+pub struct ChallengeRejected {
+    pub certificate:        Pubkey,
+    pub agent_wallet:       Pubkey,
+    pub epoch:              u64,
+    pub challenger:         Pubkey,
+    pub claimed_block_hash: [u8; 32],
+    pub filed_at:           i64,
+}

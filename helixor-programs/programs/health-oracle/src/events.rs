@@ -133,6 +133,28 @@ pub struct EpochAdvancedByFallback {
     pub cluster_key: Pubkey,
 }
 
+/// AW-02: emitted when the normal M-of-N threshold path advances the epoch.
+/// Emitted IN ADDITION TO `EpochAdvanced`. Downstream consumers use this to
+/// confirm a healthy multi-attester tick (versus the degraded
+/// `EpochAdvancedByFallback` event, which indicates the cluster could not
+/// assemble quorum and the liveness fallback fired).
+///
+/// `attester_count` lets monitoring distinguish "just made quorum" (count
+/// equals threshold) from "comfortable supermajority" — a slow trend toward
+/// the floor is an early warning that a node has dropped out without
+/// triggering the full fallback.
+#[event]
+pub struct EpochAdvancedByThreshold {
+    pub from_epoch:     u64,
+    pub to_epoch:       u64,
+    pub advanced_at:    i64,
+    /// Distinct cluster signers counted on this advance.
+    pub attester_count: u8,
+    /// The tx submitter / fee payer. Has no sole-signer privilege; recorded
+    /// for operational forensics only (who pushed the tx through).
+    pub submitter:      Pubkey,
+}
+
 /// Emitted when the admin rotates the advance_authority key.
 #[event]
 pub struct AdvanceAuthorityRotated {

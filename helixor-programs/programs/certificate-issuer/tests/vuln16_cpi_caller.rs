@@ -43,6 +43,10 @@ fn cfg_with_oracle(health_oracle_program_id: Pubkey) -> IssuerConfig {
         threshold:                3,
         bump:                     255,
         health_oracle_program_id,
+        // AW-01-EXT.6: VULN-16 CPI-caller tests are orthogonal to the
+        // challenge cluster; empty + 0 keeps it disabled.
+        challenge_attester_keys:  Vec::new(),
+        challenge_threshold:      0,
     }
 }
 

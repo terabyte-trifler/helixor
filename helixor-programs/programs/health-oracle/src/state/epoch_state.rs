@@ -22,10 +22,31 @@
 //   current_epoch            8   (u64 — the epoch currently being scored)
 //   last_advanced_at         8   (i64 — unix seconds the epoch last ticked)
 //   epoch_duration_seconds   8   (i64 — nominal cycle length, 86_400)
-//   advance_authority       32   (Pubkey — who may tick the epoch; the oracle)
+//   advance_authority       32   (Pubkey — see AW-02 note below; DEPRECATED
+//                                          as a sole-signer authority)
 //   bump                     1   (u8)
 //   _reserved               32   (zeroed cushion)
 //   TOTAL (without discriminator): 89 bytes
+//
+// AW-02 — `advance_authority` is NO LONGER A SOLE-SIGNER AUTHORITY
+// ----------------------------------------------------------------
+// The MVP and VULN-02-era code used `advance_authority` as the single key
+// gating Tier-1 epoch advancement. The AW-02 audit flagged that as the
+// only consensus-critical op NOT covered by the cluster's M-of-N threshold
+// mechanism. AW-02 rewrites the Tier-1 path to require
+// `consensus_threshold(OracleConfig.oracle_keys)` Ed25519 attestations
+// over the canonical advance digest (see `advance_epoch.rs`).
+//
+// The field is RETAINED in the account layout for two reasons:
+//   1. Account size is fixed; removing the field would force a
+//      realloc-migration of the deployed singleton. Not worth the risk.
+//   2. Operational forensics: ops teams may still want a "primary
+//      advance-key" hint for monitoring (e.g. "did the expected node
+//      participate in this tick?"). `rotate_advance_authority` remains
+//      so the field can be kept current, but it no longer affects who
+//      can advance.
+//
+// A stale or zero `advance_authority` no longer blocks epoch progression.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -41,7 +62,13 @@ pub struct EpochState {
     /// The nominal epoch length in seconds (86_400 = 24h). Carried on-chain
     /// so the advance instruction can enforce "not too early".
     pub epoch_duration_seconds: i64,
-    /// The authority permitted to advance the epoch — the oracle node.
+    /// HISTORICAL primary-advancer hint.
+    ///
+    /// AW-02: NO LONGER a sole-signer authority. Retained for layout
+    /// compatibility and operational forensics. Tier-1 advance now
+    /// requires M-of-N cluster Ed25519 attestations (see
+    /// `advance_epoch.rs`). Tier-2 liveness fallback gates on cluster
+    /// membership, NOT on this field.
     pub advance_authority:      Pubkey,
     /// Canonical PDA bump.
     pub bump:                   u8,

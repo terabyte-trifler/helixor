@@ -58,12 +58,38 @@ pub struct IssuerConfig {
     /// that never uses the CPI path, since the threshold sigs are still
     /// the primary gate.
     pub health_oracle_program_id: Pubkey,
+    /// AW-01-EXT.6: the CHALLENGE-ATTESTER cluster — a separate set of
+    /// pubkeys whose Ed25519 signatures count toward the M-of-N
+    /// threshold required to file a challenge against a cert's slot
+    /// anchor. By design this set is DISJOINT from `cluster_keys`
+    /// (cert-signing): the whole point of a challenge is to let a
+    /// THIRD party catch a compromised cert-signing cluster, so the
+    /// same keys signing both sides defeats the architecture.
+    ///
+    /// An empty Vec (length 0) DISABLES the challenge instruction —
+    /// `challenge_certificate` rejects with `NoAttesterCluster`. This
+    /// is the safe default for deployments that have not yet wired
+    /// the attester cluster (the write-time `verify_slot_anchor`
+    /// check remains the active defence).
+    pub challenge_attester_keys:  Vec<Pubkey>,
+    /// AW-01-EXT.6: the M of M-of-N threshold. Must be >= 1 AND
+    /// `<= challenge_attester_keys.len()`. A 1-of-N is the minimum
+    /// meaningful threshold; 2-of-N is the recommended floor in
+    /// production (prevents a single compromised attester from
+    /// filing spam challenges).
+    pub challenge_threshold:      u8,
 }
 
 impl IssuerConfig {
     /// The maximum cluster size; the account reserves room for this many
     /// pubkeys.
     pub const MAX_CLUSTER_KEYS: usize = 5;
+
+    /// AW-01-EXT.6: maximum challenge-attester cluster size. Same
+    /// magnitude as the cert-signing cluster — operationally these are
+    /// independent third-party validators (a friendly L2 team, a
+    /// neutral validator, an exchange ops desk, etc.).
+    pub const MAX_CHALLENGE_ATTESTER_KEYS: usize = 5;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     ///
@@ -75,8 +101,12 @@ impl IssuerConfig {
     /// + 1  threshold
     /// + 1  bump
     /// + 32 health_oracle_program_id           (VULN-16)
+    /// + 4  challenge_attester_keys Vec length prefix          (AW-01-EXT.6)
+    /// + 32 * MAX_CHALLENGE_ATTESTER_KEYS  (reserved slots)    (AW-01-EXT.6)
+    /// + 1  challenge_threshold                                (AW-01-EXT.6)
     pub const SPACE: usize =
-        8 + 32 + 32 + 4 + (32 * Self::MAX_CLUSTER_KEYS) + 1 + 1 + 32;
+        8 + 32 + 32 + 4 + (32 * Self::MAX_CLUSTER_KEYS) + 1 + 1 + 32
+        + 4 + (32 * Self::MAX_CHALLENGE_ATTESTER_KEYS) + 1;
 
     /// The PDA seed.
     pub const SEED: &'static [u8] = b"issuer_config";
@@ -94,5 +124,19 @@ impl IssuerConfig {
     /// CPI path at all.
     pub fn has_health_oracle_program(&self) -> bool {
         self.health_oracle_program_id != Pubkey::default()
+    }
+
+    /// AW-01-EXT.6: True iff `key` is in the challenge-attester cluster.
+    pub fn is_challenge_attester(&self, key: &Pubkey) -> bool {
+        self.challenge_attester_keys.contains(key)
+    }
+
+    /// AW-01-EXT.6: True iff the challenge cluster is configured (>= 1
+    /// attester key AND a non-zero threshold). When false,
+    /// `challenge_certificate` rejects with `NoAttesterCluster`.
+    pub fn challenge_enabled(&self) -> bool {
+        self.challenge_threshold >= 1
+            && !self.challenge_attester_keys.is_empty()
+            && (self.challenge_threshold as usize) <= self.challenge_attester_keys.len()
     }
 }

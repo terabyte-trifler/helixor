@@ -39,11 +39,25 @@
 // CANONICAL PAYLOAD
 // -----------------
 // The signed payload is sha256( agent || epoch || score || alert_tier ||
-// flags || baseline_hash || immediate_red ). Fixed-width big-endian integers, fixed order
-// — same canonical-serialisation discipline as Day 25's commit_reveal. A
-// signer signs the DIGEST, not the unhashed bytes, so we control payload
-// length (the Ed25519 precompile signs arbitrary-length messages, but
-// fixed-length signed-message bytes simplify verification).
+// flags || baseline_hash || immediate_red || input_commitment ).
+// Fixed-width big-endian integers, fixed order — same canonical-serialisation
+// discipline as Day 25's commit_reveal. A signer signs the DIGEST, not the
+// unhashed bytes, so we control payload length (the Ed25519 precompile signs
+// arbitrary-length messages, but fixed-length signed-message bytes simplify
+// verification).
+//
+// AW-01 — TRUST TRANSITIVITY
+// --------------------------
+// The trailing 32-byte `input_commitment` is the cluster-majority SHA-256
+// commitment over the canonical input transactions + windows that produced
+// the score (see helixor-oracle/oracle/cluster/input_commitment.py). Folding
+// it into the digest means the Ed25519 signature cryptographically attests to
+// the INPUTS — not just to cluster agreement on a derived score. A DeFi
+// consumer re-derives the commitment from observable on-chain transactions
+// and refuses certs whose declared inputs do not match what they see; this
+// closes the bypass where a sophisticated attacker poisons the upstream data
+// pipeline (Geyser / Kafka / indexer) so every node honestly agrees on a
+// false score over false inputs.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -61,14 +75,32 @@ use crate::state::IssuerConfig;
 /// Compute the 32-byte canonical digest the cluster keys sign over.
 /// The off-chain signer (helixor-oracle/oracle/cluster/cert_signing.py)
 /// computes the identical bytes; mismatch = unsignable certificate.
+///
+/// AW-01: `input_commitment` is the 32-byte cluster-majority commitment
+/// over the canonical input transactions + windows. The cluster only
+/// produces a cert if a quorum agreed on this commitment; folding it
+/// into the on-chain digest binds the Ed25519 signature to the INPUTS,
+/// not just to cluster agreement on a derived score.
+///
+/// AW-01-EXT: `slot_anchor_slot` + `slot_anchor_hash` is the Solana
+/// `(slot, block_hash)` the cluster pinned at scoring time. Folding it
+/// into the digest means the threshold signatures attest to a specific
+/// point in Solana's own ledger. The on-chain handler additionally
+/// verifies the anchor against the `SlotHashes` sysvar — so an attacker
+/// who poisoned every upstream RPC the cluster reads from STILL cannot
+/// produce a digest that survives on-chain verification, because
+/// Solana's own ledger is the independent third source of truth.
 pub fn cert_payload_digest(
-    agent_wallet:   &Pubkey,
-    epoch:          u64,
-    score:          u16,
-    alert_tier:     u8,
-    flags:          u32,
-    baseline_hash:  &[u8; 32],
-    immediate_red:  bool,
+    agent_wallet:      &Pubkey,
+    epoch:             u64,
+    score:             u16,
+    alert_tier:        u8,
+    flags:             u32,
+    baseline_hash:     &[u8; 32],
+    immediate_red:     bool,
+    input_commitment:  &[u8; 32],
+    slot_anchor_slot:  u64,
+    slot_anchor_hash:  &[u8; 32],
 ) -> [u8; 32] {
     // The byte layout is FIXED and PUBLIC — every signer and verifier must
     // produce these exact bytes. No floats, no Vec, no length-varying
@@ -82,6 +114,9 @@ pub fn cert_payload_digest(
         &flags.to_be_bytes(),                //  4 bytes
         baseline_hash,                       // 32 bytes
         &[immediate_red_byte],               //  1 byte
+        input_commitment,                    // 32 bytes ← AW-01
+        &slot_anchor_slot.to_be_bytes(),     //  8 bytes ← AW-01-EXT
+        slot_anchor_hash,                    // 32 bytes ← AW-01-EXT
     ]);
     h.to_bytes()
 }
@@ -302,6 +337,11 @@ mod tests {
             // CPI path; a zero allow-list keeps the helper purely about
             // signatures.
             health_oracle_program_id: Pubkey::default(),
+            // AW-01-EXT.6: cert-signing tests don't exercise the challenge
+            // path either; an empty attester cluster + zero threshold
+            // leaves the challenge ix disabled (irrelevant to signing).
+            challenge_attester_keys: Vec::new(),
+            challenge_threshold: 0,
         }
     }
 

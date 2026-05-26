@@ -23,3 +23,10 @@ anchor-lang = "1.0.2"
 # without its entrypoint (no-entrypoint), so it links as a library.
 certificate-issuer = { path = "../certificate-issuer", features = ["cpi"] }
 solana-instructions-sysvar = "3.0.1"
+# AW-01-EXT: the SlotHashes sysvar pubkey is pinned at the Anchor account
+# layer via `address = solana_program::sysvar::slot_hashes::ID` (the
+# certificate-issuer re-verifies it inside `verify_slot_anchor`).
+solana-program = "3.0.0"
+# AW-02: the Ed25519 program id, used by advance_epoch to recognise the
+# precompile instructions carrying the cluster M-of-N attestations.
+solana-sdk-ids = "3.1.0"

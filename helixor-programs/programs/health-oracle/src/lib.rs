@@ -67,19 +67,26 @@ pub mod health_oracle {
     /// Day-19 NEW: tick the epoch counter at the end of a 24h cycle.
     /// Guarded — the epoch duration must have elapsed.
     ///
-    /// VULN-02 FIX: accepts either the configured advance_authority (normal
-    /// path) or any cluster oracle key once the liveness-fallback window
-    /// (2× epoch_duration_seconds) has elapsed. See advance_epoch.rs for
-    /// the full two-tier authority design.
+    /// AW-02 FIX (supersedes VULN-02 single-key): the Tier-1 normal path
+    /// now requires M-of-N cluster Ed25519 attestations over the canonical
+    /// advance digest (sha256("helixor-epoch-advance" || current_epoch ||
+    /// target_epoch || last_advanced_at)). Single-key advance via
+    /// `advance_authority` is GONE — the field is retained as a layout-
+    /// compatible hint only. Tier 2 (liveness fallback at 2× duration)
+    /// remains: any cluster member may advance solo. See advance_epoch.rs
+    /// for the full design and threat model.
     pub fn advance_epoch(ctx: Context<AdvanceEpoch>) -> Result<()> {
         instructions::advance_epoch::handler(ctx)
     }
 
     /// Rotate the advance_authority key to a new pubkey.
     ///
-    /// VULN-02 FIX: allows recovery from a lost or compromised advance key
-    /// without a program redeploy. Gated on oracle_config.authority (the
-    /// admin / Squads multisig in production).
+    /// AW-02 STATUS — DEPRECATED-BUT-RETAINED. `advance_authority` is no
+    /// longer a sole-signer authority on the Tier-1 advance path; it is a
+    /// non-authoritative hint kept for layout compatibility and ops
+    /// forensics. This instruction still updates the hint; admin-gated
+    /// (oracle_config.authority / Squads multisig in production). See
+    /// rotate_advance_authority.rs.
     pub fn rotate_advance_authority(
         ctx:           Context<RotateAdvanceAuthority>,
         new_authority: Pubkey,
@@ -90,16 +97,29 @@ pub mod health_oracle {
     /// Day-19 NEW: the oracle submits an agent's epoch score. Writes the
     /// on-chain HealthCertificate by CPI into the certificate-issuer
     /// program. Atomic — if the certificate write reverts, so does this.
+    ///
+    /// AW-01: `input_commitment` is the 32-byte cluster-majority input
+    /// commitment; passed through to certificate-issuer verbatim.
+    ///
+    /// AW-01-EXT: `slot_anchor_slot` + `slot_anchor_hash` is the Solana
+    /// `(slot, block_hash)` the cluster pinned at scoring time. Forwarded
+    /// to the certificate-issuer CPI which verifies it against the
+    /// SlotHashes sysvar — Solana itself becomes a third source of truth
+    /// beyond the cluster's RPC fleet.
     pub fn submit_score(
-        ctx:           Context<SubmitScore>,
-        epoch:         u64,
-        score:         u16,
-        alert_tier:    u8,
-        flags:         u32,
-        immediate_red: bool,
+        ctx:              Context<SubmitScore>,
+        epoch:            u64,
+        score:            u16,
+        alert_tier:       u8,
+        flags:            u32,
+        immediate_red:    bool,
+        input_commitment: [u8; 32],
+        slot_anchor_slot: u64,
+        slot_anchor_hash: [u8; 32],
     ) -> Result<()> {
         instructions::submit_score::handler(
             ctx, epoch, score, alert_tier, flags, immediate_red,
+            input_commitment, slot_anchor_slot, slot_anchor_hash,
         )
     }
 

@@ -162,6 +162,10 @@ mod tests {
             threshold: 2,
             bump: 255,
             health_oracle_program_id,
+            // AW-01-EXT.6: CPI-caller tests are orthogonal to challenges;
+            // leave the attester cluster disabled.
+            challenge_attester_keys: Vec::new(),
+            challenge_threshold: 0,
         }
     }
 

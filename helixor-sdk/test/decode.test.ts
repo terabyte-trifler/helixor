@@ -13,6 +13,9 @@ import * as assert from "assert";
 import {
   decodeHealthCertificate,
   decodeEpochState,
+  CHALLENGE_STATE_NONE,
+  CHALLENGE_STATE_UPHELD,
+  CHALLENGE_STATE_REJECTED,
 } from "../src/decode";
 
 let passed = 0;
@@ -39,9 +42,17 @@ function buildHealthCertificate(opts: {
   flags: number;
   issuedAt: number;
   immediateRed: boolean;
+  layoutVersion?: number;
+  signerCount?: number;
+  inputCommitment?: Uint8Array;
+  slotAnchorSlot?: bigint;
+  slotAnchorHash?: Uint8Array;
+  challengeState?: number;
 }): Buffer {
-  // 8 discriminator + 170 data = 178 bytes (HealthCertificate::SPACE)
-  const buf = Buffer.alloc(178);
+  // 8 discriminator + 210 data = 218 bytes (HealthCertificate::SPACE v4/v5
+  // — challenge_state shares a byte with what used to be _reserved, so the
+  // total size is unchanged from v4).
+  const buf = Buffer.alloc(218);
   let o = 8; // skip discriminator
 
   buf.fill(0xaa, o, o + 32); o += 32; // agent_wallet
@@ -54,8 +65,19 @@ function buildHealthCertificate(opts: {
   buf.fill(0xcc, o, o + 32); o += 32; // baseline_hash
   buf.writeUInt8(opts.immediateRed ? 1 : 0, o); o += 1;
   buf.writeUInt8(254, o); o += 1; // bump
-  buf.writeUInt8(1, o); o += 1; // layout_version
-  // _reserved [48] left zero
+  buf.writeUInt8(opts.layoutVersion ?? 5, o); o += 1; // layout_version
+  buf.writeUInt8(opts.signerCount ?? 0, o); o += 1; // signer_count
+  if (opts.inputCommitment) {
+    Buffer.from(opts.inputCommitment).copy(buf, o);
+  }
+  o += 32;
+  buf.writeBigUInt64LE(opts.slotAnchorSlot ?? 0n, o); o += 8;
+  if (opts.slotAnchorHash) {
+    Buffer.from(opts.slotAnchorHash).copy(buf, o);
+  }
+  o += 32;
+  // v5: challenge_state (1 byte), then _reserved [14] left zero.
+  buf.writeUInt8(opts.challengeState ?? 0, o); o += 1;
   return buf;
 }
 
@@ -87,6 +109,7 @@ test("decodes a HealthCertificate round trip", () => {
     flags: 0,
     issuedAt: 1_777_000_000,
     immediateRed: false,
+    layoutVersion: 1,
   });
   const cert = decodeHealthCertificate(buf);
   assert.strictEqual(cert.epoch, 1);
@@ -95,6 +118,94 @@ test("decodes a HealthCertificate round trip", () => {
   assert.strictEqual(cert.issuedAt, 1_777_000_000);
   assert.strictEqual(cert.immediateRed, false);
   assert.strictEqual(cert.layoutVersion, 1);
+});
+
+test("decodes v4 slot-anchor fields", () => {
+  const hash = new Uint8Array(32).fill(0x99);
+  const buf = buildHealthCertificate({
+    epoch: 851,
+    score: 916,
+    alertTier: 0,
+    flags: 0,
+    issuedAt: 1_777_000_000,
+    immediateRed: false,
+    layoutVersion: 4,
+    signerCount: 3,
+    inputCommitment: new Uint8Array(32).fill(0xab),
+    slotAnchorSlot: 250_000_000n,
+    slotAnchorHash: hash,
+  });
+  const cert = decodeHealthCertificate(buf);
+  assert.strictEqual(cert.layoutVersion, 4);
+  assert.strictEqual(cert.signerCount, 3);
+  assert.strictEqual(cert.slotAnchorSlot, 250_000_000n);
+  assert.deepStrictEqual(Buffer.from(cert.slotAnchorHash), Buffer.from(hash));
+  assert.deepStrictEqual(
+    Buffer.from(cert.inputCommitment),
+    Buffer.alloc(32, 0xab),
+  );
+});
+
+test("decodes v5 challenge_state values", () => {
+  for (const state of [
+    CHALLENGE_STATE_NONE,
+    CHALLENGE_STATE_UPHELD,
+    CHALLENGE_STATE_REJECTED,
+  ]) {
+    const buf = buildHealthCertificate({
+      epoch: 9,
+      score: 100,
+      alertTier: 2,
+      flags: 0,
+      issuedAt: 1_777_000_000,
+      immediateRed: true,
+      layoutVersion: 5,
+      challengeState: state,
+    });
+    assert.strictEqual(decodeHealthCertificate(buf).challengeState, state);
+  }
+});
+
+test("v4 buffer (zero reserved byte) decodes challenge_state as None", () => {
+  // The byte is reserved padding in v4; reading it as 0 = None is the
+  // backwards-compatible behaviour we rely on for legacy cert buffers.
+  const buf = buildHealthCertificate({
+    epoch: 9,
+    score: 700,
+    alertTier: 0,
+    flags: 0,
+    issuedAt: 1_777_000_000,
+    immediateRed: false,
+    layoutVersion: 4,
+    challengeState: 0,
+  });
+  assert.strictEqual(
+    decodeHealthCertificate(buf).challengeState,
+    CHALLENGE_STATE_NONE,
+  );
+});
+
+test("decodes a pre-v4 (short) buffer with zero-sentinel slot anchor", () => {
+  // A v3 cert is only 170+8 = 178 bytes; truncate the v4 buffer to match.
+  const v4 = buildHealthCertificate({
+    epoch: 1,
+    score: 700,
+    alertTier: 0,
+    flags: 0,
+    issuedAt: 1,
+    immediateRed: false,
+    layoutVersion: 3,
+    signerCount: 5,
+    inputCommitment: new Uint8Array(32).fill(0xcd),
+  });
+  const v3 = v4.subarray(0, 178);
+  const cert = decodeHealthCertificate(v3);
+  assert.strictEqual(cert.layoutVersion, 3);
+  assert.strictEqual(cert.slotAnchorSlot, 0n);
+  assert.deepStrictEqual(
+    Buffer.from(cert.slotAnchorHash),
+    Buffer.alloc(32, 0x00),
+  );
 });
 
 test("decodes immediate_red true", () => {

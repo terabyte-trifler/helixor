@@ -51,6 +51,8 @@ def cert_payload_digest(
     flags:              int,
     baseline_hash:      bytes,
     immediate_red:      bool,
+    input_commitment:   bytes,
+    slot_anchor:        "SlotAnchor",
 ) -> bytes:
     """
     The 32-byte canonical cert-payload digest — byte-identical to the
@@ -63,13 +65,43 @@ def cert_payload_digest(
     on-chain certificate will stamp. Binding it into the digest prevents a
     replay where the same score signature is issued against a different
     baseline.
+
+    AW-01: `input_commitment` is the 32-byte SHA-256 commitment over the
+    canonical input transactions + windows (see
+    oracle.cluster.input_commitment.compute_input_commitment). The cluster
+    only issues a cert if a quorum of nodes agreed on this commitment.
+    Folding it into the on-chain digest closes the trust-transitivity gap:
+    the Ed25519 signature now cryptographically attests to the INPUTS, not
+    just to cluster agreement on a derived score. A DeFi consumer
+    re-derives the commitment from observable on-chain transactions and
+    refuses certs whose declared inputs do not match what they see.
+
+    AW-01-EXT: `slot_anchor` is the Solana `(slot, block_hash)` the cluster
+    pinned at scoring time. The on-chain handler verifies this against the
+    `SlotHashes` sysvar — so an attacker that controls the cluster's
+    entire upstream view STILL cannot produce a digest that survives
+    on-chain SlotHashes verification, because Solana's own ledger is the
+    independent source of truth. The same 40 bytes are folded BOTH into
+    the input_commitment (off-chain agreement) AND into this digest
+    (on-chain attestation); the redundancy is intentional — either layer
+    catches a forged anchor on its own.
     """
     import hashlib
+
+    # Local import to avoid the cluster→commitment→cluster import cycle
+    # at module load.
+    from oracle.cluster.input_commitment import SlotAnchor, SLOT_ANCHOR_BYTES
 
     if len(agent_wallet_bytes) != 32:
         raise ValueError("agent_wallet_bytes must be 32 bytes")
     if len(baseline_hash) != 32:
         raise ValueError("baseline_hash must be 32 bytes")
+    if len(input_commitment) != 32:
+        raise ValueError("input_commitment must be 32 bytes")
+    if not isinstance(slot_anchor, SlotAnchor):
+        raise TypeError(
+            f"slot_anchor must be SlotAnchor, got {type(slot_anchor).__name__}"
+        )
     if not (0 <= score <= 0xFFFF):
         raise ValueError(f"score out of u16 range: {score}")
     if not (0 <= alert_tier <= 0xFF):
@@ -78,6 +110,10 @@ def cert_payload_digest(
         raise ValueError(f"flags out of u32 range: {flags}")
     if not (0 <= epoch <= 0xFFFFFFFFFFFFFFFF):
         raise ValueError(f"epoch out of u64 range: {epoch}")
+
+    anchor_bytes = slot_anchor.to_bytes()
+    assert len(anchor_bytes) == SLOT_ANCHOR_BYTES, \
+        "SlotAnchor.to_bytes() must produce SLOT_ANCHOR_BYTES bytes"
 
     immediate_red_byte = b"\x01" if immediate_red else b"\x00"
     payload = (
@@ -88,6 +124,8 @@ def cert_payload_digest(
         + flags.to_bytes(4, "big")                      #  4
         + bytes(baseline_hash)                           # 32
         + immediate_red_byte                            #  1
+        + bytes(input_commitment)                       # 32  ← AW-01
+        + anchor_bytes                                  # 40  ← AW-01-EXT
     )
     return hashlib.sha256(payload).digest()
 

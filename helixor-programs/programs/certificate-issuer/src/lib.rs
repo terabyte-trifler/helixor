@@ -32,6 +32,7 @@ pub mod errors;
 pub mod events;
 pub mod instructions;
 pub mod signing;
+pub mod slot_anchor;
 pub mod state;
 
 use instructions::*;
@@ -60,9 +61,16 @@ pub mod certificate_issuer {
         cluster_keys:              Vec<Pubkey>,
         threshold:                 u8,
         health_oracle_program_id:  Pubkey,
+        // AW-01-EXT.6: third-party challenge-attester cluster. Pass
+        // empty Vec + 0 threshold at deploy time to leave the
+        // challenge ix disabled — the write-time `verify_slot_anchor`
+        // check remains the active defence until attesters are wired.
+        challenge_attester_keys:   Vec<Pubkey>,
+        challenge_threshold:       u8,
     ) -> Result<()> {
         instructions::initialize_config::handler(
             ctx, issuer_node, cluster_keys, threshold, health_oracle_program_id,
+            challenge_attester_keys, challenge_threshold,
         )
     }
 
@@ -83,16 +91,32 @@ pub mod certificate_issuer {
 
     /// Issue a HealthCertificate for an (agent, epoch). Write-once: the
     /// epoch-keyed PDA cannot be re-issued or mutated once created.
+    ///
+    /// AW-01: `input_commitment` is the 32-byte cluster-majority commitment
+    /// over the canonical input transactions + windows the cluster scored.
+    /// It is folded into the cert-payload digest so the threshold
+    /// signatures attest to the INPUTS — not just to cluster agreement on
+    /// a derived score. A zero commitment is rejected.
+    ///
+    /// AW-01-EXT: `slot_anchor_slot` + `slot_anchor_hash` is the Solana
+    /// `(slot, block_hash)` the cluster pinned at scoring time. Folded
+    /// into the digest AND verified against the SlotHashes sysvar — so
+    /// Solana's own ledger becomes a third independent source of truth
+    /// beyond the cluster's RPC fleet. A zero anchor is rejected.
     pub fn issue_certificate(
-        ctx:           Context<IssueCertificate>,
-        epoch:         u64,
-        score:         u16,
-        alert_tier:    u8,
-        flags:         u32,
-        immediate_red: bool,
+        ctx:              Context<IssueCertificate>,
+        epoch:            u64,
+        score:            u16,
+        alert_tier:       u8,
+        flags:            u32,
+        immediate_red:    bool,
+        input_commitment: [u8; 32],
+        slot_anchor_slot: u64,
+        slot_anchor_hash: [u8; 32],
     ) -> Result<()> {
         instructions::issue_certificate::handler(
             ctx, epoch, score, alert_tier, flags, immediate_red,
+            input_commitment, slot_anchor_slot, slot_anchor_hash,
         )
     }
 
@@ -105,5 +129,29 @@ pub mod certificate_issuer {
         epoch:        u64,
     ) -> Result<()> {
         instructions::get_certificate::handler(ctx, agent_wallet, epoch)
+    }
+
+    /// AW-01-EXT.6 — file a challenge against a certificate's slot anchor.
+    ///
+    /// The challenger submits M-of-N Ed25519 precompile signatures from the
+    /// configured `challenge_attester_keys` cluster over the canonical
+    /// challenge digest (sha256("helixor-aw01-ext-challenge" || cert_pubkey
+    /// || true_block_hash)). The handler:
+    ///   1. requires the challenge cluster to be configured;
+    ///   2. requires the cert to be v4+ (has a slot anchor) and unchallenged;
+    ///   3. enforces a 90-day challenge window from cert issuance;
+    ///   4. counts distinct attester signatures over the canonical digest;
+    ///   5. compares `true_block_hash` to the cert's `slot_anchor_hash`:
+    ///        - DIFFERS → Upheld   (cert REPUDIATED, event emitted)
+    ///        - EQUALS  → Rejected (frivolous, challenger rent consumed)
+    ///   6. writes the ChallengeRecord PDA (init-once, prevents replay).
+    ///
+    /// See `launch/design/aw01_ext_discrepancy_challenge.md` for the
+    /// full architectural motivation.
+    pub fn challenge_certificate(
+        ctx:             Context<ChallengeCertificate>,
+        true_block_hash: [u8; 32],
+    ) -> Result<()> {
+        instructions::challenge_certificate::handler(ctx, true_block_hash)
     }
 }

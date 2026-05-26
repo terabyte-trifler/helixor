@@ -167,16 +167,62 @@ def _version_tag_bytes(algo_version: AlgoVersion | None) -> bytes:
     return algo.to_bytes(4, "big") + weights.to_bytes(4, "big")
 
 
+def _input_commitment_tag_bytes(
+    input_commitments: Sequence[bytes] | None,
+) -> bytes:
+    """
+    AW-01: render the per-agent input commitments as deterministic bytes to
+    fold into the commit hash. Layout:
+
+        u32 count (big-endian)
+        for each (agent_wallet, commitment), sorted by agent_wallet:
+            u16 wallet-length (big-endian) || utf-8 wallet bytes
+            32 raw commitment bytes
+
+    The commitment SEQUENCE is paired with the SAME ordering the score set
+    is canonicalised under (sort by agent_wallet) so a verifier that has
+    the same scores + same input commitments produces the byte-identical
+    tag.
+
+    Empty when omitted — preserves the pre-AW-01 wire format for legacy
+    callers and tests that pin the prior bytes.
+    """
+    if input_commitments is None:
+        return b""
+    # Caller passes pairs as a sequence of (wallet, commitment) tuples.
+    # Sort by wallet so the ordering matches `canonical_scores`.
+    sorted_pairs = sorted(input_commitments, key=lambda p: p[0])
+    parts: list[bytes] = [len(sorted_pairs).to_bytes(4, "big")]
+    for wallet, commitment in sorted_pairs:
+        if len(commitment) != 32:
+            raise ValueError(
+                f"input_commitment for {wallet!r} must be 32 bytes, "
+                f"got {len(commitment)}"
+            )
+        wallet_bytes = wallet.encode("utf-8")
+        if len(wallet_bytes) > 0xFFFF:
+            raise ValueError(
+                f"agent_wallet too long for u16 length prefix: "
+                f"{len(wallet_bytes)}"
+            )
+        parts.append(len(wallet_bytes).to_bytes(2, "big"))
+        parts.append(wallet_bytes)
+        parts.append(bytes(commitment))
+    return b"".join(parts)
+
+
 def compute_commit_hash(
     scores:        Sequence[AgentScore],
     nonce:         bytes,
     *,
     snapshot_hash: bytes | None = None,
     algo_version:  AlgoVersion | None = None,
+    input_commitments: Sequence[tuple[str, bytes]] | None = None,
 ) -> bytes:
     """
     The commit hash:
-        sha256( [snapshot_hash ||] [algo_version ||] canonical(scores) || nonce )
+        sha256( [snapshot_hash ||] [algo_version ||] [input_commitments ||]
+                canonical(scores) || nonce )
 
     Published in Phase 1; binds the node to exactly these scores without
     revealing them.
@@ -191,8 +237,15 @@ def compute_commit_hash(
     VULN-22: when `algo_version=(scoring_algo, scoring_weights)` is
     provided, both ints are folded in (4 + 4 big-endian bytes) so a
     revealing node cannot change versions between commit and reveal.
-    Both kwargs are optional so legacy callers (and tests pinned at the
-    pre-VULN-15 wire format) keep working unchanged.
+
+    AW-01: when `input_commitments` (a sequence of (agent_wallet, 32-byte
+    commitment) pairs) is provided, the canonical tag is folded into the
+    commit hash. A revealing node that wants to swap inputs after seeing
+    peers' commits fails hash verification — its committed input
+    commitment is fixed in stone.
+
+    All three kwargs are optional so legacy callers (and tests pinned at
+    the prior wire formats) keep working unchanged.
     """
     if len(nonce) != NONCE_BYTES:
         raise ValueError(
@@ -200,8 +253,10 @@ def compute_commit_hash(
         )
     prefix = snapshot_hash if snapshot_hash is not None else b""
     version_bytes = _version_tag_bytes(algo_version)
+    input_bytes = _input_commitment_tag_bytes(input_commitments)
     return hashlib.sha256(
-        prefix + version_bytes + canonical_scores(scores) + nonce
+        prefix + version_bytes + input_bytes
+        + canonical_scores(scores) + nonce
     ).digest()
 
 
@@ -212,12 +267,14 @@ def verify_reveal(
     *,
     snapshot_hash: bytes | None = None,
     algo_version:  AlgoVersion | None = None,
+    input_commitments: Sequence[tuple[str, bytes]] | None = None,
 ) -> bool:
     """
     Verify a Phase-2 reveal against a Phase-1 commit.
 
     Returns True iff
-        sha256([snapshot_hash ||] [algo_version ||] canonical(scores) || nonce)
+        sha256([snapshot_hash ||] [algo_version ||] [input_commitments ||]
+               canonical(scores) || nonce)
     equals the earlier `commit_hash` — i.e. the revealed (scores, nonce)
     is exactly what the node committed to. A copying node, whose commit
     does not match the scores it copied, fails here.
@@ -232,6 +289,12 @@ def verify_reveal(
     that switched versions between commit and reveal fails here — no
     silent version drift in-flight.
 
+    AW-01: pass `input_commitments` to verify against the same per-agent
+    input-provenance commitments the commit was computed against. A
+    revealer that fed itself different upstream transactions between
+    commit and reveal fails here — input swaps mid-round are caught at
+    the cryptographic layer, not downstream as silent score divergence.
+
     Uses a constant-time comparison — verification timing must not leak
     how close a forged reveal was.
     """
@@ -240,8 +303,10 @@ def verify_reveal(
     try:
         prefix = snapshot_hash if snapshot_hash is not None else b""
         version_bytes = _version_tag_bytes(algo_version)
+        input_bytes = _input_commitment_tag_bytes(input_commitments)
         recomputed = hashlib.sha256(
-            prefix + version_bytes + canonical_scores(scores) + nonce
+            prefix + version_bytes + input_bytes
+            + canonical_scores(scores) + nonce
         ).digest()
     except (ValueError, AttributeError):
         return False

@@ -43,6 +43,15 @@ pub fn handler(
     // submit-score path (the safe default refuses every CPI from any
     // program other than ourselves).
     health_oracle_program_id:  Pubkey,
+    // AW-01-EXT.6: the challenge-attester cluster (third-party
+    // validators whose signatures count toward `challenge_certificate`).
+    // Pass an empty Vec + threshold 0 to leave the challenge ix
+    // disabled at deploy time; rotate in via a future
+    // `rotate_challenge_attesters` ix (gated on the admin key). MUST be
+    // DISJOINT from `cluster_keys` — the architecture requires
+    // independent re-checkers.
+    challenge_attester_keys:   Vec<Pubkey>,
+    challenge_threshold:       u8,
 ) -> Result<()> {
     // ── Validate the cluster ────────────────────────────────────────────────
     require!(
@@ -80,6 +89,43 @@ pub fn handler(
         );
     }
 
+    // ── AW-01-EXT.6: validate the challenge-attester cluster ────────────────
+    // Empty + threshold-0 is allowed (challenge ix disabled at deploy
+    // time). Otherwise apply the same shape rules as cluster_keys.
+    let challenge_enabled =
+        !challenge_attester_keys.is_empty() || challenge_threshold != 0;
+    if challenge_enabled {
+        require!(
+            !challenge_attester_keys.is_empty()
+                && challenge_attester_keys.len()
+                    <= IssuerConfig::MAX_CHALLENGE_ATTESTER_KEYS,
+            CertificateError::InvalidAttesterClusterSize,
+        );
+        // No duplicates among attester keys.
+        for i in 0..challenge_attester_keys.len() {
+            for j in (i + 1)..challenge_attester_keys.len() { // audit: bounded by Vec.len()
+                require!(
+                    challenge_attester_keys[i] != challenge_attester_keys[j],
+                    CertificateError::DuplicateAttesterKey,
+                );
+            }
+        }
+        // DISJOINT from cluster_keys — the architectural requirement that
+        // an attester is an INDEPENDENT third party, not one of the
+        // signers being challenged.
+        for ak in &challenge_attester_keys {
+            require!(
+                !cluster_keys.contains(ak),
+                CertificateError::AttesterOverlapsCluster,
+            );
+        }
+        require!(
+            challenge_threshold >= 1
+                && challenge_threshold as usize <= challenge_attester_keys.len(),
+            CertificateError::InvalidChallengeThreshold,
+        );
+    }
+
     let config = &mut ctx.accounts.issuer_config;
     config.authority                = ctx.accounts.admin.key();
     config.issuer_node              = issuer_node;
@@ -87,10 +133,12 @@ pub fn handler(
     config.threshold                = threshold;
     config.bump                     = ctx.bumps.issuer_config;
     config.health_oracle_program_id = health_oracle_program_id;
+    config.challenge_attester_keys  = challenge_attester_keys;
+    config.challenge_threshold      = challenge_threshold;
 
     msg!(
         "certificate-issuer config initialised: {}-key cluster, threshold {}-of-{}, \
-         CPI allow-list {}",
+         CPI allow-list {}, challenge cluster {}",
         config.cluster_keys.len(),
         config.threshold,
         config.cluster_keys.len(),
@@ -98,6 +146,11 @@ pub fn handler(
             "enabled"
         } else {
             "DISABLED (no CPI caller permitted)"
+        },
+        if config.challenge_enabled() {
+            "enabled"
+        } else {
+            "DISABLED"
         },
     );
     Ok(())

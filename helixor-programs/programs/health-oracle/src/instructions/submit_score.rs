@@ -103,16 +103,33 @@ pub struct SubmitScore<'info> {
     #[account(address = solana_instructions_sysvar::ID)]
     pub instructions_sysvar: UncheckedAccount<'info>,
 
+    /// CHECK: the SlotHashes sysvar — passed through to the
+    /// certificate-issuer CPI so it can verify the AW-01-EXT slot anchor.
+    /// `address` pins the expected sysvar pubkey at the Anchor layer;
+    /// the callee re-checks it inside `verify_slot_anchor`.
+    #[account(address = solana_program::sysvar::slot_hashes::ID)]
+    pub slot_hashes_sysvar: UncheckedAccount<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
 pub fn handler(
-    ctx:           Context<SubmitScore>,
-    epoch:         u64,
-    score:         u16,
-    alert_tier:    u8,
-    flags:         u32,
-    immediate_red: bool,
+    ctx:              Context<SubmitScore>,
+    epoch:            u64,
+    score:            u16,
+    alert_tier:       u8,
+    flags:            u32,
+    immediate_red:    bool,
+    // AW-01: cluster-majority input-provenance commitment. Passes through
+    // verbatim into the certificate-issuer CPI; the cert-issuer enforces
+    // the non-zero gate.
+    input_commitment: [u8; 32],
+    // AW-01-EXT: Solana slot-anchor `(slot, block_hash)` the cluster
+    // pinned at scoring time. Forwarded to the CPI; the cert-issuer
+    // verifies the pair against the SlotHashes sysvar and rejects a
+    // zero anchor.
+    slot_anchor_slot: u64,
+    slot_anchor_hash: [u8; 32],
 ) -> Result<()> {
     // ── 2. precondition checks ──────────────────────────────────────────────
     require!(
@@ -137,6 +154,7 @@ pub fn handler(
         issuer_config:       ctx.accounts.issuer_config.to_account_info(),
         issuer:              ctx.accounts.oracle.to_account_info(),
         instructions_sysvar: ctx.accounts.instructions_sysvar.to_account_info(),
+        slot_hashes_sysvar:  ctx.accounts.slot_hashes_sysvar.to_account_info(),
         system_program:      ctx.accounts.system_program.to_account_info(),
     };
     let cpi_ctx = CpiContext::new(
@@ -146,7 +164,12 @@ pub fn handler(
 
     // This CALL is the certificate write. If it reverts, submit_score
     // reverts — the score submission is all-or-nothing.
-    cpi_issue_certificate(cpi_ctx, epoch, score, alert_tier, flags, immediate_red)?;
+    cpi_issue_certificate(
+        cpi_ctx, epoch, score, alert_tier, flags, immediate_red,
+        input_commitment,          // AW-01: pass through verbatim
+        slot_anchor_slot,          // AW-01-EXT: forwarded to sysvar check
+        slot_anchor_hash,
+    )?;
 
     // ── emit the oracle-side event ──────────────────────────────────────────
     let clock = Clock::get()?;

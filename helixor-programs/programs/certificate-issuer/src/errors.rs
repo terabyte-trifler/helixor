@@ -68,4 +68,56 @@ pub enum CertificateError {
            the Instructions sysvar — refusing to issue a cert without \
            caller attribution")]
     CallerIntrospectionFailed = 6051,
+
+    // ── AW-01: input-provenance commitment ──────────────────────────────────
+    #[msg("input_commitment is all zeros — the cluster must agree on the \
+           input-provenance commitment before issuing a cert (AW-01); a \
+           zero commitment indicates the off-chain submitter skipped the \
+           per-node + cross-node input binding")]
+    MissingInputCommitment = 6060,
+
+    // ── AW-01-EXT: Solana slot-anchor verification ──────────────────────────
+    #[msg("slot_anchor is all zeros — the cluster must pin a Solana slot \
+           anchor (AW-01-EXT) so the cert can be verified against the \
+           SlotHashes sysvar")]
+    MissingSlotAnchor = 6070,
+    #[msg("supplied SlotHashes sysvar does not match the expected sysvar pubkey")]
+    WrongSlotHashesSysvar = 6071,
+    #[msg("slot_anchor.slot is older than the SlotHashes sysvar window \
+           (~512 slots / ~3.4 min) — submit the cert closer to the scoring \
+           time so the anchor is still verifiable on chain")]
+    SlotAnchorTooOld = 6072,
+    #[msg("slot_anchor.block_hash does not match Solana's recorded hash for \
+           that slot — the cluster pinned an anchor Solana does not recognise; \
+           either every cluster node reads from a poisoned upstream, or the \
+           submitter forged the anchor (AW-01-EXT defence-in-depth caught it)")]
+    SlotAnchorHashMismatch = 6073,
+
+    // ── AW-01-EXT.6: certificate challenge instruction ──────────────────────
+    #[msg("challenge cluster not configured — issuer_config has zero attester \
+           keys or zero threshold; rotate the attester cluster in before \
+           filing challenges")]
+    NoAttesterCluster = 6080,
+    #[msg("certificate predates AW-01-EXT (layout_version < 4) and has no slot \
+           anchor to challenge")]
+    PreV4CertNotChallengeable = 6081,
+    #[msg("a challenge has already been filed against this certificate — \
+           outcome is permanent (Upheld or Rejected)")]
+    ChallengeAlreadyFiled = 6082,
+    #[msg("certificate is too old to challenge — challenge window is the \
+           configured CHALLENGE_WINDOW_SECONDS (default 90 days) from \
+           issued_at")]
+    ChallengeExpired = 6083,
+    #[msg("challenge carries fewer valid attester signatures than the \
+           challenge_threshold")]
+    InsufficientChallengeAttesters = 6084,
+    #[msg("challenge invalid cluster size — must be 1..=MAX_CHALLENGE_ATTESTER_KEYS")]
+    InvalidAttesterClusterSize = 6086,
+    #[msg("duplicate pubkey in the challenge-attester key set")]
+    DuplicateAttesterKey = 6087,
+    #[msg("challenge-attester key overlaps the cert-signing cluster — the \
+           attester cluster must be DISJOINT (independent re-checkers)")]
+    AttesterOverlapsCluster = 6088,
+    #[msg("challenge_threshold invalid — must be 1..=challenge_attester_keys.len()")]
+    InvalidChallengeThreshold = 6089,
 }

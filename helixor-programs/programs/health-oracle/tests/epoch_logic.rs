@@ -4,11 +4,20 @@
 // Pure unit tests for the EpochState helpers. No runtime — these exercise
 // the layout constants, the may_advance gate, and the liveness_fallback_elapsed
 // gate (VULN-02 fix) in isolation.
+//
+// AW-02 adds digest / domain-separation pinning tests for the M-of-N
+// threshold-attested advance path. The Ed25519-precompile parsing and the
+// in-handler tier ordering are covered by unit tests inside the
+// advance_epoch module itself (cargo test --lib).
 // Full on-chain behaviour (the CPI, epoch-keyed cert PDAs, advance authority
-// rotation) is exercised by the TypeScript integration test.
+// rotation, M-of-N tx assembly) is exercised by the TypeScript integration
+// tests.
 // =============================================================================
 
 use anchor_lang::prelude::Pubkey;
+use health_oracle::instructions::advance_epoch::{
+    advance_payload_digest, ADVANCE_EPOCH_DOMAIN_TAG,
+};
 use health_oracle::state::EpochState;
 
 // =============================================================================
@@ -195,4 +204,69 @@ fn advance_authority_change_does_not_affect_epoch_or_timing() {
     assert_eq!(state.current_epoch, 42);
     assert_eq!(state.last_advanced_at, 9_999_999);
     assert_eq!(state.epoch_duration_seconds, EpochState::DEFAULT_DURATION_SECONDS);
+}
+
+// =============================================================================
+// AW-02: advance digest — domain separation and per-tick uniqueness
+// =============================================================================
+//
+// The Tier-1 normal advance path now requires M-of-N cluster Ed25519
+// attestations over `advance_payload_digest(current_epoch, target_epoch,
+// last_advanced_at)`. These tests pin the digest's anti-replay properties.
+
+#[test]
+fn aw02_domain_tag_is_exactly_helixor_epoch_advance() {
+    // Pin the literal bytes. A change here is a breaking on-chain protocol
+    // change — every queued cluster attestation would be invalidated.
+    assert_eq!(ADVANCE_EPOCH_DOMAIN_TAG, b"helixor-epoch-advance");
+    assert_eq!(ADVANCE_EPOCH_DOMAIN_TAG.len(), 21);
+}
+
+#[test]
+fn aw02_domain_tag_is_distinct_from_cert_and_challenge_tags() {
+    // The three protocol digests must never collide. Distinct domain tags
+    // are the only defence preventing a cert-signing or challenge
+    // attestation from being lifted into an epoch-advance attestation.
+    assert_ne!(ADVANCE_EPOCH_DOMAIN_TAG, b"helixor-cert-v1");
+    assert_ne!(ADVANCE_EPOCH_DOMAIN_TAG, b"helixor-aw01-ext-challenge");
+}
+
+#[test]
+fn aw02_digest_changes_across_consecutive_ticks() {
+    // The crucial defence: a stash of cluster sigs for advance N→N+1 at
+    // timestamp T1 cannot be reused to push through advance N→N+1 at a
+    // later timestamp T2 (e.g. by an attacker holding sigs in reserve
+    // and waiting for an opportune moment). last_advanced_at differs
+    // between any two real ticks, so the digests differ.
+    let a = advance_payload_digest(7, 8, 1_700_000_000);
+    let b = advance_payload_digest(7, 8, 1_700_086_400); // +24h
+    assert_ne!(a, b);
+}
+
+#[test]
+fn aw02_digest_changes_for_different_target_epochs() {
+    // Defence against "epoch-skipping" cross-replay: a cluster sig for
+    // advancing TO epoch 50 cannot be reused to advance TO epoch 100.
+    let a = advance_payload_digest(49, 50, 1_700_000_000);
+    let b = advance_payload_digest(49, 100, 1_700_000_000);
+    assert_ne!(a, b);
+}
+
+#[test]
+fn aw02_digest_changes_for_different_current_epochs() {
+    // Defence against "epoch-rewind" attacks: a sig issued when the
+    // cluster believed current_epoch was 5 cannot be reused when
+    // current_epoch is something else, even if target_epoch matches.
+    let a = advance_payload_digest(5, 6, 0);
+    let b = advance_payload_digest(7, 6, 0);
+    assert_ne!(a, b);
+}
+
+#[test]
+fn aw02_digest_is_deterministic_for_same_inputs() {
+    // A cluster member computing the digest off-chain must get the same
+    // 32 bytes the on-chain verifier computes — full bit-for-bit match.
+    let a = advance_payload_digest(123, 124, 1_777_000_000);
+    let b = advance_payload_digest(123, 124, 1_777_000_000);
+    assert_eq!(a, b);
 }

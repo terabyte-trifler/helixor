@@ -55,3 +55,37 @@ export {
   type SafeScoreRejected,
   type SafeScoreResult,
 } from "./safe_reader";
+
+// AW-02 epoch-advance digest — cluster operators compute this exactly the
+// way the on-chain verifier does, sign with their cluster keypair, and
+// attach the resulting Ed25519 program instruction to the advance_epoch tx.
+export {
+  ADVANCE_EPOCH_DOMAIN_TAG,
+  advancePayloadDigest,
+} from "./advance_epoch";
+
+// AW-01 input-provenance verification — recompute the cluster's input
+// commitment from observable transactions and refuse certs whose declared
+// inputs do not match what the consumer sees on chain.
+//
+// AW-01-EXT extends this with a Solana slot-anchor: the cluster pins a
+// `(slot, block_hash)` at scoring time, the on-chain handler verifies it
+// against `SlotHashes`, and `verifyAgainstSolanaLedger` lets a consumer
+// re-run the same check off-chain.
+export {
+  computeInputCommitment,
+  verifyInputProvenance,
+  verifyAgainstSolanaLedger,
+  ProvenanceRejection,
+  LedgerRejection,
+  COMMITMENT_BYTES,
+  INPUT_COMMITMENT_VERSION,
+  SLOT_ANCHOR_BYTES,
+  type ObservableTransaction,
+  type ExtractionWindow,
+  type InputCommitmentInputs,
+  type ProvenanceResult,
+  type SlotAnchor,
+  type SolanaLedgerVerification,
+  type SlotHashesProvider,
+} from "./input_provenance";
