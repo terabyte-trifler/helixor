@@ -261,6 +261,32 @@ run "freeze cert gate"  python3 audit/freeze_cert_check.py \
     --json audit/reports/freeze_cert.json
 
 
+# ── 1t. DeFi-Bypass audit gate ──────────────────────────────────────────────
+# Red-team Path 4 closure: an attacker who can't break Helixor's own substrate
+# (Paths 1/2/3 closed by FHS/ILS/FRP) targets a DeFi consumer's INTEGRATION
+# instead — a lending protocol that reads `getScore()` raw, never bounds
+# operations against SOL-3 freshness floors, and never re-verifies the
+# AW-01-EXT slot anchor against an independent RPC. Helixor cannot close this
+# from its own substrate — the only durable mitigation is making the safe
+# path the easy path. This gate is the mechanical regression alarm for the
+# "Verified Integrator" pre-flight: every partner manifest at
+# `launch/integrations/*.json` is verified to (a) claim only allowed
+# `operations_bound` (LOAN_ISSUE / LOAN_INCREASE / LIQUIDATION_CHECK /
+# STATUS_READ), (b) attest the three safety surfaces (SafeCertReader,
+# verifyInputProvenance, verifyAgainstSolanaLedger), (c) name a cert-reader
+# source on disk that contains every claimed marker, and (d) carry a
+# canonical-hash that matches the recompute. The gate ALSO cross-checks the
+# VULN-23 anchor (`SafeCertReader` + `CERT_MAX_AGE_SECONDS = 48 * 60 * 60` in
+# `helixor-sdk/src/safe_reader.ts`), the SOL-3 anchor (`Operation` enum + all
+# four per-op constants in `helixor-oracle/oracle/operation_freshness.py`),
+# and the AW-01-EXT anchor (`verifyAgainstSolanaLedger` in
+# `helixor-sdk/src/input_provenance.ts`) so a rename in any of those
+# surfaces voids every existing manifest and lights red here BEFORE the
+# refactor reaches mainnet.
+run "consumer integration gate"  python3 audit/consumer_integration_check.py \
+    --json audit/reports/consumer_integration.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

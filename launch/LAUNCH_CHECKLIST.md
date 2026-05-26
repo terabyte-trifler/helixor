@@ -594,6 +594,66 @@ file.
       EXPECTED_EPOCH_DURATION_SECONDS * 3`) as explicit tests so
       any silent drift between the calibration constants lights red
       BEFORE the change reaches mainnet.
+- [ ] **DeFi-Bypass audit gate clean** —
+      `python3 audit/consumer_integration_check.py --json audit/reports/consumer_integration.json`
+      reports **0 HARD findings**. The gate is the mechanical
+      regression alarm for the red-team Path 4 "DeFi Bypass" attack
+      chain in `launch/design/defi_bypass_resolution.md` — three
+      sub-leaves all of which live in the CONSUMER's code, not
+      Helixor's: (4a) DeFi protocol uses cert without freshness
+      check, (4b) DeFi protocol uses cert without score threshold
+      validation, (4c) DeFi protocol's cert-reading code has bugs.
+      Closed by a four-substrate "Verified Integrator" tier whose
+      first deliverable (DBP-1) ships in this commit and whose
+      remaining deliverables (DBP-2 on-chain `VerifiedConsumer`
+      PDA, DBP-3 safe-default `@helixor/sdk` export, DBP-4 SLA-
+      backed freshness webhooks) are the revenue surface for the
+      tier. DBP-1 specifically: a self-serve consumer integration
+      linter (`audit/consumer_integration_check.py`) that verifies
+      every `launch/integrations/*.json` partner manifest claims
+      only allowed `operations_bound` (subset of
+      `{LOAN_ISSUE, LOAN_INCREASE, LIQUIDATION_CHECK, STATUS_READ}`),
+      attests `safe_reader_imported = true` /
+      `input_provenance_verified = true` /
+      `slot_anchor_verified = true`, names cert-reader source paths
+      that exist on disk and contain the `SafeCertReader` +
+      `verifyInputProvenance` + `verifyAgainstSolanaLedger` markers
+      and the per-operation constant/enum-label for each entry in
+      `operations_bound`, and carries an `integration_hash` that
+      matches the canonical SHA256 recompute of
+      `manifest minus {integration_hash, signature_ed25519}`. The
+      reference manifest `launch/integrations/example_safe_partner.
+      json` points at the reference safe-reader implementation at
+      `launch/integrations/example_safe_partner/reader.ts` — both
+      are checked into the repo as the canonical green target.
+      The gate ALSO cross-checks the VULN-23 anchor
+      (`export class SafeCertReader` + `CERT_MAX_AGE_SECONDS = 48 *
+      60 * 60` + `MAX_SCORE_VELOCITY = 200` +
+      `VELOCITY_WINDOW_EPOCHS = 3` + `MIN_HISTORY_REQUIRED = 2` in
+      `helixor-sdk/src/safe_reader.ts` and the re-export from
+      `helixor-sdk/src/index.ts`), the SOL-3 anchor
+      (`class Operation(str, Enum)` +
+      `LOAN_ISSUE_MAX_AGE_SECONDS = 4 * 3600` +
+      `LOAN_INCREASE_MAX_AGE_SECONDS = 8 * 3600` +
+      `LIQUIDATION_CHECK_MAX_AGE_SECONDS = 12 * 3600` +
+      `STATUS_READ_MAX_AGE_SECONDS = 48 * 3600` +
+      `verify_operation_freshness` in
+      `helixor-oracle/oracle/operation_freshness.py`), and the
+      AW-01-EXT anchor (`verifyAgainstSolanaLedger` +
+      `verifyInputProvenance` in
+      `helixor-sdk/src/input_provenance.ts` and the re-export from
+      `helixor-sdk/src/index.ts`) — so any rename or removal of a
+      surface partner manifests bind against lights red BEFORE the
+      change reaches mainnet, giving every active integrator a
+      coordinated migration window rather than a silent void. The
+      pytest self-test at `audit/test_consumer_integration_check.
+      py` ALSO pins the canonical-hash invariant
+      (`example_safe_partner.json::integration_hash ==
+      sha256(canonical_json(manifest_minus_signature))`) so a
+      schema drift between the manifest and its pinned hash lights
+      red on commit. A regression that removes any of these
+      mitigations lights the gate red BEFORE the change reaches
+      mainnet.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain

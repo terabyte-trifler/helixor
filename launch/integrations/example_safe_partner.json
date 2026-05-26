@@ -1,0 +1,19 @@
+{
+  "partner_name": "Example Safe Partner",
+  "partner_wallet": "He1ixorVer1fiedConsumerExamp1ePartner12345A",
+  "integration_version": "1.0.0",
+  "cert_reader_source_paths": [
+    "launch/integrations/example_safe_partner/reader.ts"
+  ],
+  "operations_bound": [
+    "LOAN_ISSUE",
+    "LOAN_INCREASE",
+    "LIQUIDATION_CHECK",
+    "STATUS_READ"
+  ],
+  "safe_reader_imported": true,
+  "input_provenance_verified": true,
+  "slot_anchor_verified": true,
+  "integration_hash": "bdfbc33d39ee502fc98bf1b2da976d4955404077f95d8fcee402c37539f67eeb",
+  "signature_ed25519": "EXAMPLE_PARTNER_NOT_YET_SIGNED_dbp2_on_chain_minting_lives_in_followup_commit"
+}
