@@ -882,6 +882,35 @@ file.
       high-value authority key, and make silent delist the default.
       On-call confirms they can recite the four steps and find the
       linked instruction handlers in <5 minutes.
+- [ ] **DP-1 data-protection compliance + DSAR runbook reviewed by lead.**
+      The 6-step incident response in
+      `launch/runbooks/data_subject_request_response.md` composes the
+      existing primitives — proof-of-control verification at intake,
+      then `python -m oracle.data_subject_request query <wallet>` for
+      Art. 15 / s.11 / §1798.110 access requests, `... erase <wallet>
+      --justification <ticket>` for Art. 17 / s.12 / §1798.105 erasure
+      (purges `agent_transactions` and `agent_scores` rows via the
+      VULN-20-guarded parameterised SQL through the existing
+      `DBConnection` Protocol), an operator-local objection list for
+      Art. 21 / s.13 (NOT on-chain — same anti-pattern OFAC-1
+      declined), and a canonical-JSON DSAR audit log at
+      `/var/log/helixor/dsar/<ticket>.<op>.json`. The substrate
+      `helixor-oracle/oracle/data_protection_policy.py` declares
+      DataCategory × StorageLocation × LawfulBasis × RetentionPolicy
+      with the on-chain / off-chain erasability biconditional and a
+      single carve-out (REFUSAL_LOG, justified by the OFAC-1
+      transparency invariant). The public privacy notice
+      `launch/legal/privacy_notice.md` discloses the on-chain
+      carve-out BEFORE registration (the GDPR Recital 26 / DPDP s.3(c)
+      technical-infeasibility path). The audit gate
+      `audit/data_protection_check.py` verifies the TimescaleDB 180d
+      pin in `helixor-oracle/db/migrations/0009_timescaledb.sql` and
+      the Prometheus 30d pin in
+      `launch/deploy/docker-compose.indexer.yml` still match the
+      substrate's declared seconds — a drift trips the gate HARD.
+      On-call confirms they can recite the six steps, find the linked
+      handlers in <5 minutes, AND name the four on-chain carve-out
+      categories verbatim.
 - [ ] Monitoring stack (Prometheus + Alertmanager) live and tested in
       dev — every alert in `launch/monitoring/alerts.yml` fired
       manually at least once
