@@ -41,6 +41,9 @@ export default async function AgentPage({ params }: PageProps) {
   ]);
 
   if (!health) return notFound();
+  const flagDisplay = health.flag_set_token
+    ? `${health.flag_count ?? 0} fired · ${health.flag_set_token}`
+    : `0x${(health.flags ?? 0).toString(16).padStart(8, "0")}`;
 
   return (
     <div className="mx-auto max-w-7xl px-6 lg:px-10 py-16 lg:py-20">
@@ -118,8 +121,8 @@ export default async function AgentPage({ params }: PageProps) {
               <DetailRow
                 label="Flags"
                 value={
-                  <span className="font-mono text-[14px] text-ink-12">
-                    0x{health.flags.toString(16).padStart(8, "0")}
+                  <span className="font-mono text-[14px] text-ink-12 break-all">
+                    {flagDisplay}
                   </span>
                 }
               />

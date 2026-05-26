@@ -43,6 +43,7 @@ if _VERDICT.is_production:
 
 
 from api.app import create_app                                      # noqa: E402
+from api.auth import ApiKeyRegistry, load_keys_from_env             # noqa: E402
 from api.synthetic_seed import build_synthetic_repos, write_explanation_report  # noqa: E402
 
 
@@ -64,6 +65,7 @@ def build_app():
         score_repo=score_repo,
         byzantine_repo=byz_repo,
         cluster_repo=cluster_repo,
+        key_registry=ApiKeyRegistry(load_keys_from_env()),
         network=_VERDICT.network,
         is_production=False,
         scoring_algo_version="synthetic-v2-real-engine",
@@ -86,4 +88,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

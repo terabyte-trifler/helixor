@@ -21,7 +21,9 @@ export interface HealthResponse {
   score: number;             // 0..1000
   alert_tier: AlertTier;
   alert_tier_code: AlertTierCode;
-  flags: number;             // u32 detection-flag bitset
+  flag_set_token?: string;   // opaque token over the raw detection flags
+  flag_count?: number;       // number of detectors fired
+  flags?: number;            // legacy/mock u32 detection-flag bitset
   immediate_red: boolean;
   signer_count: number;      // how many cluster keys signed this cert
   computed_at: string;       // ISO 8601

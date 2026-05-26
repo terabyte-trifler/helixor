@@ -31,6 +31,10 @@ const API_URL =
   typeof process !== "undefined"
     ? process.env.NEXT_PUBLIC_API_URL
     : undefined;
+const API_KEY =
+  typeof process !== "undefined"
+    ? process.env.HELIXOR_API_KEY ?? process.env.NEXT_PUBLIC_HELIXOR_API_KEY
+    : undefined;
 
 export function isMock(): boolean {
   return !API_URL;
@@ -52,8 +56,10 @@ async function fetchJson<T>(path: string): Promise<T> {
     throw new Error("NEXT_PUBLIC_API_URL not set — use mock path");
   }
   const url = `${API_URL.replace(/\/$/, "")}${path}`;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (API_KEY) headers["X-API-Key"] = API_KEY;
   const res = await fetch(url, {
-    headers: { Accept: "application/json" },
+    headers,
     cache: "no-store",
     next: { revalidate: 0 },
   });
