@@ -362,6 +362,51 @@ file.
       `helixor-sdk/src/lib/cert_reader.ts` disappears. A regression
       that removes any of these mitigations lights the gate red
       BEFORE the change reaches mainnet.
+- [ ] **Stale Oracle Lock audit gate clean** —
+      `python3 audit/stale_oracle_check.py --json audit/reports/stale_oracle.json`
+      reports **0 HARD findings**. The gate is the mechanical
+      regression alarm for the catastrophic Scenario C
+      "Stale Oracle Lock" attack chain in
+      `launch/design/stale_oracle_resolution.md` — all 5 oracle nodes
+      disrupted simultaneously (coordinated DDoS or infra failure),
+      no new certs issued, DeFi protocols continue to use last-issued
+      certs, agents whose behaviour degrades never get updated certs,
+      mass defaults with no warning. Closed by three orthogonal
+      mitigations: SOL-1 cluster-liveness signal
+      (`verify_cluster_liveness` + `enforce_cluster_alive` +
+      `WARN_QUIET_SECONDS = 2 * 3600` (2h),
+      `SILENT_QUIET_SECONDS = 4 * 3600` (4h),
+      `MIN_RECENT_NODES_FOR_ALIVE = 3`,
+      `LIVENESS_FUTURE_TOLERANCE_SECONDS = 60`, band labels
+      `LIVENESS_ALIVE = "ALIVE"`, `LIVENESS_DEGRADED = "DEGRADED"`,
+      `LIVENESS_SILENT = "SILENT"` — refuses consumer-side activity
+      hours BEFORE TA-6's 48h ceiling on a cluster that has gone
+      quiet or lost K-of-N capability), SOL-2 per-agent age-based
+      tier degradation (`escalate_for_age` +
+      `GREEN_TO_YELLOW_AFTER_SECONDS = 6 * 3600` (6h),
+      `YELLOW_TO_RED_AFTER_SECONDS = 12 * 3600` (12h),
+      `REFUSE_AFTER_SECONDS = 24 * 3600` (24h — half-life of TA-6),
+      tier labels `TIER_GREEN = "GREEN"`, `TIER_YELLOW = "YELLOW"`,
+      `TIER_RED = "RED"`, `TIER_REFUSE = "REFUSE"` — transitive
+      one-directional downgrade so a stale cert progressively loses
+      weight rather than staying GREEN until the cliff edge), SOL-3
+      per-operation freshness floors
+      (`verify_operation_freshness` + `enforce_operation_freshness` +
+      `LOAN_ISSUE_MAX_AGE_SECONDS = 4 * 3600` (4h),
+      `LOAN_INCREASE_MAX_AGE_SECONDS = 8 * 3600` (8h),
+      `LIQUIDATION_CHECK_MAX_AGE_SECONDS = 12 * 3600` (12h),
+      `STATUS_READ_MAX_AGE_SECONDS = 48 * 3600` (48h — mirrors TA-6's
+      `MAX_AGE_SECONDS`), `OPERATION_FUTURE_TOLERANCE_SECONDS = 60`,
+      `Operation` enum with `LOAN_ISSUE` / `LOAN_INCREASE` /
+      `LIQUIDATION_CHECK` / `STATUS_READ` wire labels — risk-asymmetric
+      consumer circuit breaker, so high-stakes operations refuse
+      against aged certs even within TA-6's window). The gate ALSO
+      cross-checks TA-6's on-chain `MAX_AGE_SECONDS = 48 * 60 * 60`
+      in `programs/certificate-issuer/src/state/health_certificate.rs`
+      so SOL-3's `STATUS_READ` floor and TA-6's ceiling cannot drift
+      out of lockstep silently. A regression that removes any of
+      these mitigations lights the gate red BEFORE the change reaches
+      mainnet.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain

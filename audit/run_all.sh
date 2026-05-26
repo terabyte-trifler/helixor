@@ -174,6 +174,22 @@ run "nation state gate"  python3 audit/nation_state_check.py \
     --json audit/reports/nation_state.json
 
 
+# ── 1p. Stale Oracle Lock audit gate ────────────────────────────────────────
+# Architectural fix for catastrophic Scenario C from the audit: all 5
+# oracle nodes are disrupted simultaneously (DDoS or infra failure) -> no
+# new certs are issued -> DeFi protocols continue to use last-issued certs
+# (stale data) -> agents whose behaviour degrades never get updated certs
+# -> mass defaults with no warning. Closed by three orthogonal mechanisms
+# — cluster-liveness signal (SOL-1), per-agent age-based tier degradation
+# escalator (SOL-2), per-operation freshness floors (SOL-3). This gate
+# greps each marker so a refactor that quietly removes a mitigation lights
+# red BEFORE mainnet, and additionally cross-checks the TA-6 mirror
+# constant (`MAX_AGE_SECONDS = 48*60*60` in the on-chain
+# certificate-issuer health-certificate state).
+run "stale oracle gate"  python3 audit/stale_oracle_check.py \
+    --json audit/reports/stale_oracle.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"
