@@ -163,6 +163,23 @@ run "OFAC-1 cert-refusal gate"  python3 audit/cert_refusal_check.py \
     --json audit/reports/cert_refusal.json
 
 
+# ── 1m++. DP-1 data-protection compliance gate ─────────────────────────────
+# The scoring system builds per-agent behavioral profiles. In
+# jurisdictions with data protection law (GDPR Art. 6/15/17, DPDP s.7/11/
+# 12, CCPA §1798.105/110/140), storing behavioral data without a declared
+# lawful basis, retention ceiling, or access/erasure mechanism is a
+# regulatory liability. DP-1 (helixor-oracle/oracle/data_protection_policy
+# .py) pins DataCategory × StorageLocation → RetentionPolicy with the
+# erasability biconditional (off-chain ⇒ erasable; on-chain ⇒ not,
+# explicitly disclosed) and a single carve-out (REFUSAL_LOG, kept for
+# the OFAC-1 transparency invariant). This gate enforces the substrate
+# stays present, every category has a policy, the biconditional holds,
+# and the TimescaleDB 180-day + Prometheus 30-day ceilings in the
+# canonical config files still match the policy declaration.
+run "DP-1 data-protection gate" python3 audit/data_protection_check.py \
+    --json audit/reports/data_protection.json
+
+
 # ── 1n. Protocol Death Spiral audit gate ────────────────────────────────────
 # Architectural fix for catastrophic Scenario A from the audit: attacker
 # compromises 2 oracle nodes, runs VULN-03 slow drift for 30 epochs, all
