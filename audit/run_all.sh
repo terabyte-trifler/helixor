@@ -210,6 +210,32 @@ run "forge high-score gate"  python3 audit/forge_high_score_check.py \
     --json audit/reports/forge_high_score.json
 
 
+# ── 1r. Inflate-Legitimate-Score audit gate ─────────────────────────────────
+# Red-team Path 2 closure: an attacker who has (a) compromised one cluster
+# key and tries to rotate the baseline every epoch (VULN-06), (b) exfiltrated
+# one trusted producer key and stamps 100% of feature records for a target
+# agent (VULN-07), or (c) drips small per-epoch score deltas to inflate the
+# score over many epochs (VULN-03) can still inflate a legitimate score
+# unless the oracle enforces (1) a hard baseline-rotation cadence + co-signer
+# floor so a single compromised cluster key cannot wholesale-rewrite the
+# baseline, (2) a producer-corroboration + record-freshness gate so a single
+# compromised producer key cannot dominate an aggregation, and (3) a
+# multi-substrate score-drift ceiling (cumulative + per-epoch + monotonic-run)
+# so slow drift cannot evade single-epoch velocity. Closed by three orthogonal
+# mechanisms — baseline-rotation cadence + co-attestation guard (ILS-1),
+# producer-corroboration + freshness floor (ILS-2), score-drift ceiling
+# (ILS-3). This gate greps each marker so a refactor that quietly removes a
+# mitigation lights red BEFORE mainnet, and additionally cross-checks the
+# anchors for VULN-06 (`is_authorised_baseline_writer` +
+# `BaselineRotationTooSoon` + `BaselineEpochNotMonotonic` in
+# `certificate-issuer/src/instructions/record_baseline.rs`), VULN-07
+# (`TrustedProducerSet` + `verify_record_headers` in `indexer/eventbus/
+# consumer.py`), and VULN-03 (`VELOCITY_THRESHOLD = 0.20` +
+# `DRIFT_REASON_VELOCITY` in `oracle/cluster/drift_detector.py`).
+run "inflate score gate"  python3 audit/inflate_score_check.py \
+    --json audit/reports/inflate_score.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

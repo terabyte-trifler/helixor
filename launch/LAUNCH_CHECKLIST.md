@@ -456,6 +456,69 @@ file.
       lockstep with the on-chain defences they pair with. A
       regression that removes any of these mitigations lights the
       gate red BEFORE the change reaches mainnet.
+- [ ] **Inflate Legitimate Score audit gate clean** —
+      `python3 audit/inflate_score_check.py --json audit/reports/inflate_score.json`
+      reports **0 HARD findings**. The gate is the mechanical
+      regression alarm for the red-team Path 2 "Inflate Legitimate
+      Score" attack chain in
+      `launch/design/inflate_score_resolution.md` — three sub-leaves:
+      (2a) exploit VULN-06 baseline overwrite [LOW EFFORT], (2b)
+      exploit VULN-07 feature poisoning [MEDIUM EFFORT], (2c) exploit
+      VULN-03 Byzantine slow drift [HIGH EFFORT, LONG TERM]. Closed
+      by three orthogonal mitigations: ILS-1 baseline-rotation
+      cadence + co-attestation guard (`verify_baseline_rotation` +
+      `enforce_baseline_rotation` +
+      `MIN_EPOCHS_BETWEEN_BASELINE_ROTATIONS = 30` (30-epoch /
+      ~2.5-day cadence floor between per-agent baseline rotations),
+      `MIN_BASELINE_COSIGNERS = 2`,
+      `BASELINE_FUTURE_TOLERANCE_EPOCHS = 1`, status labels
+      `BASELINE_OK = "OK"`, `BASELINE_REFUSED = "REFUSED"` — refuses
+      any baseline rotation faster than 30 epochs OR solo-signed by
+      a single cluster key OR missing the agent's own cosignature,
+      so a compromised cluster key cannot grind an agent's baseline
+      upward), ILS-2 producer-corroboration + record-freshness
+      floor (`verify_feature_corroboration` +
+      `enforce_feature_corroboration` +
+      `MIN_DISTINCT_PRODUCERS_PER_AGGREGATION = 2`,
+      `MAX_PRODUCER_DOMINANCE_RATIO = 0.7` (cap against busiest
+      producer load distribution), `MAX_RECORD_AGE_SECONDS = 24 *
+      3600` (24h freshness window), `RECORD_FUTURE_TOLERANCE_SECONDS
+      = 60`, status labels `CORROBORATION_OK = "OK"`,
+      `CORROBORATION_REFUSED = "REFUSED"` — refuses an aggregation
+      whose producer set is smaller than 2, dominated above 70% by
+      one producer, or contains records older than 24h, catching the
+      "single compromised producer key stamps 100% of records"
+      residual that on-chain signature checks cannot see in isolation
+      AND the backfill attack with a since-decommissioned producer
+      key), ILS-3 cumulative score-drift ceiling
+      (`verify_score_drift_ceiling` + `enforce_score_drift_ceiling` +
+      `MAX_DRIFT_FROM_BASELINE_RATIO = 0.30` (30% cumulative
+      ceiling), `MAX_DRIFT_PER_EPOCH_RATIO = 0.05` (5% per-epoch
+      sub-pin — a quarter of the cluster's `VELOCITY_THRESHOLD =
+      0.20`), `MAX_MONOTONIC_DRIFT_EPOCHS = 10` (10-epoch monotonic-
+      run cap), `DRIFT_FUTURE_TOLERANCE_EPOCHS = 1`, status labels
+      `DRIFT_OK = "OK"`, `DRIFT_REFUSED = "REFUSED"`, reason codes
+      `DRIFT_OVER_CUMULATIVE_CEILING`,
+      `DRIFT_OVER_PER_EPOCH_CEILING`, `DRIFT_MONOTONIC_TOO_LONG` —
+      refuses sub-velocity drips that compound into 30%+ inflation
+      across many epochs; the three sub-pins are calibrated jointly
+      so per-epoch × monotonic (1.05^10 - 1 ≈ 0.629) ≫ cumulative
+      (0.30), forcing the cumulative ceiling to fire FIRST if an
+      attacker threads the per-epoch limit). The gate ALSO
+      cross-checks the on-chain VULN-06 anchor
+      (`is_authorised_baseline_writer` + `BaselineRotationTooSoon` +
+      `BaselineEpochNotMonotonic` in
+      `programs/certificate-issuer/src/instructions/record_baseline.rs`),
+      the indexer-side VULN-07 anchor (`TrustedProducerSet` +
+      `verify_record_headers` in
+      `helixor-indexer/eventbus/consumer.py`), and the cluster-side
+      VULN-03 anchor (`VELOCITY_THRESHOLD = 0.20` +
+      `DRIFT_REASON_VELOCITY` in
+      `helixor-oracle/oracle/cluster/drift_detector.py`) so the
+      off-chain ILS-1 / ILS-2 / ILS-3 mitigations cannot drift out
+      of lockstep with the upstream defences they pair with. A
+      regression that removes any of these mitigations lights the
+      gate red BEFORE the change reaches mainnet.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain
