@@ -618,4 +618,194 @@ mod tests {
             "two correct signatures plus one replayed digest must remain below threshold",
         );
     }
+
+    // =========================================================================
+    // VULN-01 Post-Launch — semi-formal verification via property testing.
+    //
+    // The procedural tests above pin specific attack patterns. The proptest
+    // block below pins the GENERAL SPEC: for any cluster, any set of
+    // precompile instructions, and any expected digest,
+    //
+    //     tally_count = |{ k ∈ cluster_keys : ∃ rec, rec.signer = k
+    //                                          ∧ rec.message = expected }|
+    //
+    // i.e. the count is the number of DISTINCT cluster keys that produced at
+    // least one matching-digest record. Every invariant the audit cares about
+    // — replay defence, dedupe, non-cluster-key filtering, permutation
+    // invariance, cluster-size upper bound — is a corollary of that spec.
+    //
+    // proptest's shrinker minimises any counterexample to the smallest
+    // failing input automatically, so a regression is exhibited as a tiny
+    // failing case rather than a 30-element opaque vector.
+    // =========================================================================
+
+    use proptest::prelude::*;
+    use std::collections::HashSet;
+
+    /// The reference implementation — the formal spec the verifier must
+    /// match. Pure: no precompile parsing, no AccountInfo, just set theory.
+    fn reference_count(
+        records: &[(Pubkey, [u8; 32])],
+        expected: &[u8; 32],
+        cluster_keys: &[Pubkey],
+    ) -> usize {
+        let mut hit: HashSet<Pubkey> = HashSet::new();
+        for (signer, msg) in records {
+            if msg == expected && cluster_keys.contains(signer) {
+                hit.insert(*signer);
+            }
+        }
+        hit.len()
+    }
+
+    /// Drive the real `maybe_tally_ed25519_ix` path through a list of
+    /// (signer, message) records and return the resulting distinct-signer
+    /// count.
+    fn tally_via_impl(
+        records: &[(Pubkey, [u8; 32])],
+        expected: &[u8; 32],
+        cluster_keys: Vec<Pubkey>,
+    ) -> usize {
+        let config = config_with_keys(cluster_keys, 1);
+        let mut signers: Vec<Pubkey> = Vec::new();
+        for (signer, msg) in records {
+            let ix = ed25519_ix(*signer, *msg);
+            maybe_tally_ed25519_ix(&ix, expected, &config, &mut signers).unwrap();
+        }
+        signers.len()
+    }
+
+    /// Generate `cluster_size` cluster keys plus `rogue_size` foreign keys
+    /// and resolve each ix-seed (`(u8_index, message)`) to a real pubkey by
+    /// indexing into the combined key list mod its length.
+    fn build_setup(
+        cluster_size: usize,
+        rogue_size: usize,
+        ix_seeds: Vec<(u8, [u8; 32])>,
+    ) -> (Vec<Pubkey>, Vec<(Pubkey, [u8; 32])>) {
+        let cluster_keys: Vec<Pubkey> =
+            (0..cluster_size).map(|_| Pubkey::new_unique()).collect();
+        let rogue_keys: Vec<Pubkey> =
+            (0..rogue_size).map(|_| Pubkey::new_unique()).collect();
+        let all_keys: Vec<Pubkey> =
+            cluster_keys.iter().chain(rogue_keys.iter()).copied().collect();
+        let records: Vec<(Pubkey, [u8; 32])> = ix_seeds
+            .into_iter()
+            .map(|(idx, msg)| (all_keys[(idx as usize) % all_keys.len()], msg))
+            .collect();
+        (cluster_keys, records)
+    }
+
+    proptest! {
+        /// SPEC: the verifier's tally equals the reference count
+        /// (distinct cluster-key signers over the expected digest), for
+        /// any random multiset of precompile records.
+        #[test]
+        fn tally_matches_reference_spec(
+            cluster_size in 1usize..=5,        // MAX_CLUSTER_KEYS
+            rogue_size in 0usize..=4,
+            ix_seeds in proptest::collection::vec(
+                (any::<u8>(), any::<[u8; 32]>()),
+                0..30,
+            ),
+            expected_digest in any::<[u8; 32]>(),
+        ) {
+            let (cluster_keys, records) = build_setup(cluster_size, rogue_size, ix_seeds);
+            let via_impl = tally_via_impl(&records, &expected_digest, cluster_keys.clone());
+            let via_ref  = reference_count(&records, &expected_digest, &cluster_keys);
+            prop_assert_eq!(via_impl, via_ref);
+        }
+
+        /// INVARIANT: the count is invariant under permutation of the
+        /// instruction list — the verifier is order-insensitive.
+        #[test]
+        fn tally_is_permutation_invariant(
+            cluster_size in 1usize..=5,
+            rogue_size in 0usize..=4,
+            ix_seeds in proptest::collection::vec(
+                (any::<u8>(), any::<[u8; 32]>()),
+                0..20,
+            ),
+            expected_digest in any::<[u8; 32]>(),
+            shuffle_seed in any::<u64>(),
+        ) {
+            let (cluster_keys, records) = build_setup(cluster_size, rogue_size, ix_seeds);
+            let order_a = tally_via_impl(&records, &expected_digest, cluster_keys.clone());
+
+            // Deterministic Fisher-Yates driven by the shrunk seed.
+            let mut shuffled = records.clone();
+            let mut s = shuffle_seed;
+            for i in (1..shuffled.len()).rev() {
+                s = s.wrapping_mul(6364136223846793005)
+                     .wrapping_add(1442695040888963407);
+                let j = (s as usize) % (i + 1);
+                shuffled.swap(i, j);
+            }
+            let order_b = tally_via_impl(&shuffled, &expected_digest, cluster_keys);
+            prop_assert_eq!(order_a, order_b);
+        }
+
+        /// INVARIANT (dedupe): duplicating the entire instruction list
+        /// never changes the count — every cluster key contributes at
+        /// most once.
+        #[test]
+        fn tally_is_idempotent_under_duplicates(
+            cluster_size in 1usize..=5,
+            rogue_size in 0usize..=4,
+            ix_seeds in proptest::collection::vec(
+                (any::<u8>(), any::<[u8; 32]>()),
+                0..15,
+            ),
+            expected_digest in any::<[u8; 32]>(),
+        ) {
+            let (cluster_keys, records) = build_setup(cluster_size, rogue_size, ix_seeds);
+            let once = tally_via_impl(&records, &expected_digest, cluster_keys.clone());
+            let mut doubled = records.clone();
+            doubled.extend(records.iter().copied());
+            let twice = tally_via_impl(&doubled, &expected_digest, cluster_keys);
+            prop_assert_eq!(once, twice);
+        }
+
+        /// VULN-01 SPEC: if NO record carries the expected digest, the
+        /// count is zero — replayed signatures over any other digest
+        /// contribute nothing, even when the signer is a cluster key.
+        #[test]
+        fn digest_mismatch_yields_zero(
+            cluster_size in 1usize..=5,
+            ix_seeds in proptest::collection::vec(
+                (any::<u8>(), any::<[u8; 32]>()),
+                0..20,
+            ),
+            expected_digest in any::<[u8; 32]>(),
+            wrong_digest in any::<[u8; 32]>(),
+        ) {
+            // Random [u8;32] collision is astronomically rare but the
+            // assume keeps the property well-defined.
+            prop_assume!(expected_digest != wrong_digest);
+            let seeds: Vec<(u8, [u8; 32])> = ix_seeds
+                .into_iter()
+                .map(|(idx, _)| (idx, wrong_digest))
+                .collect();
+            let (cluster_keys, records) = build_setup(cluster_size, 0, seeds);
+            let count = tally_via_impl(&records, &expected_digest, cluster_keys);
+            prop_assert_eq!(count, 0);
+        }
+
+        /// INVARIANT: the count is bounded above by cluster_keys.len()
+        /// regardless of how many precompile instructions are submitted.
+        #[test]
+        fn tally_bounded_by_cluster_size(
+            cluster_size in 1usize..=5,
+            rogue_size in 0usize..=4,
+            ix_seeds in proptest::collection::vec(
+                (any::<u8>(), any::<[u8; 32]>()),
+                0..40,
+            ),
+            expected_digest in any::<[u8; 32]>(),
+        ) {
+            let (cluster_keys, records) = build_setup(cluster_size, rogue_size, ix_seeds);
+            let count = tally_via_impl(&records, &expected_digest, cluster_keys.clone());
+            prop_assert!(count <= cluster_keys.len());
+        }
+    }
 }

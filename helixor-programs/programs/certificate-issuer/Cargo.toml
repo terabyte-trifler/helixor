@@ -21,3 +21,10 @@ anchor-lang = { version = "1.0.2", features = ["init-if-needed"] }
 solana-program = "3.0.0"
 solana-instructions-sysvar = "3.0.1"
 solana-sdk-ids = "3.1.0"
+
+# VULN-01 Post-Launch — semi-formal verification of the threshold-signature
+# verifier. proptest exercises the tally invariants over randomly-generated
+# instruction multisets against a reference implementation that is, by
+# construction, the formal spec. See signing.rs::tests::proptest! blocks.
+[dev-dependencies]
+proptest = "1"
