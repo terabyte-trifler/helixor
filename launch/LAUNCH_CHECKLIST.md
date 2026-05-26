@@ -850,6 +850,38 @@ file.
       `audit/inflate_score_check.py` to file the postmortem).
       On-call confirms they can recite the four steps and find
       the linked instruction handlers in <5 minutes.
+- [ ] **OFAC-compliance / nation-state-delist runbook reviewed by lead.**
+      The 4-step incident response in
+      `launch/runbooks/ofac_compliance_response.md` composes the
+      existing primitives — Step 1 (`verify_operator_diversity` + the
+      new OFAC-1 `verify_attestation_signatures` in
+      `helixor-oracle/oracle/operator_manifest.py` together pin
+      `MIN_DISTINCT_JURISDICTIONS = 2` AND bind every declared
+      jurisdiction with an Ed25519 sig under the domain tag
+      `helixor.operator_attestation.v1`, so a captured cluster cannot
+      silently re-declare jurisdiction without holding the original
+      keys), Step 2 (`cert_refusal_log.operator_override(...)` with a
+      required non-empty justification publishes a `CertRefusal` with
+      `RefusalGate.OPERATOR_OVERRIDE` onto the dedicated
+      `Topic.CERT_REFUSED = "agent.cert_events.refused"` Kafka topic
+      via `serialize_cert_refused` — silent delist becomes
+      mechanically impossible because the audit gate
+      `audit/cert_refusal_check.py` pins the canonical topic name and
+      reason codes), Step 3 (the existing 3-of-5 threshold in
+      `programs/certificate-issuer/src/signing.rs` makes joint
+      compulsion fail closed for everyone — SOL-3 freshness floors
+      and the DBP-4 `cert.degrading` webhook compose to make the
+      cost of a single-agent delist protocol-wide and visible),
+      Step 4 (`propose_oracle_key_rotation` /
+      `enact_oracle_key_rotation` with the 48h
+      `MIN_TIMELOCK_SECONDS` from VULN-13 is the only path for an
+      operator to legitimately withdraw and have the manifest
+      re-signed under the OFAC-1 binding). The runbook explicitly
+      REFUSES adding an on-chain `SanctionedAgentList` PDA — that
+      would break the permissionless invariant, create a
+      high-value authority key, and make silent delist the default.
+      On-call confirms they can recite the four steps and find the
+      linked instruction handlers in <5 minutes.
 - [ ] Monitoring stack (Prometheus + Alertmanager) live and tested in
       dev — every alert in `launch/monitoring/alerts.yml` fired
       manually at least once
