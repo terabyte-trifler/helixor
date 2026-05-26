@@ -1,19 +1,6 @@
 {
-  "files_scanned": 7,
-  "findings_total": 2,
-  "findings_hard": 2,
-  "findings": [
-    {
-      "severity": "HARD",
-      "rule": "helixor-oracle-requirements-txt-missing",
-      "path": "helixor-oracle/requirements.txt",
-      "detail": "helixor-oracle/requirements.in declares direct deps but helixor-oracle/requirements.txt was not committed. Regenerate with `bash scripts/regen_requirements.sh` and commit BOTH files."
-    },
-    {
-      "severity": "HARD",
-      "rule": "helixor-api-requirements-txt-missing",
-      "path": "helixor-api/requirements.txt",
-      "detail": "helixor-api/requirements.in declares direct deps but helixor-api/requirements.txt was not committed. Regenerate with `bash scripts/regen_requirements.sh` and commit BOTH files."
-    }
-  ]
+  "files_scanned": 10,
+  "findings_total": 0,
+  "findings_hard": 0,
+  "findings": []
 }
