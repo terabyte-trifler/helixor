@@ -407,6 +407,55 @@ file.
       out of lockstep silently. A regression that removes any of
       these mitigations lights the gate red BEFORE the change reaches
       mainnet.
+- [ ] **Forge High-Score Cert audit gate clean** —
+      `python3 audit/forge_high_score_check.py --json audit/reports/forge_high_score.json`
+      reports **0 HARD findings**. The gate is the mechanical
+      regression alarm for the red-team Path 1 "Forge High-Score
+      Cert" attack chain in
+      `launch/design/forge_high_score_resolution.md` — three
+      sub-leaves: (1a) compromise 3 oracle keys [HIGH EFFORT], (1b)
+      exploit VULN-01 signature-verification bypass [MEDIUM EFFORT],
+      (1c) exploit VULN-13 wholesale key-replacement [HIGH EFFORT].
+      Closed by three orthogonal mitigations: FHS-1 cluster-key
+      rotation cadence floor (`verify_key_rotation_cadence` +
+      `enforce_key_rotation_cadence` +
+      `MAX_KEY_AGE_SECONDS = 90 * 24 * 3600` (90d hard floor),
+      `WARN_KEY_AGE_SECONDS = 60 * 24 * 3600` (60d soft floor — 30d
+      operator warning window),
+      `CADENCE_FUTURE_TOLERANCE_SECONDS = 60`, status labels
+      `CADENCE_OK = "OK"`, `CADENCE_WARN = "WARN"`,
+      `CADENCE_OVERDUE = "OVERDUE"` — refuses cluster boot against
+      keys past the 90-day NIST SP 800-57 cryptoperiod ceiling so a
+      compromised key cannot dwell indefinitely), FHS-2 per-signer
+      provenance attestation gate (`verify_signer_provenance` +
+      `enforce_signer_provenance` + `MAX_SIGNERS_PER_HOST = 1`,
+      `MAX_SIGNERS_PER_REGION = 2` (mirror of NSS-1's per-cloud
+      `N - K = 2`), `MIN_DISTINCT_HOSTS = 3`, status labels
+      `PROVENANCE_OK = "OK"`, `PROVENANCE_REFUSED = "REFUSED"` —
+      refuses a threshold-signature set whose K signatures share a
+      physical host_id, exceed the per-region cap, or are missing
+      attestations, catching the "one physical machine running two
+      cluster HSMs" residual that on-chain pubkey deduplication
+      cannot see), FHS-3 cluster-key rotation overlap guard
+      (`verify_rotation_overlap` + `enforce_rotation_overlap` +
+      `MAX_KEYS_REPLACED_PER_ROTATION = 1`, derived
+      `required_overlap = max(threshold - 1, 0)`, status labels
+      `OVERLAP_OK = "OK"`, `OVERLAP_REFUSED = "REFUSED"`, reason
+      codes `WHOLESALE_REPLACEMENT`, `INSUFFICIENT_OVERLAP` —
+      refuses any rotation proposal that would replace more than one
+      cluster key per ceremony, forcing a full cluster rotation to
+      take a minimum of 5 × 48h = 10 days of public on-chain
+      activity every step of which honest attesters can refuse).
+      The gate ALSO cross-checks the on-chain VULN-01 anchor
+      (`pub fn verify_threshold_signatures` + `expected_digest` +
+      `record.message` in
+      `programs/certificate-issuer/src/signing.rs`) and the on-chain
+      VULN-13 anchor (`MIN_TIMELOCK_SECONDS = 48 * 60 * 60` in
+      `programs/health-oracle/src/state/pending_oracle_rotation.rs`)
+      so the off-chain FHS-2 / FHS-3 mitigations cannot drift out of
+      lockstep with the on-chain defences they pair with. A
+      regression that removes any of these mitigations lights the
+      gate red BEFORE the change reaches mainnet.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain

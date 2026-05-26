@@ -190,6 +190,26 @@ run "stale oracle gate"  python3 audit/stale_oracle_check.py \
     --json audit/reports/stale_oracle.json
 
 
+# ── 1q. Forge-High-Score-Cert audit gate ────────────────────────────────────
+# Red-team Path 1 closure: an attacker who has compromised K=3 of the 5
+# cluster keys (or who controls a single physical machine running two
+# cluster HSMs) can still mint forged GREEN certs unless the cluster
+# enforces (a) a hard rotation cadence so compromised keys don't dwell
+# indefinitely, (b) a per-signer host/region attestation so two cluster
+# signatures can't come from the same machine, and (c) a rotation-overlap
+# guard so one ceremony cannot wholesale-replace the cluster. Closed by
+# three orthogonal mechanisms — cluster-key rotation cadence floor
+# (FHS-1), per-signer provenance attestation (FHS-2), cluster-key
+# rotation overlap guard (FHS-3). This gate greps each marker so a
+# refactor that quietly removes a mitigation lights red BEFORE mainnet,
+# and additionally cross-checks the on-chain anchors for VULN-01
+# (`verify_threshold_signatures` + `expected_digest` filtering in
+# `certificate-issuer/src/signing.rs`) and VULN-13
+# (`MIN_TIMELOCK_SECONDS = 48 * 60 * 60` in `pending_oracle_rotation.rs`).
+run "forge high-score gate"  python3 audit/forge_high_score_check.py \
+    --json audit/reports/forge_high_score.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"
