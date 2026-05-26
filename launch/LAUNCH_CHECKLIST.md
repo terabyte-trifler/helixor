@@ -519,6 +519,81 @@ file.
       of lockstep with the upstream defences they pair with. A
       regression that removes any of these mitigations lights the
       gate red BEFORE the change reaches mainnet.
+- [ ] **Freeze-Cert-at-High-Score audit gate clean** —
+      `python3 audit/freeze_cert_check.py --json audit/reports/freeze_cert.json`
+      reports **0 HARD findings**. The gate is the mechanical
+      regression alarm for the red-team Path 3 "Freeze Cert at High
+      Score" attack chain in
+      `launch/design/freeze_cert_resolution.md` — three sub-leaves:
+      (3a) exploit VULN-05 to gate the cluster's commit-reveal round
+      so the next cert never closes [LOW EFFORT], (3b) exploit
+      VULN-02 to halt epoch advance so the cert keeps reading fresh
+      while the underlying state drifts [MEDIUM EFFORT], (3c) attack
+      cert re-issuance cadence so the consumer hits the TA-6 48h
+      ceiling without a refresh [HIGH EFFORT, LONG TERM]. Closed by
+      three orthogonal mitigations: FRP-1 cluster participation
+      floor (`verify_cluster_participation_floor` +
+      `enforce_cluster_participation_floor` +
+      `MIN_HEALTHY_PARTICIPATION_RATIO = 0.8` (80% healthy floor),
+      `MAX_BARELY_QUORATE_ROUNDS = 3` (trailing-run cap for rounds
+      whose participation hugs `quorum + BARELY_QUORATE_MARGIN`),
+      `BARELY_QUORATE_MARGIN = 1`,
+      `PARTICIPATION_FUTURE_TOLERANCE_EPOCHS = 1`, status labels
+      `PARTICIPATION_OK = "OK"`, `PARTICIPATION_REFUSED = "REFUSED"`,
+      reason codes `PARTICIPATION_BARELY_QUORATE_TOO_LONG`,
+      `PARTICIPATION_BELOW_HEALTHY_FLOOR` — refuses a cluster whose
+      4-plus trailing rounds all skate the quorum line, catching the
+      VULN-05 "withhold reveals up to but not over the threshold"
+      residual that a single-round quorum check cannot see), FRP-2
+      epoch-advance liveness floor (`verify_epoch_advance_liveness`
+      + `enforce_epoch_advance_liveness` +
+      `MAX_EPOCH_ADVANCE_STALL_SECONDS = 36 * 3600` (36h hard
+      floor — 1.5× `EXPECTED_EPOCH_DURATION_SECONDS = 24 * 3600` so
+      the floor fires BEFORE AW-02's Tier-2 fallback would kick in
+      at 2× duration),
+      `EPOCH_ADVANCE_FUTURE_TOLERANCE_SECONDS = 60`, status labels
+      `EPOCH_ADVANCE_OK = "OK"`, `EPOCH_ADVANCE_REFUSED = "REFUSED"`
+      — refuses a cluster whose `EpochState.last_advanced_at` has
+      not budged in 36h+1s, catching the VULN-02 "halt epoch
+      advance and let TA-6 do the work" residual that the on-chain
+      advance-attestation count cannot see by itself), FRP-3 cert-
+      reissue cadence floor (`verify_cert_reissue_cadence` +
+      `enforce_cert_reissue_cadence` +
+      `MAX_CERT_REISSUE_INTERVAL_SECONDS = 4 * 3600` (4h reissue
+      floor),
+      `CERT_REISSUE_FUTURE_TOLERANCE_SECONDS = 60`,
+      `TA6_ONCHAIN_MAX_AGE_SECONDS = 48 * 3600` (the on-chain
+      ceiling we calibrate against), report carries
+      `safety_margin_factor = TA6_ONCHAIN_MAX_AGE_SECONDS //
+      MAX_CERT_REISSUE_INTERVAL_SECONDS = 12` (12× safety margin so
+      the cluster-side floor fires ELEVEN reissue cycles before
+      TA-6's 48h ceiling), status labels `REISSUE_OK = "OK"`,
+      `REISSUE_REFUSED = "REFUSED"` — refuses a per-agent reissue
+      lag above 4h, catching the "cluster is up, certs not being
+      stamped" residual that targets freshness-blind consumers who
+      have not adopted SOL-3's per-operation freshness floors). The
+      gate ALSO cross-checks the on-chain VULN-05 anchor
+      (`submit_reveal` + `non_revealers` + `reveal_deadline` +
+      `min_reveals` in
+      `programs/health-oracle/src/instructions/commit_reveal_round.py`
+      — Python prototype lives at the same name), the on-chain
+      VULN-02 anchor (`verify_cluster_threshold` +
+      `consensus_threshold` + `InsufficientAdvanceAttestations` in
+      `programs/health-oracle/src/instructions/advance_epoch.rs` +
+      `DEFAULT_DURATION_SECONDS: i64 = 86_400` in
+      `programs/health-oracle/src/state/epoch_state.rs`), and the
+      on-chain TA-6 anchor (`MAX_AGE_SECONDS: i64 = 48 * 60 * 60`
+      + `is_fresh_default` in
+      `programs/certificate-issuer/src/state/health_certificate.rs`)
+      so the off-chain FRP-1 / FRP-2 / FRP-3 mitigations cannot
+      drift out of lockstep with the on-chain substrate they pair
+      with. The pytest suite ALSO pins the `12×` safety-margin
+      invariant (`TA6_ONCHAIN_MAX_AGE_SECONDS //
+      MAX_CERT_REISSUE_INTERVAL_SECONDS == 12`) and the `1.5×`
+      duration invariant (`MAX_EPOCH_ADVANCE_STALL_SECONDS * 2 ==
+      EXPECTED_EPOCH_DURATION_SECONDS * 3`) as explicit tests so
+      any silent drift between the calibration constants lights red
+      BEFORE the change reaches mainnet.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain

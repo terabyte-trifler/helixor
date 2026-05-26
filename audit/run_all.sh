@@ -236,6 +236,31 @@ run "inflate score gate"  python3 audit/inflate_score_check.py \
     --json audit/reports/inflate_score.json
 
 
+# ── 1s. Freeze-Cert-at-High-Score audit gate ────────────────────────────────
+# Red-team Path 3 closure: an attacker who has (a) compromised a fraction of
+# the cluster nodes and withholds commit-reveal shares so rounds keep closing
+# at minimum quorum (VULN-05), (b) withholds advance attestations so the
+# cluster's epoch clock freezes (VULN-02), or (c) targets a DeFi consumer
+# that doesn't call `is_fresh_default` on the on-chain cert (so the
+# attacker only needs the cluster to KEEP MINTING certs against a stalled
+# substrate) can still freeze a cert at a high score unless the cluster
+# refuses to issue NEW certs while it is itself in a degraded state.
+# Closed by three orthogonal mechanisms — cluster participation floor
+# (FRP-1), epoch-advance liveness floor (FRP-2), cert-reissue cadence floor
+# (FRP-3). This gate greps each marker so a refactor that quietly removes a
+# mitigation lights red BEFORE mainnet, and additionally cross-checks the
+# anchors for VULN-05 (`submit_reveal` + `non_revealers` + `reveal_deadline`
+# + `min_reveals` in `oracle/cluster/commit_reveal_round.py`), VULN-02
+# (`verify_cluster_threshold` + `consensus_threshold` +
+# `InsufficientAdvanceAttestations` in `health-oracle/src/instructions/
+# advance_epoch.rs` and `DEFAULT_DURATION_SECONDS = 86_400` in
+# `health-oracle/src/state/epoch_state.rs`), and TA-6 (`MAX_AGE_SECONDS:
+# i64 = 48 * 60 * 60` + `is_fresh_default` in `certificate-issuer/src/
+# state/health_certificate.rs`).
+run "freeze cert gate"  python3 audit/freeze_cert_check.py \
+    --json audit/reports/freeze_cert.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"
