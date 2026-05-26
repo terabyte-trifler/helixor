@@ -262,6 +262,26 @@ file.
       — `MAINNET_MIN_RPC_ENDPOINTS=3`, `MIN_RPC_CONSENSUS_THRESHOLD=2`).
       A regression that removes any of these mitigations lights the
       gate red BEFORE the change reaches mainnet.
+- [ ] **Centralization audit gate clean** —
+      `python3 audit/centralization_check.py --json audit/reports/centralization.json`
+      reports **0 HARD findings**. The gate is the mechanical
+      regression alarm for the 4-entry HIDDEN CENTRALIZATION RISKS
+      inventory in `launch/design/centralization_resolution.md`:
+      HCR-1 (RPC provider monoculture — `verify_provider_diversity`,
+      `MIN_DISTINCT_RPC_PROVIDERS=2`, `KNOWN_PROVIDERS` covering
+      helius/quicknode/triton), HCR-2 (single-region cluster —
+      `verify_region_diversity`, `MIN_DISTINCT_REGIONS=2`, 3-of-5
+      default pinned so per-region cap N-K is well-defined), HCR-3
+      (shared Kafka/Redis reaching signing path —
+      `verify_signing_path_isolation` over `SIGNING_PATH_MODULES`
+      with `SHARED_STATE_FORBIDDEN_IMPORTS` covering aiokafka/redis/
+      confluent_kafka; the gate ALSO re-runs the live verifier against
+      the on-disk tree), HCR-4 (operator-key monoculture —
+      `verify_operator_diversity` with `MIN_DISTINCT_OPERATORS=2` and
+      `MIN_DISTINCT_JURISDICTIONS=2`, refusing any manifest where one
+      org owns >= threshold pubkeys). A regression that removes any of
+      these mitigations lights the gate red BEFORE the change reaches
+      mainnet.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain

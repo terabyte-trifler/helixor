@@ -133,6 +133,18 @@ run "trust assumption gate"  python3 audit/trust_assumption_check.py \
     --json audit/reports/trust_assumption.json
 
 
+# ── 1m. Centralization audit gate ───────────────────────────────────────────
+# Architectural fix for the 4 HIDDEN CENTRALIZATION RISKS enumerated in
+# the audit (HCR-1..HCR-4). Each was closed by a real mechanism —
+# RPC-provider diversity floor, region-diversity / N-K cap, signing-path
+# state isolation, operator manifest with org + jurisdiction floors. This
+# gate greps each marker so a refactor that quietly removes a mitigation
+# lights red BEFORE mainnet, and additionally re-runs the live HCR-3
+# signing-path isolation check against the on-disk tree.
+run "centralization gate"  python3 audit/centralization_check.py \
+    --json audit/reports/centralization.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"
