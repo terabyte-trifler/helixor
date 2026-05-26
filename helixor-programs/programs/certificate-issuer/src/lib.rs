@@ -172,4 +172,42 @@ pub mod certificate_issuer {
     ) -> Result<()> {
         instructions::challenge_certificate::handler(ctx, true_block_hash)
     }
+
+    /// DBP-2 — Mint the on-chain "Verified Integrator" badge for a partner.
+    ///
+    /// The partner_wallet (transaction Signer) creates a per-partner
+    /// VerifiedConsumer PDA at `["verified_consumer", partner_wallet]` that
+    /// stamps the DBP-1 canonical `integration_hash` they attest to.
+    /// Init-once: a second call by the same partner fails on Anchor init.
+    ///
+    /// See `launch/design/defi_bypass_resolution.md` and the runbook at
+    /// `launch/runbooks/defi_bypass_response.md` for the full DBP closure.
+    pub fn register_verified_consumer(
+        ctx:              Context<RegisterVerifiedConsumer>,
+        integration_hash: [u8; 32],
+    ) -> Result<()> {
+        instructions::register_verified_consumer::handler(ctx, integration_hash)
+    }
+
+    /// DBP-2 — Revoke a VerifiedConsumer badge.
+    ///
+    /// Two paths, both routed through this single ix:
+    ///
+    ///   * SELF-REVOKE: `signer == partner_wallet`, `revoke_reason == 1`
+    ///     (PartnerSelfRevoke). Used when the partner is rotating to a
+    ///     new manifest or deprecating an integration.
+    ///
+    ///   * ADMIN REVOKE: `signer == issuer_config.authority`,
+    ///     `revoke_reason == 2` (AdminBadFaith) or `3` (AdminTerminated).
+    ///     Used when a drain post-mortem traces back to the partner.
+    ///
+    /// The account is NOT closed — `state` flips to Revoked so downstream
+    /// lending contracts can distinguish "had a badge, lost it" from
+    /// "never had a badge."
+    pub fn revoke_verified_consumer(
+        ctx:           Context<RevokeVerifiedConsumer>,
+        revoke_reason: u8,
+    ) -> Result<()> {
+        instructions::revoke_verified_consumer::handler(ctx, revoke_reason)
+    }
 }

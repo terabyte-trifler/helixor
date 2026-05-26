@@ -3,9 +3,11 @@ pub mod challenge_record;
 pub mod health_certificate;
 pub mod issuer_config;
 pub mod score_components;
+pub mod verified_consumer;
 
 pub use baseline_stats::*;
 pub use challenge_record::*;
 pub use health_certificate::*;
 pub use issuer_config::*;
 pub use score_components::*;
+pub use verified_consumer::*;

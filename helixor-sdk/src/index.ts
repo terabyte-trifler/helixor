@@ -36,6 +36,22 @@ export {
   commitNonceToLeBytes,
   scoreComponentsPda,
 } from "./pdas";
+
+// DBP-2 — on-chain "Verified Integrator" badge. Downstream lending
+// contracts gate access on `isActive(decoded)` over the per-partner PDA.
+// Presence alone is NOT sufficient — revoked badges persist on chain so
+// "had a badge, lost it" is distinguishable from "never had a badge."
+export {
+  verifiedConsumerPda,
+  decodeVerifiedConsumer,
+  fetchVerifiedConsumer,
+  registrationAttestationDigest,
+  isActive as isVerifiedConsumerActive,
+  VerifiedConsumerState,
+  RevokeReason,
+  REGISTRATION_DOMAIN_TAG,
+  type DecodedVerifiedConsumer,
+} from "./verified_consumer";
 export {
   decodeHealthCertificate,
   decodeEpochState,

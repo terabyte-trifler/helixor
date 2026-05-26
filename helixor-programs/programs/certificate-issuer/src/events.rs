@@ -95,3 +95,38 @@ pub struct ChallengeRejected {
     pub claimed_block_hash: [u8; 32],
     pub filed_at:           i64,
 }
+
+/// DBP-2: emitted when a partner mints the VerifiedConsumer badge via
+/// `register_verified_consumer`. Downstream indexers / leaderboards watch
+/// this event to surface the new Verified Integrator without having to poll
+/// the full PDA set.
+#[event]
+pub struct VerifiedConsumerRegistered {
+    /// The partner's pubkey — denormalised PDA seed.
+    pub partner_wallet:     Pubkey,
+    /// The PDA account address for cheap lookup.
+    pub verified_consumer:  Pubkey,
+    /// The DBP-1 canonical manifest hash this badge attests to.
+    pub integration_hash:   [u8; 32],
+    /// Solana slot at registration time.
+    pub registered_at_slot: u64,
+    /// Unix seconds at registration time.
+    pub registered_at_unix: i64,
+}
+
+/// DBP-2: emitted when a VerifiedConsumer badge is revoked, via either a
+/// partner self-revoke (`PartnerSelfRevoke`) or an admin revoke
+/// (`AdminBadFaith` / `AdminTerminated`). Downstream lending contracts that
+/// gate on `state == Active` need this event to flip their internal cache
+/// promptly without polling.
+#[event]
+pub struct VerifiedConsumerRevoked {
+    pub partner_wallet:    Pubkey,
+    pub verified_consumer: Pubkey,
+    /// The signer who effected the revoke — either `partner_wallet` (self-
+    /// revoke) or the issuer_config authority (admin).
+    pub revoked_by:        Pubkey,
+    /// The reason byte — `RevokeReason::from_u8` to decode.
+    pub revoke_reason:     u8,
+    pub revoked_at_unix:   i64,
+}

@@ -153,4 +153,28 @@ pub enum CertificateError {
            on-chain bytes and the cluster-signed hash disagree; refusing \
            to write the components account (AW-04 invariant)")]
     ScoreComponentsHashMismatch = 6104,
+
+    // ── DBP-2: VerifiedConsumer registration / revocation ───────────────────
+    #[msg("integration_hash is all zeros — refusing to mint a VerifiedConsumer \
+           PDA against an empty manifest hash (DBP-2)")]
+    ZeroIntegrationHash = 6110,
+    #[msg("partner_wallet is the default (zero) pubkey — refusing to register a \
+           VerifiedConsumer for the zero identity")]
+    ZeroPartnerWallet = 6111,
+    #[msg("VerifiedConsumer badge is already revoked — re-revocation is a no-op \
+           and refused so the audit trail records exactly one revoke event per \
+           badge")]
+    BadgeAlreadyRevoked = 6112,
+    #[msg("signer is not authorised to revoke this VerifiedConsumer — must be \
+           either the partner_wallet (self-revoke) or the issuer_config \
+           authority (admin revoke)")]
+    UnauthorizedRevoke = 6113,
+    #[msg("revoke_reason is not a recognised RevokeReason variant — must be \
+           PartnerSelfRevoke (1), AdminBadFaith (2), or AdminTerminated (3); \
+           NotRevoked (0) is invalid for a revoke call")]
+    InvalidRevokeReason = 6114,
+    #[msg("revoke_reason does not match the signer — partner_wallet may only \
+           self-revoke with PartnerSelfRevoke (1); admin revokes may only use \
+           AdminBadFaith (2) or AdminTerminated (3)")]
+    RevokeReasonSignerMismatch = 6115,
 }
