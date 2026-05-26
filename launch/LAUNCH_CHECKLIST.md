@@ -604,11 +604,13 @@ file.
       check, (4b) DeFi protocol uses cert without score threshold
       validation, (4c) DeFi protocol's cert-reading code has bugs.
       Closed by a four-substrate "Verified Integrator" tier whose
-      first three deliverables (DBP-1 linter, DBP-2 on-chain
+      four deliverables (DBP-1 linter, DBP-2 on-chain
       `VerifiedConsumer` PDA, DBP-3 safe-default `@helixor/sdk`
-      export partition) have shipped and whose remaining
-      deliverable (DBP-4 SLA-backed freshness webhooks) is the
-      revenue surface for the tier. DBP-1 specifically: a self-serve consumer integration
+      export partition, DBP-4 per-partner telemetry + leaderboard
+      + cert-degrading webhooks) have all shipped. The Insured
+      tier's revenue surface is the bad-faith forfeit clause
+      (DBP-2 admin revoke) + the SLA-backed freshness webhook
+      (DBP-4d). DBP-1 specifically: a self-serve consumer integration
       linter (`audit/consumer_integration_check.py`) that verifies
       every `launch/integrations/*.json` partner manifest claims
       only allowed `operations_bound` (subset of
@@ -695,6 +697,53 @@ file.
       digest helper is exported on both Rust and TS sides so any
       future delegated-submission v2 path AND off-chain auditors
       arrive at the same SHA256.
+- [ ] **DBP-4 Verified-Integrator revenue surface live** —
+      `cd helixor-api && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest
+      tests/test_dbp4_partner_telemetry.py tests/test_dbp4_webhooks.py`
+      reports **24 + 21 = 45 green tests**. The three substrates:
+
+      (4a) **Per-partner safe-reader share telemetry** — `ApiKey`
+      carries a `partner_wallet` (optional 5th colon field of
+      `HELIXOR_API_KEYS`) and the
+      `helixor_api_safe_reader_share_total{partner_wallet,
+      surface=safe|raw}` Prometheus counter increments on every
+      successful score-read by a partner-bound key. `safe` =
+      `/agents/{wallet}/safe_score`; `raw` =
+      `/agents/{wallet}/health` + `/health/{epoch}` + `/history`.
+      Calls from unauthenticated traffic or basic-tier keys never
+      increment the counter so cardinality stays bounded to the
+      Verified-Integrator population.
+
+      (4b) **Public `/integrations/leaderboard`** —
+      `IntegrationLeaderboardResponse` returns the Verified-
+      Integrator ranking sorted by `safe_share` desc (tiebreak on
+      `total_calls`); idle partners with zero observed traffic
+      appear last with `safe_share=null`. Endpoint is intentionally
+      public (no API key) so any consumer can read the ranking
+      BEFORE deciding to trust a partner's certs.
+
+      (4c) **Cert-degrading webhook (Insured tier)** —
+      `api/webhooks.py` provides a `WebhookRegistry`
+      (`partner_wallet → (url, secret)`, loaded from
+      `HELIXOR_WEBHOOKS=partner_wallet:url:secret` lines), a
+      `compute_signature` HMAC-SHA256 helper, a
+      `CertDegradingPayload` with byte-stable
+      canonical JSON (sorted keys, no whitespace) so the partner-
+      side verifier reproduces the signature exactly, and a
+      `CertDegradingTracker` that dedupes (partner, agent, epoch)
+      so a partner polling every 60s gets ONE warning per cert
+      lifecycle. The reactive trigger fires from the `/safe_score`
+      handler when `cert_age_seconds ∈ [75% × CERT_MAX_AGE_SECONDS,
+      100% × CERT_MAX_AGE_SECONDS)`. A partner-less key, an
+      anonymous call, a fresh cert, an expired cert, or a partner
+      without a webhook all short-circuit silently — no spurious
+      pages. Anchors: `degrading_threshold_seconds(48*3600) ==
+      36*3600`, `SIGNATURE_HEADER = "X-Helixor-Webhook-Signature"`,
+      `EVENT_CERT_DEGRADING = "cert.degrading"`,
+      `WEBHOOK_SCHEMA_VERSION = 1`.
+
+      A regression that breaks any of these substrates lights the
+      45 DBP-4 tests red BEFORE the change reaches mainnet.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain

@@ -222,3 +222,134 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest \
 ```
 
 Both must report green. The gate is then ready to land in CI.
+
+## 6 — DBP-4 partner identity + telemetry + webhooks
+
+### 6a — Binding a partner to an API key
+
+A Verified Integrator's read-side calls are attributed to their
+on-chain `partner_wallet` via the API key's 5th colon field:
+
+```
+# HELIXOR_API_KEYS in the systemd unit / deploy manifest
+keyid-acme:secret-acme-redacted:partner:1000:9ZcXc...AcmeWallet44
+keyid-foo :secret-foo-redacted :partner:1000:7Yz... FooWallet44
+keyid-internal:secret-internal:internal:5000
+```
+
+Lines without a 5th field (e.g. the `internal` row above) are
+NOT attributed to any partner and do NOT appear on the
+leaderboard, by design.
+
+The `partner_wallet` MUST be the same base58 pubkey that owns the
+on-chain `VerifiedConsumer` PDA — that is the link between the
+off-chain API calls and the on-chain badge. A mismatch makes the
+leaderboard look right but the audit trail breaks: a drain
+post-mortem that walks (api log → key_id → partner_wallet →
+on-chain PDA) will dead-end.
+
+### 6b — Reading the leaderboard
+
+```sh
+curl https://api.helixor.example/integrations/leaderboard
+```
+
+Returns:
+```json
+{
+  "_v": 1,
+  "ranking": [
+    {"partner_wallet": "9ZcXc...", "safe_calls": 4520,
+     "raw_calls": 12, "total_calls": 4532,
+     "safe_share": 0.997},
+    {"partner_wallet": "7Yz...",   "safe_calls": 100,
+     "raw_calls": 900, "total_calls": 1000,
+     "safe_share": 0.10},
+    {"partner_wallet": "FreshPartner",
+     "safe_calls": 0, "raw_calls": 0, "total_calls": 0,
+     "safe_share": null}
+  ]
+}
+```
+
+Sort order: observed partners first by `safe_share` desc with a
+`total_calls` tiebreak; idle partners (`total_calls == 0`) last
+in `partner_wallet` order. A partner whose ranking degrades is
+running raw reads — investigate via 6c.
+
+### 6c — Investigating a partner's low safe share
+
+A partner ranking visibly below the rest is likely either:
+
+  1. **Importing `@helixor/sdk/unsafe` directly** without wrapping
+     in `SafeCertReader`. The DBP-1e `unsafe-import-must-wrap[*]`
+     check (§2a) would catch this if their reader source was
+     listed in their manifest's `cert_reader_source_paths` — so a
+     low rank PLUS a green linter means the partner is reading
+     from a source they DIDN'T disclose in their manifest. That
+     is a bad-faith attestation: revoke via §3 step 5
+     (`AdminBadFaith`).
+  2. **Reading the API directly with `/health` instead of
+     `/safe_score`.** This is a misuse of the public surface that
+     bypasses the freshness + velocity guards. Reach out, point
+     them at the SDK's `SafeCertReader`, and re-rank in 30 days.
+
+### 6d — Cert-degrading webhook subscription
+
+A Verified Integrator on the Insured tier registers a webhook via
+the deploy env var:
+
+```
+# HELIXOR_WEBHOOKS in the systemd unit / deploy manifest
+9ZcXc...AcmeWallet44:https://acme.example/helixor/cert-degrading:hmac-secret-redacted
+```
+
+Restart the API process for the change to take effect (the
+registry is immutable at runtime, same posture as
+`HELIXOR_API_KEYS`).
+
+### 6e — Verifying a webhook delivery
+
+A partner who receives a POST must:
+
+  1. Check `X-Helixor-Webhook-Event: cert.degrading`.
+  2. Read the raw body bytes.
+  3. Compute `expected = HMAC-SHA256(shared_secret, body_bytes)`
+     (hex).
+  4. Compare against `X-Helixor-Webhook-Signature` in constant
+     time (`hmac.compare_digest`).
+  5. Decode the JSON body. Required fields:
+     `_v=1`, `event="cert.degrading"`, `partner_wallet`,
+     `agent_wallet`, `epoch`, `issued_at_unix`,
+     `cert_age_seconds`, `threshold_seconds`,
+     `cert_max_age_seconds`, `sent_at_unix`.
+  6. If `sent_at_unix - issued_at_unix >= threshold_seconds`,
+     page the cluster on-call to push a fresh cert BEFORE
+     `issued_at_unix + cert_max_age_seconds`.
+
+A failed signature check is a FORGERY — drop the body and alert
+infosec.
+
+### 6f — Triage: a partner reports a missed webhook
+
+When a partner says "you didn't tell me my cert was degrading":
+
+  1. Confirm the partner is on the Insured tier (DBP-4 is paid).
+  2. `grep helixor.api.webhooks /var/log/helixor-api/*.log` for
+     a `dispatch` entry with their `partner_wallet`. If absent
+     the trigger never fired — proceed to (3). If present but the
+     partner says they didn't receive it, the issue is downstream
+     of Helixor (their endpoint dropped the POST, their HMAC
+     verifier rejected, etc).
+  3. Confirm the partner was polling `/safe_score` (NOT
+     `/health`) — the trigger is REACTIVE and only fires when
+     the partner asks for the guarded surface. A partner who
+     polls only `/health` will never be warned: that is by
+     design (raw consumers opted out of the safety surface).
+     Direct them to switch to `/safe_score` or the SDK's
+     `SafeCertReader`.
+  4. Confirm `cert_age_seconds` actually crossed
+     `degrading_threshold_seconds(48*3600) == 36*3600` during
+     the partner's polling window. A partner whose cert was
+     rotated faster than 36h never enters the degrading window;
+     no webhook is owed.

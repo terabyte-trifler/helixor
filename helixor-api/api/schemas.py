@@ -230,6 +230,46 @@ class VersionResponse(BaseModel):
 
 
 # =============================================================================
+# Integrations leaderboard (DBP-4c) — public Verified-Integrator ranking
+# =============================================================================
+#
+# A Verified Integrator's safe-reader share is
+#   safe_score_calls / (safe_score_calls + raw_score_calls)
+# over the lifetime of the API process (the counter is monotonic and
+# resets only on restart — like every other Prometheus counter the
+# service emits). The leaderboard endpoint exposes the same shape a
+# dashboard or public-facing "integrity score" widget would read.
+
+class IntegrationLeaderboardEntry(BaseModel):
+    """One Verified-Integrator's row.
+
+    `safe_share` ∈ [0.0, 1.0]; a partner with zero observed calls is
+    listed with `total_calls = 0` and `safe_share = None` so consumers
+    can distinguish "new partner, no signal yet" from "partner is at
+    0% safe share".
+    """
+    partner_wallet:   str
+    safe_calls:       int
+    raw_calls:        int
+    total_calls:      int
+    safe_share:       float | None  # None == no observed calls
+
+
+class IntegrationLeaderboardResponse(BaseModel):
+    """`GET /integrations/leaderboard` — public Verified-Integrator ranking.
+
+    The list is sorted descending by `safe_share` with a tiebreak on
+    `total_calls` (more traffic ranks higher among ties). Partners with
+    zero observed calls appear at the bottom in `partner_wallet` order
+    so the response is deterministic for testing + caching.
+    """
+    schema_version: int = Field(SCHEMA_VERSION, alias="_v")
+    ranking:        list[IntegrationLeaderboardEntry]
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+# =============================================================================
 # Errors
 # =============================================================================
 

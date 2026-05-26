@@ -116,6 +116,9 @@ from api.rate_limit import (                                        # noqa: E402
     load_trust_proxy_from_env,
 )
 from api.score_repo import InMemoryScoreRepo                        # noqa: E402
+from api.webhooks import (                                          # noqa: E402
+    WebhookRegistry, load_webhooks_from_env,
+)
 
 
 # =============================================================================
@@ -204,6 +207,20 @@ def build_app():
         len(key_registry), public_limit, trust_proxy,
     )
 
+    # DBP-4d: cert-degrading webhook registry. Optional; an empty
+    # HELIXOR_WEBHOOKS means no partner has subscribed yet — the
+    # trigger short-circuits and no POST is ever made. The default
+    # NullDispatcher in create_app() suppresses the wire call, so
+    # production must also wire an httpx-backed dispatcher when the
+    # Insured tier ships. We DELIBERATELY do not wire an httpx client
+    # in this file yet — the trigger paths are merged green; the
+    # transport layer is the next chunk.
+    webhook_registry = WebhookRegistry(load_webhooks_from_env())
+    logger.info(
+        "DBP-4 wiring: %d cert-degrading webhook(s) registered",
+        len(webhook_registry),
+    )
+
     return create_app(
         score_repo=score_repo,
         byzantine_repo=byzantine_repo,
@@ -215,6 +232,7 @@ def build_app():
         key_registry=key_registry,
         public_rate_limit_per_minute=public_limit,
         trust_proxy=trust_proxy,
+        webhook_registry=webhook_registry,
     )
 
 

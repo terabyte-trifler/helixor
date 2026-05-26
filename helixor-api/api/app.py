@@ -31,6 +31,16 @@ from fastapi.responses import JSONResponse
 
 from api import __version__
 from api.auth import ApiKey, ApiKeyRegistry, require_api_key
+from api.webhooks import (
+    CertDegradingPayload,
+    CertDegradingTracker,
+    EVENT_CERT_DEGRADING,
+    NullDispatcher,
+    WEBHOOK_SCHEMA_VERSION,
+    WebhookDispatcher,
+    WebhookRegistry,
+    degrading_threshold_seconds,
+)
 from api.byzantine_repo import ByzantineRepository
 from api.cluster_health import ClusterHealthRepository
 from api.flag_obfuscation import compute_flag_token, popcount
@@ -43,6 +53,7 @@ from api.rate_limit import (
     client_ip,
 )
 from api.safe_score import (
+    CERT_MAX_AGE_SECONDS,
     SafeScoreOk,
     compute_safe_score,
 )
@@ -56,6 +67,8 @@ from api.schemas import (
     EpochSummaryEntry,
     ErrorResponse,
     HealthResponse,
+    IntegrationLeaderboardEntry,
+    IntegrationLeaderboardResponse,
     HeartbeatEntry,
     HistoryEntry,
     HistoryResponse,
@@ -109,6 +122,37 @@ def _is_unmetered(path: str) -> bool:
     if path in _UNMETERED_EXACT:
         return True
     return any(path.startswith(prefix) for prefix in _UNMETERED_PREFIXES)
+
+
+# =============================================================================
+# DBP-4 — safe-reader-share surface classification
+# =============================================================================
+#
+# The leaderboard ranks Verified Integrators by how often they call the
+# guard-railed `safe_score` endpoint vs the raw `health` / `history`
+# endpoints. We bucket by route_template (not literal path) so per-agent
+# cardinality stays bounded.
+#
+# A route NOT in either set is unbucketed (e.g. /version, /byzantine/*,
+# /metrics). The leaderboard ignores those — they don't represent
+# value-bearing reads.
+
+SAFE_SCORE_ROUTES: frozenset[str] = frozenset({
+    "/agents/{wallet}/safe_score",
+})
+RAW_SCORE_ROUTES: frozenset[str] = frozenset({
+    "/agents/{wallet}/health",
+    "/agents/{wallet}/health/{epoch}",
+    "/agents/{wallet}/history",
+})
+
+
+def _surface_for_route(route_template: str) -> str | None:
+    if route_template in SAFE_SCORE_ROUTES:
+        return "safe"
+    if route_template in RAW_SCORE_ROUTES:
+        return "raw"
+    return None
 
 
 # =============================================================================
@@ -167,6 +211,9 @@ def create_app(
     rate_limiter:    SlidingWindowLimiter | None = None,
     public_rate_limit_per_minute: int = DEFAULT_PUBLIC_RATE_LIMIT_PER_MIN,
     trust_proxy:     bool = False,
+    # ── DBP-4d: cert-degrading webhooks (Insured tier) ───────────────────
+    webhook_registry:   WebhookRegistry  | None = None,
+    webhook_dispatcher: WebhookDispatcher | None = None,
 ) -> FastAPI:
     """Build the FastAPI app wired to the supplied repos.
 
@@ -197,6 +244,11 @@ def create_app(
         rate_limiter = SlidingWindowLimiter()
     if public_rate_limit_per_minute < 1:
         raise ValueError("public_rate_limit_per_minute must be >= 1")
+    if webhook_registry is None:
+        webhook_registry = WebhookRegistry()
+    if webhook_dispatcher is None:
+        webhook_dispatcher = NullDispatcher()
+    degrading_tracker = CertDegradingTracker()
 
     app = FastAPI(
         title="Helixor V2 API",
@@ -282,6 +334,22 @@ def create_app(
         # template (not the literal path) keeps label cardinality bounded.
         if response.status_code == 401:
             metrics.auth_rejections_total.labels(route_template).inc()
+        # DBP-4: per-partner safe-reader share. Only record if (a) the
+        # call carried a valid partner-bound API key, (b) the route is
+        # one of the score-read endpoints we classify, AND (c) the
+        # response was a success (2xx). A 4xx/5xx is a malformed call
+        # not a signal of how the partner reads scores.
+        api_key = getattr(request.state, "api_key", None)
+        if (
+            api_key is not None
+            and api_key.partner_wallet is not None
+            and 200 <= response.status_code < 300
+        ):
+            surface = _surface_for_route(route_template)
+            if surface is not None:
+                metrics.safe_reader_share_total.labels(
+                    api_key.partner_wallet, surface,
+                ).inc()
         return response
 
     # ── Error handler — guarantee the JSON shape ────────────────────────────
@@ -327,7 +395,9 @@ def create_app(
         return _to_health(rec)
 
     @app.get("/agents/{wallet}/safe_score", response_model=SafeScoreResponse)
-    def agent_safe_score(wallet: str, response: Response) -> SafeScoreResponse:
+    def agent_safe_score(
+        wallet: str, request: Request, response: Response,
+    ) -> SafeScoreResponse:
         """VULN-23 guard-railed score read.
 
         The DeFi-protocol-friendly endpoint: returns the agent's current
@@ -338,6 +408,16 @@ def create_app(
         Status code is always 200 — the rejection is in the body so a
         thin client doesn't need to distinguish HTTP failure from a
         guard-rail trip.
+
+        DBP-4d cert-degrading webhook
+        -----------------------------
+        On an OK result, if the caller is a Verified-Integrator (their
+        key carries a `partner_wallet`) AND that partner has a webhook
+        registered AND the cert's age is in the [75%, 100%) window of
+        CERT_MAX_AGE_SECONDS, we fire a `cert.degrading` webhook
+        exactly once per (partner, agent, epoch). The dispatcher is
+        non-blocking — the response goes back to the caller without
+        waiting for the POST to complete.
         """
         wallet = validate_wallet(wallet)
         result = compute_safe_score(score_repo, wallet)
@@ -346,6 +426,12 @@ def create_app(
         # window would silently defeat the guard.
         response.headers["Cache-Control"] = OPERATIONAL_CACHE_CONTROL
         if isinstance(result, SafeScoreOk):
+            _maybe_fire_cert_degrading_webhook(
+                request=request, wallet=wallet, ok=result,
+                webhook_registry=webhook_registry,
+                dispatcher=webhook_dispatcher,
+                tracker=degrading_tracker,
+            )
             return SafeScoreResponse(
                 agent_wallet=wallet,
                 ok=True,
@@ -521,6 +607,63 @@ def create_app(
             ],
         )
 
+    @app.get(
+        "/integrations/leaderboard",
+        response_model=IntegrationLeaderboardResponse,
+    )
+    def integrations_leaderboard(
+        response: Response,
+    ) -> IntegrationLeaderboardResponse:
+        """DBP-4c — public Verified-Integrator safe-reader leaderboard.
+
+        Reads the `safe_reader_share_total{partner_wallet, surface}`
+        counter, aggregates by `partner_wallet`, and returns a ranked
+        list. Partners are sorted by `safe_share` desc with a
+        `total_calls` tiebreak; partners with no observed calls appear
+        last in `partner_wallet` order.
+
+        The endpoint is intentionally PUBLIC (no API key required) —
+        the leaderboard is a misuse-deterrent surface. A partner who
+        flips back to raw-only reads should see their rank drop
+        immediately, and any consumer should be able to read the
+        ranking before deciding whether to trust that partner's certs.
+        """
+        response.headers["Cache-Control"] = SCORE_CACHE_CONTROL
+        # Aggregate counter samples by partner_wallet. We walk every key
+        # in the registry so a partner who's registered but hasn't yet
+        # called the API still appears in the response — with zero
+        # counts and safe_share = None. This makes the response
+        # deterministic vs the registry rather than vs the counter state.
+        partner_wallets: list[str] = sorted({
+            k.partner_wallet
+            for k in key_registry._keys
+            if k.partner_wallet is not None
+        })
+        counter = metrics.safe_reader_share_total
+        rows: list[IntegrationLeaderboardEntry] = []
+        for pw in partner_wallets:
+            safe = counter.labels(pw, "safe")._value.get()
+            raw  = counter.labels(pw, "raw")._value.get()
+            total = int(safe + raw)
+            share = (safe / total) if total > 0 else None
+            rows.append(IntegrationLeaderboardEntry(
+                partner_wallet=pw,
+                safe_calls=int(safe),
+                raw_calls=int(raw),
+                total_calls=total,
+                safe_share=share,
+            ))
+        # Sort: rows WITH observed traffic first (by safe_share desc,
+        # then total_calls desc), then rows with no traffic by wallet.
+        observed = [r for r in rows if r.total_calls > 0]
+        idle     = [r for r in rows if r.total_calls == 0]
+        observed.sort(
+            key=lambda r: (-(r.safe_share or 0.0), -r.total_calls,
+                           r.partner_wallet),
+        )
+        idle.sort(key=lambda r: r.partner_wallet)
+        return IntegrationLeaderboardResponse(ranking=observed + idle)
+
     @app.get("/version", response_model=VersionResponse)
     def version(response: Response) -> VersionResponse:
         response.headers["Cache-Control"] = META_CACHE_CONTROL
@@ -548,13 +691,17 @@ def create_app(
 
     # Hang the metrics + registry off the app for tests to inspect.
     # VULN-09: also expose the key registry + limiter so tests can build
-    # auth flows without re-importing.
+    # auth flows without re-importing. DBP-4d: also expose the webhook
+    # registry + dispatcher + dedupe tracker.
     app.state.metrics = metrics
     app.state.registry = registry
     app.state.key_registry = key_registry
     app.state.rate_limiter = rate_limiter
     app.state.public_rate_limit_per_minute = public_rate_limit_per_minute
     app.state.trust_proxy = trust_proxy
+    app.state.webhook_registry = webhook_registry
+    app.state.webhook_dispatcher = webhook_dispatcher
+    app.state.degrading_tracker = degrading_tracker
     return app
 
 
@@ -571,6 +718,66 @@ def _route_template(request: Request) -> str:
         return route.path
     # Fallback for requests that didn't match a route — group them.
     return "<unmatched>"
+
+
+def _maybe_fire_cert_degrading_webhook(
+    *,
+    request:           Request,
+    wallet:            str,
+    ok:                SafeScoreOk,
+    webhook_registry:  WebhookRegistry,
+    dispatcher:        WebhookDispatcher,
+    tracker:           CertDegradingTracker,
+) -> None:
+    """DBP-4d trigger. Fires a `cert.degrading` webhook when:
+
+      (1) the caller's API key carries a `partner_wallet`,
+      (2) that partner has a webhook registered,
+      (3) the cert's age is in the [degrading_threshold, max_age) window,
+      (4) this is the FIRST observation of (partner, agent, epoch) in
+          this process (the tracker dedupes).
+
+    Anything else (no key, basic-tier key, no webhook, cert is fresh,
+    or cert is past expiry — which can't actually happen because
+    compute_safe_score would already have refused) is a silent no-op.
+    """
+    api_key: ApiKey | None = getattr(request.state, "api_key", None)
+    if api_key is None or api_key.partner_wallet is None:
+        return
+    hook = webhook_registry.get(api_key.partner_wallet)
+    if hook is None:
+        return
+
+    now_unix = int(time.time())
+    age_seconds = now_unix - ok.issued_at_unix
+    threshold = degrading_threshold_seconds(CERT_MAX_AGE_SECONDS)
+    if age_seconds < threshold:
+        return
+    # compute_safe_score already enforces age < CERT_MAX_AGE_SECONDS,
+    # but we guard defensively in case constants drift.
+    if age_seconds >= CERT_MAX_AGE_SECONDS:
+        return
+
+    if not tracker.should_fire(
+        partner_wallet=api_key.partner_wallet,
+        agent_wallet=wallet,
+        epoch=ok.epoch,
+    ):
+        return
+
+    payload = CertDegradingPayload(
+        schema_version=WEBHOOK_SCHEMA_VERSION,
+        event=EVENT_CERT_DEGRADING,
+        partner_wallet=api_key.partner_wallet,
+        agent_wallet=wallet,
+        epoch=ok.epoch,
+        issued_at_unix=ok.issued_at_unix,
+        cert_age_seconds=age_seconds,
+        threshold_seconds=threshold,
+        cert_max_age_seconds=CERT_MAX_AGE_SECONDS,
+        sent_at_unix=now_unix,
+    )
+    dispatcher.dispatch(hook=hook, payload=payload)
 
 
 def _default_error_name(status: int) -> str:

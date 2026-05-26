@@ -97,6 +97,30 @@ class ApiMetrics:
             labelnames=("route",),
             registry=registry,
         )
+        # DBP-4: per-partner safe-reader share.
+        #
+        # Every score-read call from a Verified-Integrator key (a key
+        # carrying a `partner_wallet`) is bucketed by `surface`:
+        #   - "safe" — the partner called `/agents/{wallet}/safe_score`,
+        #              the VULN-23 guard-railed endpoint.
+        #   - "raw"  — the partner called `/agents/{wallet}/health`,
+        #              `/agents/{wallet}/health/{epoch}`, or
+        #              `/agents/{wallet}/history` directly — no
+        #              freshness / velocity guard at the API layer.
+        #
+        # The leaderboard endpoint (DBP-4c) reads these counters and
+        # computes safe_share = safe / (safe + raw) per partner_wallet.
+        # The metric carries the partner_wallet pubkey directly because
+        # that is the on-chain identity the leaderboard ranks — the
+        # cardinality is bounded by the number of Verified Integrators
+        # (≪ # of agents, so this is safe).
+        self.safe_reader_share_total = Counter(
+            "helixor_api_safe_reader_share_total",
+            "Score-read calls by a Verified-Integrator key, "
+            "bucketed by surface (safe vs raw). DBP-4 telemetry.",
+            labelnames=("partner_wallet", "surface"),
+            registry=registry,
+        )
 
 
 def render_metrics(registry: CollectorRegistry) -> tuple[bytes, str]:

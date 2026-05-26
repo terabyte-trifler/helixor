@@ -73,12 +73,21 @@ class ApiKey:
     `tier` is a free-form accounting label ("basic", "partner",
     "internal"). `rate_limit_per_minute` is the per-key sliding-window
     cap that overrides the per-IP cap for authenticated requests.
+
+    DBP-4 — partner identity binding
+    --------------------------------
+    `partner_wallet` is the base58 Solana pubkey of the on-chain
+    `VerifiedConsumer` PDA holder that this key represents. None means
+    "no partner binding" — the key is a generic basic/internal key, not
+    a Verified-Integrator key. The leaderboard endpoint only ranks keys
+    that carry a partner_wallet.
     """
 
     key_id:                str
     secret_hash:           str   # hex sha256
     tier:                  str
     rate_limit_per_minute: int
+    partner_wallet:        str | None = None
 
     @classmethod
     def from_secret(
@@ -88,6 +97,7 @@ class ApiKey:
         secret:                str,
         tier:                  str = "basic",
         rate_limit_per_minute: int = DEFAULT_KEY_RATE_LIMIT_PER_MIN,
+        partner_wallet:        str | None = None,
     ) -> "ApiKey":
         if not key_id:
             raise ValueError("ApiKey.from_secret: key_id is required")
@@ -97,11 +107,36 @@ class ApiKey:
             raise ValueError(
                 "ApiKey.from_secret: rate_limit_per_minute must be >= 1"
             )
+        if partner_wallet is not None:
+            pw = partner_wallet.strip()
+            if not pw:
+                # Treat an empty string as "no binding" — same shape as None.
+                partner_wallet = None
+            else:
+                # Solana base58 pubkey: 32..44 chars in the bitcoin alphabet.
+                # We validate shape here so the leaderboard / metric labels
+                # never carry a malformed value.
+                if not (32 <= len(pw) <= 44):
+                    raise ValueError(
+                        "ApiKey.from_secret: partner_wallet must be a "
+                        "32..44-char base58 Solana pubkey"
+                    )
+                _BASE58 = (
+                    "123456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+                    "abcdefghijkmnopqrstuvwxyz"
+                )
+                if not all(c in _BASE58 for c in pw):
+                    raise ValueError(
+                        "ApiKey.from_secret: partner_wallet contains "
+                        "non-base58 characters"
+                    )
+                partner_wallet = pw
         return cls(
             key_id=key_id,
             secret_hash=hashlib.sha256(secret.encode("utf-8")).hexdigest(),
             tier=tier,
             rate_limit_per_minute=rate_limit_per_minute,
+            partner_wallet=partner_wallet,
         )
 
 
@@ -183,9 +218,16 @@ def require_api_key(registry: ApiKeyRegistry):
 def load_keys_from_env(env_var: str = "HELIXOR_API_KEYS") -> list[ApiKey]:
     """Parse the configured env var into a list of `ApiKey` records.
 
-    FORMAT: newline-separated `key_id:secret[:tier[:limit_per_min]]`
-    records. Blank lines and lines starting with `#` are skipped so an
-    operator can manage the value as a multi-line block with comments.
+    FORMAT: newline-separated
+    `key_id:secret[:tier[:limit_per_min[:partner_wallet]]]` records.
+    Blank lines and lines starting with `#` are skipped so an operator
+    can manage the value as a multi-line block with comments.
+
+    DBP-4: the optional 5th field binds the key to a Solana
+    `partner_wallet`. Verified-Integrator keys MUST carry the partner
+    wallet so per-partner telemetry (safe-reader share, leaderboard
+    rank, cert-degrading webhooks) can attribute every call to the
+    correct on-chain identity.
 
     Unset / empty means "no keys registered". Operational endpoints will
     then 401 every request — the correct posture for an unconfigured
@@ -198,16 +240,17 @@ def load_keys_from_env(env_var: str = "HELIXOR_API_KEYS") -> list[ApiKey]:
         if not line or line.startswith("#"):
             continue
         parts = line.split(":")
-        if len(parts) < 2 or len(parts) > 4:
+        if len(parts) < 2 or len(parts) > 5:
             raise ValueError(
-                f"{env_var} line {lineno}: "
-                f"expected key_id:secret[:tier[:limit_per_min]]"
+                f"{env_var} line {lineno}: expected "
+                f"key_id:secret[:tier[:limit_per_min[:partner_wallet]]]"
             )
         key_id = parts[0].strip()
         secret = parts[1]
         tier   = parts[2].strip() if len(parts) >= 3 and parts[2] else "basic"
         limit_str = parts[3].strip() if len(parts) >= 4 else ""
         limit  = int(limit_str) if limit_str else DEFAULT_KEY_RATE_LIMIT_PER_MIN
+        partner_wallet = parts[4].strip() if len(parts) >= 5 and parts[4] else None
         if not key_id or not secret:
             raise ValueError(
                 f"{env_var} line {lineno}: empty key_id or secret"
@@ -215,5 +258,6 @@ def load_keys_from_env(env_var: str = "HELIXOR_API_KEYS") -> list[ApiKey]:
         keys.append(ApiKey.from_secret(
             key_id=key_id, secret=secret, tier=tier,
             rate_limit_per_minute=limit,
+            partner_wallet=partner_wallet,
         ))
     return keys
