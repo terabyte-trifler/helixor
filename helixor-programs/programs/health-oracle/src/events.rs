@@ -84,6 +84,38 @@ pub struct RegistrationMigrated {
     pub migrated_at:     i64,
 }
 
+// ── AW-03: on-chain baseline data-availability proof ───────────────────────
+// `BaselineDataPublished` is emitted alongside `BaselineCommitted` and
+// carries the LOCATOR for the on-chain `BaselineDataAccount` whose payload
+// bytes were just published. A DeFi consumer / off-chain indexer can index
+// on this event, fetch the `baseline_data_pubkey` account, and verify
+// `sha256(account.payload) == baseline_hash` — the audit gate the AW-03
+// finding asked for. `payload_len` lets monitors gate on suspicious sizes
+// (a sudden 30-byte baseline is a smoking gun).
+
+#[event]
+pub struct BaselineDataPublished {
+    /// The monitored agent.
+    pub agent_wallet:           Pubkey,
+    /// The commit_nonce this DA account is keyed under — pairs with
+    /// `BaselineCommitted.commit_nonce`.
+    pub commit_nonce:           u64,
+    /// The 32-byte SHA-256 over the published payload. Equal to the new
+    /// `AgentRegistration.baseline_hash`.
+    pub baseline_hash:          [u8; 32],
+    /// Algorithm version that produced the payload + hash.
+    pub baseline_algo_version:  u8,
+    /// The PDA address of the new `BaselineDataAccount`. Consumers fetch
+    /// this account to read the canonical payload and re-verify the hash.
+    pub baseline_data_pubkey:   Pubkey,
+    /// Length of the published payload in bytes. Monitors gate on this.
+    pub payload_len:            u32,
+    /// The committer (oracle or owner) — mirrors `BaselineCommitted`.
+    pub committer:              Pubkey,
+    /// Unix seconds when the payload was published (Clock::get()).
+    pub published_at:           i64,
+}
+
 // ── Day 19: epoch + score submission events ─────────────────────────────────
 
 /// Emitted when the epoch counter ticks at the end of a 24h cycle.

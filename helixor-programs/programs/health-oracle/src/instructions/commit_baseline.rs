@@ -5,6 +5,22 @@
 // AgentRegistration PDA. This is the value that makes every subsequent score
 // PROVABLY derived from a fixed, public commitment.
 //
+// AW-03 — ON-CHAIN BASELINE DATA-AVAILABILITY PROOF
+// -------------------------------------------------
+// The audit raised that a 32-byte `baseline_hash` is a COMMITMENT, not a
+// proof of provenance — a DeFi consumer reading the cert cannot tell what
+// statistical content the hash represents. The fix: every `commit_baseline`
+// now also publishes the canonical-payload BYTES that produced the hash, in
+// a dedicated on-chain `BaselineDataAccount` PDA. The handler enforces
+//
+//     sha256(args.payload) == args.baseline_hash
+//
+// at write time. The DA account is keyed by `(agent_wallet, commit_nonce)`,
+// so each rotation produces a NEW account and history is preserved on chain
+// forever. The `AgentRegistration.baseline_data_pointer` field is updated
+// to point at the new account so consumers have a one-fetch path from the
+// agent's registration to the latest DA payload.
+//
 // AUTHORITY MODEL (intentional, not "either-or" sloppy):
 //
 //   - The CANONICAL committer is the oracle. It runs the baseline engine,
@@ -53,10 +69,15 @@
 // =============================================================================
 
 use anchor_lang::prelude::*;
+use solana_program::hash::hashv;
 
 use crate::errors::HelixorError;
-use crate::events::{BaselineCommitted, BaselineRotated, CommitterKind};
-use crate::state::{AgentRegistration, OracleConfig};
+use crate::events::{
+    BaselineCommitted, BaselineDataPublished, BaselineRotated, CommitterKind,
+};
+use crate::state::{
+    AgentRegistration, BaselineDataAccount, OracleConfig, MAX_BASELINE_PAYLOAD_LEN,
+};
 
 
 // =============================================================================
@@ -126,10 +147,32 @@ pub struct CommitBaseline<'info> {
     )]
     pub oracle_config: Account<'info, OracleConfig>,
 
+    /// AW-03: the on-chain canonical-payload account for this commit.
+    /// Keyed by `(agent_wallet, commit_nonce)` so each rotation produces a
+    /// NEW account; previous baselines remain immutable. `init` makes the
+    /// account write-once. The handler enforces
+    /// `sha256(args.payload) == args.baseline_hash` before writing — the
+    /// on-chain hash and the on-chain bytes can never disagree.
+    #[account(
+        init,
+        payer = signer,
+        space = BaselineDataAccount::space_for(args.payload.len()),
+        seeds = [
+            BaselineDataAccount::SEED_PREFIX,
+            agent_registration.agent_wallet.as_ref(),
+            &args.commit_nonce.to_le_bytes(),
+        ],
+        bump,
+    )]
+    pub baseline_data: Account<'info, BaselineDataAccount>,
+
     /// The signer claiming the right to commit. Validated in the handler:
     ///   - if args.committer_kind == Oracle, signer must equal oracle_config.oracle_node
     ///   - if args.committer_kind == Owner,  signer must equal agent_registration.owner_wallet
+    #[account(mut)]
     pub signer: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -142,6 +185,12 @@ pub struct CommitBaselineArgs {
     pub commit_nonce:           u64,
     /// Whether this commit is from the oracle (canonical) or the owner (override).
     pub committer_kind:         CommitterKind,
+    /// AW-03: the canonical-payload bytes that produced `baseline_hash`.
+    /// The handler enforces `sha256(payload) == baseline_hash` and writes
+    /// the bytes verbatim to the `BaselineDataAccount` PDA. Must be
+    /// non-empty and `<= MAX_BASELINE_PAYLOAD_LEN` (8 KB). For real
+    /// baselines this is ~3 KB; the cap is the rent-bound safety ceiling.
+    pub payload:                Vec<u8>,
 }
 
 pub fn handler(ctx: Context<CommitBaseline>, args: CommitBaselineArgs) -> Result<()> {
@@ -188,6 +237,27 @@ pub fn handler(ctx: Context<CommitBaseline>, args: CommitBaselineArgs) -> Result
         HelixorError::NonMonotonicNonce
     );
 
+    // 5. AW-03 — verify the canonical-payload hash binding BEFORE any
+    //    state is written. The on-chain DA invariant is:
+    //
+    //      sha256(args.payload) == args.baseline_hash
+    //
+    //    If this fails the commit is refused; neither the DA account
+    //    (init would still create it but the ix fails after) nor the
+    //    registration are mutated. The cluster's off-chain
+    //    `baseline.hashing.compute_stats_hash` must produce the same 32
+    //    bytes from the same canonical JSON — any drift surfaces here.
+    require!(!args.payload.is_empty(), HelixorError::BaselinePayloadEmpty);
+    require!(
+        args.payload.len() <= MAX_BASELINE_PAYLOAD_LEN,
+        HelixorError::BaselinePayloadTooLarge,
+    );
+    let computed_hash = hashv(&[&args.payload]).to_bytes();
+    require!(
+        computed_hash == args.baseline_hash,
+        HelixorError::BaselinePayloadHashMismatch,
+    );
+
     let clock = Clock::get()?;
     let now   = clock.unix_timestamp;
     let first_commit = !reg.baseline_committed;
@@ -211,7 +281,25 @@ pub fn handler(ctx: Context<CommitBaseline>, args: CommitBaselineArgs) -> Result
     let previous_committed_at: i64      = reg.baseline_committed_at;
     let previous_nonce:        u64      = reg.commit_nonce;
 
-    // 5. Write the new commitment. The previous values flow into the event
+    // 6. AW-03 — write the on-chain canonical-payload DA account. The
+    //    `init` constraint already created the account at the PDA seeds
+    //    `["baseline_data", agent_wallet, commit_nonce_le]`; we populate
+    //    its fields here. After this point the bytes-behind-the-hash live
+    //    on chain forever (write-once PDA, never closed).
+    let data = &mut ctx.accounts.baseline_data;
+    data.agent_wallet          = reg.agent_wallet;
+    data.commit_nonce          = args.commit_nonce;
+    data.baseline_hash         = args.baseline_hash;
+    data.baseline_algo_version = args.baseline_algo_version;
+    data.committed_at          = now;
+    data.committer             = signer.key();
+    data.payload               = args.payload.clone();
+    data.bump                  = ctx.bumps.baseline_data;
+    data.layout_version        = BaselineDataAccount::CURRENT_LAYOUT_VERSION;
+    let baseline_data_pubkey   = data.key();
+    let payload_len            = args.payload.len() as u32;
+
+    // 7. Write the new commitment. The previous values flow into the event
     //    (and thus the off-chain append-only history).
     reg.baseline_committed     = true;
     reg.baseline_hash          = args.baseline_hash;
@@ -219,8 +307,12 @@ pub fn handler(ctx: Context<CommitBaseline>, args: CommitBaselineArgs) -> Result
     reg.baseline_committer     = signer.key();
     reg.baseline_committed_at  = now;
     reg.commit_nonce           = args.commit_nonce;
+    // AW-03: point AgentRegistration at the just-written DA account so
+    // consumers have a single-fetch path from `["agent", agent_wallet]`
+    // to the on-chain canonical baseline payload.
+    reg.baseline_data_pointer  = baseline_data_pubkey;
 
-    // 6. Emit the event for the indexer.
+    // 8. Emit the event for the indexer.
     emit!(BaselineCommitted {
         agent_wallet:           reg.agent_wallet,
         committer:              signer.key(),
@@ -230,6 +322,19 @@ pub fn handler(ctx: Context<CommitBaseline>, args: CommitBaselineArgs) -> Result
         committed_at:           now,
         first_commit,
         committer_kind:         args.committer_kind,
+    });
+
+    // 9. AW-03: emit the DA-publication event so off-chain consumers /
+    //    indexers can index baseline payloads by `(agent, commit_nonce)`.
+    emit!(BaselineDataPublished {
+        agent_wallet:           reg.agent_wallet,
+        commit_nonce:           args.commit_nonce,
+        baseline_hash:          args.baseline_hash,
+        baseline_algo_version:  args.baseline_algo_version,
+        baseline_data_pubkey,
+        payload_len,
+        committer:              signer.key(),
+        published_at:           now,
     });
 
     // VULN-10: ROTATION event — only on non-first commits. Carries the

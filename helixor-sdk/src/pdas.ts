@@ -9,6 +9,7 @@
 //   certificate-issuer  BaselineStats      ["baseline", agent]
 //   certificate-issuer  IssuerConfig       ["issuer_config"]
 //   health-oracle       EpochState         ["epoch_state"]
+//   health-oracle       BaselineDataAcct   ["baseline_data", agent, nonce_le_u64]
 // =============================================================================
 
 import { PublicKey } from "@solana/web3.js";
@@ -57,6 +58,30 @@ export function issuerConfigPda(certificateIssuer: PublicKey): PublicKey {
 export function epochStatePda(healthOracle: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync(
     [enc("epoch_state")],
+    healthOracle
+  )[0];
+}
+
+/** Encode a u64 commit_nonce as 8 little-endian bytes — matches Rust `to_le_bytes`. */
+export function commitNonceToLeBytes(nonce: number | bigint): Buffer {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64LE(BigInt(nonce));
+  return buf;
+}
+
+/**
+ * AW-03: the per-(agent, commit_nonce) `BaselineDataAccount` PDA on the
+ * health-oracle program. Each commit produces a NEW PDA — the previous
+ * baseline-data account remains immutable on chain forever, giving
+ * consumers a full audit history of every baseline ever committed.
+ */
+export function baselineDataPda(
+  healthOracle: PublicKey,
+  agent: PublicKey,
+  commitNonce: number | bigint
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [enc("baseline_data"), agent.toBuffer(), commitNonceToLeBytes(commitNonce)],
     healthOracle
   )[0];
 }

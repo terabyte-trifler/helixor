@@ -30,6 +30,11 @@ pub struct CertificateIssued {
 }
 
 /// Emitted when a BaselineStats record is created or updated for an agent.
+///
+/// AW-03: carries the `baseline_commit_nonce` so indexers can derive the
+/// on-chain `BaselineDataAccount` PDA (seeds `["baseline_data", agent,
+/// nonce_le]`) without re-reading the BaselineStats account afterwards
+/// (which may have already rotated to a newer nonce).
 #[event]
 pub struct BaselineRecorded {
     pub agent_wallet:          Pubkey,
@@ -37,6 +42,7 @@ pub struct BaselineRecorded {
     pub epoch_recorded:        u64,
     pub recorder:              Pubkey,
     pub recorded_at:           i64,
+    pub baseline_commit_nonce: u64,
 }
 
 /// Emitted by `get_certificate` — the on-chain read instruction surfaces a

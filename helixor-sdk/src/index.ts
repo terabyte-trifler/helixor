@@ -32,12 +32,16 @@ export {
   issuerConfigPda,
   epochStatePda,
   epochToLeBytes,
+  baselineDataPda,
+  commitNonceToLeBytes,
 } from "./pdas";
 export {
   decodeHealthCertificate,
   decodeEpochState,
+  decodeBaselineDataAccount,
   type DecodedHealthCertificate,
   type DecodedEpochState,
+  type DecodedBaselineDataAccount,
 } from "./decode";
 
 // VULN-23 consumer-side guard rails — wraps any ChainReader and refuses
@@ -89,3 +93,20 @@ export {
   type SolanaLedgerVerification,
   type SlotHashesProvider,
 } from "./input_provenance";
+
+// AW-03 baseline-provenance verification — fetch the on-chain DA account,
+// recompute sha256(payload), and assert == cert.baselineHash. A consumer
+// who passes both verifyInputProvenance + verifyBaselineProvenance has
+// cryptographic proof of EVERY input behind the score: the observable
+// transactions (AW-01) and the statistical baseline they were scored
+// against (AW-03).
+export {
+  verifyBaselineProvenance,
+  sha256Payload,
+  decodeBaselinePayload,
+  BaselineProvenanceRejection,
+  type BaselineProvenanceOk,
+  type BaselineProvenanceFail,
+  type BaselineProvenanceResult,
+  type ParsedBaselinePayload,
+} from "./baseline_provenance";

@@ -159,6 +159,39 @@ file.
       one of the cluster's own RPCs defeats the third-source-of-truth
       guarantee. Document the chosen provider RPC in the partner's
       integration policy.
+- [ ] **AW-03 baseline-provenance sweep clean** —
+      `python3 audit/baseline_provenance_check.py --json audit/reports/aw03_baseline_provenance.json`
+      reports **0 HARD findings**. The sweep enforces that every
+      production cluster-signing callsite binds the AW-03
+      `baseline_commit_nonce` so the cert-payload digest names a
+      SPECIFIC fetchable `BaselineDataAccount` PDA on chain. A
+      regression that drops the binding would let a malicious cluster
+      rotate the baseline mid-attack and still emit a cert whose
+      stale `baseline_hash` cannot be tied back to any on-chain
+      payload the consumer can re-verify. Specifically:
+        1. `oracle.cluster.cert_signing.cert_payload_digest` — every
+           production call passes the `baseline_commit_nonce=` kwarg
+           (default-0 is reserved for legacy/test paths and is gated
+           out of the production scan roots).
+        2. TS `certPayloadDigest(...)` — every callsite includes the
+           `baselineCommitNonce` token in its argument region (either
+           as a named binding or as an explicit annotation comment)
+           so a refactor that drops the 8-byte BE tail cannot pass
+           review silently.
+        3. TS `baselineDataPda(healthOracle, agent, <nonce>)` — every
+           callsite passes a nonce-bearing variable (substring
+           `nonce`); a constant or literal there would mean the
+           caller is deriving the PDA against a hard-coded rotation
+           rather than the agent's current `baseline_commit_nonce`.
+      The on-chain `BaselineDataAccount` is at `layout_version = 1`
+      with seeds `["baseline_data", agent_wallet, commit_nonce_le]`;
+      the program enforces `sha256(payload) == baseline_hash` at
+      write time, and `BaselineStats` + `HealthCertificate` carry
+      the `baseline_commit_nonce` that names the latest account.
+      `verifyBaselineProvenance` in `@helixor/sdk` reproduces the
+      hash byte-for-byte from the fetched payload. A DeFi consumer
+      can detect a substituted baseline without trusting either the
+      cluster OR a separate DA service.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain
@@ -393,6 +426,24 @@ the entry gate.
       A wired attester cluster MUST NOT overlap `cluster_keys`
       — the program's `initialize_config` validator rejects
       overlap with `AttesterOverlapsCluster` (12088).
+- [ ] **AW-03 baseline data-availability bound on the first live cert.**
+      Decode the first mainnet cert via the SDK and verify
+      `cert.baselineCommitNonce > 0n` AND that
+      `baselineDataPda(healthOracle, agent, cert.baselineCommitNonce)`
+      resolves to an on-chain account whose
+      `sha256(payload) === cert.baselineHash`. One integration partner
+      MUST run
+      `verifyBaselineProvenance(connection, healthOracleProgram, cert)`
+      against the first cert and report `ok: true`; a `HashMismatch`
+      rejection here blocks promotion. A zero `baseline_commit_nonce` on a v6 cert
+      would mean the cert was issued before the AW-03 plumbing landed
+      — that must NEVER happen on mainnet. The cluster's
+      `cert_payload_digest` folds the 8-byte BE nonce into the signed
+      digest, so a zero nonce on a non-legacy cert is by construction
+      either (a) a pre-AW-03 deploy (investigate before issuing more
+      certs) or (b) a regression that the audit sweep above should
+      have caught (re-run the sweep). Runbook:
+      `launch/runbooks/baseline_provenance.md`.
 - [ ] **The first epoch on mainnet completes** end-to-end, on-chain
       cert visible via explorer
 
@@ -446,6 +497,22 @@ the entry gate.
       indicates either a misconfigured attester operator or a
       DOS attempt — investigate and consider rotating the
       attester cluster.
+- [ ] **Daily review of AW-03 baseline-provenance events.** Every
+      `BaselineCommitted` event in steady state MUST carry a
+      strictly-monotonic `commit_nonce` for its agent (the on-chain
+      handler rejects regressions with `BaselineNonceRegression`).
+      A `HashMismatch` finding from any partner running
+      `verifyBaselineProvenance(connection, healthOracleProgram, cert)`
+      is a P0 — the cert's
+      on-chain `baseline_hash` does not match
+      `sha256(BaselineDataAccount.payload)`, which by construction
+      should be impossible (the program enforces equality at write
+      time). The two ways it CAN happen in practice: (a) the partner
+      is fetching the wrong PDA — confirm
+      `baselineDataPda(healthOracle, agent, cert.baselineCommitNonce)`
+      derivation; (b) a chain reorg landed a stale baseline-data
+      account version — re-fetch at finalized commitment. If neither
+      applies, follow `launch/runbooks/baseline_provenance.md`.
 - [ ] **Weekly external-RPC ledger re-verification.** A scheduled job
       decodes the previous day's certs and runs
       `verifyAgainstSolanaLedger` against an RPC NOT in the cluster's

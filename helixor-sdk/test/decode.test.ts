@@ -13,6 +13,7 @@ import * as assert from "assert";
 import {
   decodeHealthCertificate,
   decodeEpochState,
+  decodeBaselineDataAccount,
   CHALLENGE_STATE_NONE,
   CHALLENGE_STATE_UPHELD,
   CHALLENGE_STATE_REJECTED,
@@ -48,6 +49,8 @@ function buildHealthCertificate(opts: {
   slotAnchorSlot?: bigint;
   slotAnchorHash?: Uint8Array;
   challengeState?: number;
+  baselineCommitNonce?: bigint;
+  baselineHash?: Uint8Array;
 }): Buffer {
   // 8 discriminator + 210 data = 218 bytes (HealthCertificate::SPACE v4/v5
   // — challenge_state shares a byte with what used to be _reserved, so the
@@ -62,10 +65,15 @@ function buildHealthCertificate(opts: {
   buf.writeUInt32LE(opts.flags, o); o += 4;
   buf.writeBigInt64LE(BigInt(opts.issuedAt), o); o += 8;
   buf.fill(0xbb, o, o + 32); o += 32; // issuer
-  buf.fill(0xcc, o, o + 32); o += 32; // baseline_hash
+  if (opts.baselineHash) {
+    Buffer.from(opts.baselineHash).copy(buf, o);
+  } else {
+    buf.fill(0xcc, o, o + 32);
+  }
+  o += 32; // baseline_hash
   buf.writeUInt8(opts.immediateRed ? 1 : 0, o); o += 1;
   buf.writeUInt8(254, o); o += 1; // bump
-  buf.writeUInt8(opts.layoutVersion ?? 5, o); o += 1; // layout_version
+  buf.writeUInt8(opts.layoutVersion ?? 6, o); o += 1; // layout_version (v6 default)
   buf.writeUInt8(opts.signerCount ?? 0, o); o += 1; // signer_count
   if (opts.inputCommitment) {
     Buffer.from(opts.inputCommitment).copy(buf, o);
@@ -76,8 +84,10 @@ function buildHealthCertificate(opts: {
     Buffer.from(opts.slotAnchorHash).copy(buf, o);
   }
   o += 32;
-  // v5: challenge_state (1 byte), then _reserved [14] left zero.
+  // v5: challenge_state (1 byte)
   buf.writeUInt8(opts.challengeState ?? 0, o); o += 1;
+  // v6: baseline_commit_nonce (8 bytes), then _reserved [6] left zero.
+  buf.writeBigUInt64LE(opts.baselineCommitNonce ?? 0n, o); o += 8;
   return buf;
 }
 
@@ -246,6 +256,39 @@ test("decodes 32-byte agent / issuer / baseline_hash slices", () => {
   assert.strictEqual(cert.baselineHash.length, 32);
 });
 
+test("decodes v6 baseline_commit_nonce", () => {
+  const buf = buildHealthCertificate({
+    epoch: 42,
+    score: 800,
+    alertTier: 0,
+    flags: 0,
+    issuedAt: 1_777_000_000,
+    immediateRed: false,
+    layoutVersion: 6,
+    baselineCommitNonce: 1234567890n,
+  });
+  const cert = decodeHealthCertificate(buf);
+  assert.strictEqual(cert.layoutVersion, 6);
+  assert.strictEqual(cert.baselineCommitNonce, 1234567890n);
+});
+
+test("v5 buffer decodes baseline_commit_nonce as zero sentinel", () => {
+  // Pre-v6: the 8 bytes were reserved padding (zero) — so they decode as 0n.
+  const buf = buildHealthCertificate({
+    epoch: 1,
+    score: 700,
+    alertTier: 0,
+    flags: 0,
+    issuedAt: 1,
+    immediateRed: false,
+    layoutVersion: 5,
+    // No baselineCommitNonce — defaults to 0n, which is the legacy sentinel.
+  });
+  const cert = decodeHealthCertificate(buf);
+  assert.strictEqual(cert.layoutVersion, 5);
+  assert.strictEqual(cert.baselineCommitNonce, 0n);
+});
+
 // =============================================================================
 // EpochState decode
 // =============================================================================
@@ -270,6 +313,83 @@ test("decodes epoch 1 (the first epoch)", () => {
     durationSeconds: 86_400,
   });
   assert.strictEqual(decodeEpochState(buf).currentEpoch, 1);
+});
+
+// =============================================================================
+// BaselineDataAccount decode (AW-03)
+// =============================================================================
+
+function buildBaselineDataAccount(opts: {
+  agentWallet?: Uint8Array;
+  commitNonce: bigint;
+  baselineHash?: Uint8Array;
+  baselineAlgoVersion?: number;
+  committedAt?: bigint;
+  committer?: Uint8Array;
+  payload: Buffer | Uint8Array;
+  bump?: number;
+  layoutVersion?: number;
+}): Buffer {
+  // 8 discriminator + 135 fixed fields + N payload bytes
+  const fixedLen = 32 + 8 + 32 + 1 + 8 + 32 + 4 + 1 + 1 + 16;
+  const buf = Buffer.alloc(8 + fixedLen + opts.payload.length);
+  let o = 8;
+  Buffer.from(opts.agentWallet ?? new Uint8Array(32).fill(0xa1)).copy(buf, o);
+  o += 32;
+  buf.writeBigUInt64LE(opts.commitNonce, o); o += 8;
+  Buffer.from(opts.baselineHash ?? new Uint8Array(32).fill(0xcd)).copy(buf, o);
+  o += 32;
+  buf.writeUInt8(opts.baselineAlgoVersion ?? 3, o); o += 1;
+  buf.writeBigInt64LE(opts.committedAt ?? 1_777_000_000n, o); o += 8;
+  Buffer.from(opts.committer ?? new Uint8Array(32).fill(0xee)).copy(buf, o);
+  o += 32;
+  buf.writeUInt32LE(opts.payload.length, o); o += 4;
+  Buffer.from(opts.payload).copy(buf, o); o += opts.payload.length;
+  buf.writeUInt8(opts.bump ?? 254, o); o += 1;
+  buf.writeUInt8(opts.layoutVersion ?? 1, o); o += 1;
+  // _reserved [16] left zero.
+  return buf;
+}
+
+test("decodes a BaselineDataAccount round trip", () => {
+  const payload = Buffer.from(
+    '{"v":3,"schema_fp":"abc","means":["0.100000000"]}',
+    "utf-8"
+  );
+  const agent = new Uint8Array(32).fill(0xa1);
+  const hash = new Uint8Array(32).fill(0xcd);
+  const buf = buildBaselineDataAccount({
+    agentWallet: agent,
+    commitNonce: 42n,
+    baselineHash: hash,
+    baselineAlgoVersion: 3,
+    committedAt: 1_777_000_000n,
+    payload,
+  });
+  const acct = decodeBaselineDataAccount(buf);
+  assert.deepStrictEqual(Buffer.from(acct.agentWallet), Buffer.from(agent));
+  assert.strictEqual(acct.commitNonce, 42n);
+  assert.deepStrictEqual(Buffer.from(acct.baselineHash), Buffer.from(hash));
+  assert.strictEqual(acct.baselineAlgoVersion, 3);
+  assert.strictEqual(acct.committedAt, 1_777_000_000n);
+  assert.deepStrictEqual(Buffer.from(acct.payload), payload);
+  assert.strictEqual(acct.layoutVersion, 1);
+});
+
+test("BaselineDataAccount rejects truncated payload claim", () => {
+  // Forge a buffer whose payload_len prefix claims more bytes than the
+  // account actually contains — must reject, not buffer-overrun.
+  const payload = Buffer.from("hello world", "utf-8");
+  const buf = buildBaselineDataAccount({ commitNonce: 1n, payload });
+  // Bump the payload_len prefix to claim 99_999 bytes.
+  const payloadLenOffset = 8 + 32 + 8 + 32 + 1 + 8 + 32;
+  buf.writeUInt32LE(99_999, payloadLenOffset);
+  assert.throws(() => decodeBaselineDataAccount(buf), /truncated/);
+});
+
+test("BaselineDataAccount rejects too-short buffer", () => {
+  const tiny = Buffer.alloc(20);
+  assert.throws(() => decodeBaselineDataAccount(tiny), /too short/);
 });
 
 console.log(`\n${passed} decode tests passed`);

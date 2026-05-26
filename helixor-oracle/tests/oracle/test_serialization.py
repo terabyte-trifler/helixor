@@ -54,31 +54,44 @@ class TestDiscriminators:
 class TestEncodeCommitBaselineArgs:
 
     def _kwargs(self, **overrides):
+        # The encoder pins `sha256(payload) == baseline_hash`, so the
+        # default kwargs ship a real payload + its real hash. Per-test
+        # overrides may swap either side.
+        default_payload = b"baseline-test-payload"
+        default_hash    = hashlib.sha256(default_payload).digest()
         kw = dict(
-            baseline_hash=b"\xab" * 32,
+            baseline_hash=default_hash,
             baseline_algo_version=2,
             commit_nonce=1,
             committer_kind=CommitterKind.ORACLE,
+            payload=default_payload,
         )
         kw.update(overrides)
         return kw
 
     def test_total_length(self):
         data = encode_commit_baseline_args(**self._kwargs())
-        # 32 hash + 1 algo_version + 8 nonce + 1 committer_kind = 42
-        assert len(data) == 32 + 1 + 8 + 1
+        # 32 hash + 1 algo + 8 nonce + 1 committer_kind + 4 vec_len + N payload
+        expected = 32 + 1 + 8 + 1 + 4 + len(b"baseline-test-payload")
+        assert len(data) == expected
 
     def test_field_layout(self):
+        payload = b"a-canonical-stats-payload"
+        h = hashlib.sha256(payload).digest()
         data = encode_commit_baseline_args(**self._kwargs(
-            baseline_hash=b"\x11" * 32,
+            baseline_hash=h,
             baseline_algo_version=2,
             commit_nonce=42,
             committer_kind=CommitterKind.ORACLE,
+            payload=payload,
         ))
-        assert data[0:32] == b"\x11" * 32
+        assert data[0:32] == h
         assert data[32] == 2
         assert struct.unpack("<Q", data[33:41])[0] == 42
         assert data[41] == 0  # ORACLE = 0
+        # AW-03: borsh Vec<u8> = u32 LE length prefix + bytes
+        assert struct.unpack("<I", data[42:46])[0] == len(payload)
+        assert data[46:46 + len(payload)] == payload
 
     def test_committer_kind_owner_is_one(self):
         data = encode_commit_baseline_args(**self._kwargs(committer_kind=CommitterKind.OWNER))
@@ -100,6 +113,33 @@ class TestEncodeCommitBaselineArgs:
         with pytest.raises(ValueError, match="u64 range"):
             encode_commit_baseline_args(**self._kwargs(commit_nonce=-1))
 
+    # ── AW-03 payload-binding tests ─────────────────────────────────────────
+
+    def test_empty_payload_rejected(self):
+        with pytest.raises(ValueError, match="empty"):
+            encode_commit_baseline_args(**self._kwargs(
+                payload=b"",
+                baseline_hash=hashlib.sha256(b"").digest(),
+            ))
+
+    def test_oversize_payload_rejected(self):
+        # 8 KB + 1 byte
+        big = b"\xff" * (8 * 1024 + 1)
+        with pytest.raises(ValueError, match="too large"):
+            encode_commit_baseline_args(**self._kwargs(
+                payload=big,
+                baseline_hash=hashlib.sha256(big).digest(),
+            ))
+
+    def test_payload_hash_mismatch_rejected(self):
+        # AW-03: the off-chain encoder pins `sha256(payload) == baseline_hash`
+        # so a forged hash + a real payload fails BEFORE the tx is sent.
+        with pytest.raises(ValueError, match="does not match sha256"):
+            encode_commit_baseline_args(**self._kwargs(
+                payload=b"genuine-payload",
+                baseline_hash=b"\x99" * 32,
+            ))
+
 
 # =============================================================================
 # decode_agent_registration_v2
@@ -119,6 +159,7 @@ def _make_account_bytes(
     baseline_committed_at=1714607200,
     commit_nonce=7,
     layout_version=2,
+    baseline_data_pointer=b"\xdd" * 32,
 ) -> bytes:
     """Hand-roll the exact byte layout the Rust account would produce."""
     out  = AGENT_REGISTRATION_DISCRIMINATOR
@@ -134,7 +175,8 @@ def _make_account_bytes(
     out += struct.pack("<q", baseline_committed_at)
     out += struct.pack("<Q", commit_nonce)
     out += bytes([layout_version])
-    out += b"\x00" * 64   # _reserved
+    out += baseline_data_pointer   # AW-03 (32 bytes, carved from reserve)
+    out += b"\x00" * 32             # remaining _reserved (was 64 pre-AW-03)
     return out
 
 
@@ -154,6 +196,7 @@ class TestDecodeAgentRegistrationV2:
             baseline_committed_at=1714607200,
             commit_nonce=7,
             layout_version=2,
+            baseline_data_pointer=b"\xdd" * 32,
         )
         d = decode_agent_registration_v2(raw)
         assert bytes(d.agent_wallet) == b"\xa1" * 32
@@ -168,6 +211,7 @@ class TestDecodeAgentRegistrationV2:
         assert d.baseline_committed_at == 1714607200
         assert d.commit_nonce == 7
         assert d.layout_version == 2
+        assert bytes(d.baseline_data_pointer) == b"\xdd" * 32
 
     def test_pre_commit_state_decodes_with_zeros(self):
         raw = _make_account_bytes(
@@ -177,11 +221,15 @@ class TestDecodeAgentRegistrationV2:
             baseline_committer=b"\x00" * 32,
             baseline_committed_at=0,
             commit_nonce=0,
+            baseline_data_pointer=b"\x00" * 32,
         )
         d = decode_agent_registration_v2(raw)
         assert d.baseline_committed is False
         assert d.baseline_hash == b"\x00" * 32
         assert d.commit_nonce == 0
+        # AW-03: pre-AW-03 legacy registrations decode the pointer as zero
+        # — the sentinel meaning "no DA account exists".
+        assert bytes(d.baseline_data_pointer) == b"\x00" * 32
 
     def test_discriminator_mismatch_rejected(self):
         raw = _make_account_bytes()

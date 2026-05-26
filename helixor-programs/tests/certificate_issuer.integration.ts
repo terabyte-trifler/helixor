@@ -50,6 +50,7 @@ function certPayloadDigest(
   inputCommitment: Buffer,        // AW-01 — must match on-chain digest order
   slotAnchorSlot: bigint,         // AW-01-EXT — Solana slot pinned at scoring
   slotAnchorHash: Buffer,         // AW-01-EXT — block hash for that slot
+  baselineCommitNonce: bigint,    // AW-03 — names the BaselineDataAccount PDA
 ): Buffer {
   const epochBuf = Buffer.alloc(8);  epochBuf.writeBigUInt64BE(BigInt(epoch));
   const scoreBuf = Buffer.alloc(2);  scoreBuf.writeUInt16BE(score);
@@ -62,6 +63,8 @@ function certPayloadDigest(
   }
   const anchorSlotBuf = Buffer.alloc(8);
   anchorSlotBuf.writeBigUInt64BE(slotAnchorSlot);
+  const nonceBuf = Buffer.alloc(8);
+  nonceBuf.writeBigUInt64BE(baselineCommitNonce);
   const payload = Buffer.concat([
     agent.toBuffer(),                            // 32
     epochBuf,                                    //  8
@@ -73,6 +76,7 @@ function certPayloadDigest(
     inputCommitment,                             // 32  ← AW-01
     anchorSlotBuf,                               //  8  ← AW-01-EXT
     slotAnchorHash,                              // 32  ← AW-01-EXT
+    nonceBuf,                                    //  8  ← AW-03
   ]);
   return createHash("sha256").update(payload).digest();
 }
@@ -211,7 +215,9 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
       });
 
       await program.methods
-        .recordBaseline(agentKp.publicKey, [...baselineHash], 3, new BN(1))
+        // AW-03: trailing `baseline_commit_nonce` — must be non-zero, and on
+        // a fresh PDA the stored nonce is 0 so any value > 0 is monotonic.
+        .recordBaseline(agentKp.publicKey, [...baselineHash], 3, new BN(1), new BN(1))
         .accounts({
           baselineStats: baselinePda(agentKp.publicKey),
           issuerConfig: issuerConfigPda(),
@@ -231,7 +237,7 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
     const strangerAgent = Keypair.generate().publicKey;
     try {
       await program.methods
-        .recordBaseline(strangerAgent, [...baselineHash], 3, new BN(1))
+        .recordBaseline(strangerAgent, [...baselineHash], 3, new BN(1), new BN(1))
         .accounts({
           baselineStats: baselinePda(strangerAgent),
           issuerConfig: issuerConfigPda(),
@@ -255,7 +261,11 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
     // A second write at epoch 1 must be refused.
     try {
       await program.methods
-        .recordBaseline(agentOk, [...baselineHash], 3, new BN(1))
+        // Same epoch as the first record above. Epoch check fires before
+        // the nonce-monotonic check, so use a strictly-greater nonce to
+        // ensure the BaselineRotationTooSoon (epoch) error is the one we
+        // observe — not a nonce-monotonic preemption.
+        .recordBaseline(agentOk, [...baselineHash], 3, new BN(1), new BN(2))
         .accounts({
           baselineStats: baselinePda(agentOk),
           issuerConfig: issuerConfigPda(),
@@ -292,7 +302,7 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
 
       // Record at epoch 5 first.
       await program.methods
-        .recordBaseline(freshKp.publicKey, [...baselineHash], 3, new BN(5))
+        .recordBaseline(freshKp.publicKey, [...baselineHash], 3, new BN(5), new BN(1))
         .accounts({
           baselineStats: baselinePda(freshKp.publicKey),
           issuerConfig: issuerConfigPda(),
@@ -302,9 +312,11 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
         .signers([freshKp])
         .rpc();
 
-      // Now attempt to walk back to epoch 3.
+      // Now attempt to walk back to epoch 3. Epoch check fires before nonce
+      // check; the nonce here is strictly-> so the test observes the epoch
+      // error, not a nonce-monotonic preemption.
       await program.methods
-        .recordBaseline(freshKp.publicKey, [...baselineHash], 3, new BN(3))
+        .recordBaseline(freshKp.publicKey, [...baselineHash], 3, new BN(3), new BN(2))
         .accounts({
           baselineStats: baselinePda(freshKp.publicKey),
           issuerConfig: issuerConfigPda(),
@@ -334,6 +346,7 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
       agentOk, epoch, score, alertTier, flags, baselineHash, immediateRed,
       inputCommitment,
       slotAnchor.slot, slotAnchor.hash,
+      1n,                                  // AW-03: baselineCommitNonce stamped on BaselineStats
     );
 
     // Pick three of the five cluster keys to sign.
@@ -384,6 +397,7 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
       agentBad, epoch, score, alertTier, flags, baselineHash, immediateRed,
       inputCommitment,
       slotAnchor.slot, slotAnchor.hash,
+      1n,                                  // AW-03: baselineCommitNonce stamped on BaselineStats
     );
 
     // Only TWO signers — below the threshold of 3.
@@ -433,6 +447,7 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
       agentBad, epoch, score, alertTier, flags, baselineHash, immediateRed,
       inputCommitment,
       slotAnchor.slot, slotAnchor.hash,
+      1n,                                  // AW-03: baselineCommitNonce stamped on BaselineStats
     );
 
     const cluster2 = clusterKps.slice(0, 2);
@@ -493,6 +508,7 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
       agentReplay, epoch, score, alertTier, flags, baselineHash, immediateRed,
       inputCommitment,
       slotAnchor.slot, slotAnchor.hash,
+      1n,                                  // AW-03: baselineCommitNonce stamped on BaselineStats
     );
 
     // This is what the attacker tries to replay: three real cluster-key
@@ -511,6 +527,7 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
       inputCommitment,
       slotAnchor.slot + 1n,                // different slot
       Buffer.alloc(32, 0x55),              // different anchor hash
+      42n,                                  // AW-03: different baselineCommitNonce to drift digest further
     );
     assert.notDeepEqual(
       [...historicalDigest],

@@ -99,6 +99,45 @@ def build_hash_payload(
     }
 
 
+def compute_stats_payload_bytes(
+    *,
+    baseline_algo_version:      int,
+    feature_schema_fingerprint: str,
+    feature_means:              Sequence[float],
+    feature_stds:               Sequence[float],
+    txtype_distribution:        Sequence[float],
+    action_entropy:             float,
+    success_rate_30d:           float,
+    daily_success_rate_series:  Sequence[float],
+) -> bytes:
+    """
+    Return the EXACT canonical-JSON bytes that are hashed to produce
+    `compute_stats_hash`. These are the bytes that AW-03 ships on chain
+    as the BaselineDataAccount payload — `sha256(payload_bytes)` MUST
+    equal the baseline_hash by construction, so a verifier can re-derive
+    the hash from the on-chain bytes without any second serializer.
+
+    Pure: identical statistical content → identical bytes on every
+    machine.
+    """
+    payload = build_hash_payload(
+        baseline_algo_version=baseline_algo_version,
+        feature_schema_fingerprint=feature_schema_fingerprint,
+        feature_means=feature_means,
+        feature_stds=feature_stds,
+        txtype_distribution=txtype_distribution,
+        action_entropy=action_entropy,
+        success_rate_30d=success_rate_30d,
+        daily_success_rate_series=daily_success_rate_series,
+    )
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+
+
 def compute_stats_hash(
     *,
     baseline_algo_version:      int,
@@ -115,8 +154,11 @@ def compute_stats_hash(
 
     Returns 64-char lowercase hex. Deterministic: identical statistical
     content -> identical hash, on every machine.
+
+    Implemented in terms of `compute_stats_payload_bytes` so the two
+    functions cannot drift apart.
     """
-    payload = build_hash_payload(
+    payload_bytes = compute_stats_payload_bytes(
         baseline_algo_version=baseline_algo_version,
         feature_schema_fingerprint=feature_schema_fingerprint,
         feature_means=feature_means,
@@ -126,13 +168,7 @@ def compute_stats_hash(
         success_rate_30d=success_rate_30d,
         daily_success_rate_series=daily_success_rate_series,
     )
-    canonical_json = json.dumps(
-        payload,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-    )
-    return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+    return hashlib.sha256(payload_bytes).hexdigest()
 
 
 def stats_hash_to_bytes(stats_hash_hex: str) -> bytes:

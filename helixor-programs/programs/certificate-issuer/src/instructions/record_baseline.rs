@@ -34,6 +34,24 @@
 //   3. NON-ZERO EPOCH — epoch=0 was previously unvalidated here. It is
 //      now rejected, so the `epoch_recorded == 0` sentinel reliably means
 //      "never recorded" and the first-record vs. rotation branch is safe.
+//
+// AW-03 — BASELINE COMMIT NONCE
+// -----------------------------
+// This handler now also takes `baseline_commit_nonce: u64` — the value of
+// `AgentRegistration.commit_nonce` at which `baseline_hash` was committed
+// on the health-oracle program. It is stored on the BaselineStats account
+// and later stamped onto every HealthCertificate the cert-issuer writes,
+// so a third-party verifier can derive the on-chain `BaselineDataAccount`
+// PDA from `["baseline_data", agent, nonce_le]` and re-check
+// `sha256(payload) == baseline_hash` without trusting the issuer cluster.
+//
+// The nonce is gated:
+//   - must be non-zero (zero is the pre-AW-03 sentinel meaning
+//     "no DA account exists"); refusing zero forces every fresh record
+//     to carry a verifiable provenance pointer.
+//   - must be STRICTLY GREATER than the previously-stored nonce — the
+//     cluster cannot rewrite an old rotation's stats to point at a stale
+//     DA account, mirroring the append-only epoch invariant.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -79,6 +97,12 @@ pub fn handler(
     baseline_hash:         [u8; 32],
     baseline_algo_version: u8,
     epoch:                 u64,
+    // AW-03: the AgentRegistration.commit_nonce the baseline_hash was
+    // committed at on health-oracle. Stored on BaselineStats so the
+    // certificate-issuer can stamp it onto every cert it writes, and a
+    // third-party verifier can derive the BaselineDataAccount PDA from
+    // `["baseline_data", agent, nonce_le]`.
+    baseline_commit_nonce: u64,
 ) -> Result<()> {
     // ── Validate inputs ─────────────────────────────────────────────────────
     require!(
@@ -86,6 +110,14 @@ pub fn handler(
         CertificateError::ZeroBaselineHash,
     );
     require!(epoch >= 1, CertificateError::ZeroEpoch);
+    // AW-03: refuse a zero commit nonce — the on-chain DA account is keyed
+    // by (agent, nonce), and `nonce == 0` is the pre-AW-03 sentinel meaning
+    // "no DA account exists". Every fresh record must carry a verifiable
+    // provenance pointer.
+    require!(
+        baseline_commit_nonce > 0,
+        CertificateError::ZeroBaselineCommitNonce,
+    );
 
     // ── VULN-06 (1): authorisation — agent itself OR cluster member ────────
     let signer = ctx.accounts.issuer.key();
@@ -104,6 +136,15 @@ pub fn handler(
     // ── VULN-06 (2): append-only epoch monotonicity ────────────────────────
     check_baseline_epoch_monotonic(stats.epoch_recorded, epoch)?;
 
+    // ── AW-03: append-only commit_nonce monotonicity ───────────────────────
+    // A same/lower nonce would let the cluster overwrite an old rotation's
+    // stats with a stale DA pointer (the BaselineDataAccount at the old
+    // PDA still exists on chain). Enforcing strict-> closes that drift.
+    check_baseline_commit_nonce_monotonic(
+        stats.baseline_commit_nonce,
+        baseline_commit_nonce,
+    )?;
+
     // ── Write ───────────────────────────────────────────────────────────────
     // On the first call this is a fresh account (all zero); on a rotation
     // it overwrites in place. agent_wallet + bump are idempotent to set.
@@ -115,18 +156,21 @@ pub fn handler(
     stats.epoch_recorded        = epoch;
     stats.bump                  = ctx.bumps.baseline_stats;
     stats.layout_version        = BaselineStats::CURRENT_LAYOUT_VERSION;
+    // AW-03: link this baseline record to its on-chain DA account.
+    stats.baseline_commit_nonce = baseline_commit_nonce;
 
     emit!(BaselineRecorded {
         agent_wallet,
         baseline_algo_version,
-        epoch_recorded: epoch,
-        recorder:       signer,
-        recorded_at:    clock.unix_timestamp,
+        epoch_recorded:        epoch,
+        recorder:              signer,
+        recorded_at:           clock.unix_timestamp,
+        baseline_commit_nonce,
     });
 
     msg!(
-        "baseline recorded for agent {} at epoch {} (algo v{})",
-        agent_wallet, epoch, baseline_algo_version,
+        "baseline recorded for agent {} at epoch {} (algo v{}, commit_nonce {})",
+        agent_wallet, epoch, baseline_algo_version, baseline_commit_nonce,
     );
     Ok(())
 }
@@ -163,6 +207,26 @@ pub fn check_baseline_epoch_monotonic(
         require!(
             new_epoch > stored_epoch,
             CertificateError::BaselineEpochNotMonotonic,
+        );
+    }
+    Ok(())
+}
+
+/// AW-03 — append-only / strict-monotonic check on `baseline_commit_nonce`.
+///
+/// `stored_nonce == 0` means "never recorded" or "pre-AW-03 legacy stats";
+/// the first AW-03 record is always permitted. Subsequent records must
+/// carry a STRICTLY GREATER nonce — equal or lower would let the cluster
+/// overwrite the stats with a stale DA pointer (the BaselineDataAccount
+/// at the lower nonce still exists on chain).
+pub fn check_baseline_commit_nonce_monotonic(
+    stored_nonce: u64,
+    new_nonce:    u64,
+) -> Result<()> {
+    if stored_nonce != 0 {
+        require!(
+            new_nonce > stored_nonce,
+            CertificateError::BaselineCommitNonceNotMonotonic,
         );
     }
     Ok(())

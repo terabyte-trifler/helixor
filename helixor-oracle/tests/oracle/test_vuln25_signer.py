@@ -34,6 +34,7 @@ def _digest() -> bytes:
         baseline_hash=BASELINE_HASH, immediate_red=False,
         input_commitment=INPUT_COMMITMENT,
         slot_anchor=SLOT_ANCHOR,
+        baseline_commit_nonce=1,
     )
 
 

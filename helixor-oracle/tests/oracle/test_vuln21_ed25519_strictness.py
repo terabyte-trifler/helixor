@@ -56,7 +56,7 @@ SLOT_ANCHOR = SlotAnchor(slot=250_000_000, block_hash=b"\x99" * 32)  # AW-01-EXT
 def _digest() -> bytes:
     return cert_payload_digest(
         AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
-        SLOT_ANCHOR,
+        SLOT_ANCHOR, baseline_commit_nonce=1,
     )
 
 

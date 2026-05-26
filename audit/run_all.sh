@@ -83,6 +83,17 @@ run "aw01 input provenance sweep"  python3 audit/input_provenance_check.py \
     --json audit/reports/aw01_input_provenance.json
 
 
+# ── 1i. AW-03 baseline-provenance pin sweep ─────────────────────────────────
+# Architectural fix for baseline data availability: every production
+# cluster-signing callsite must bind `baseline_commit_nonce` so the cert
+# digest names a SPECIFIC fetchable `BaselineDataAccount` PDA on chain.
+# A regression that drops the arg would let a malicious cluster rotate
+# the baseline mid-attack and still emit a cert with a stale hash that
+# no consumer can re-verify against an on-chain payload.
+run "aw03 baseline provenance sweep"  python3 audit/baseline_provenance_check.py \
+    --json audit/reports/aw03_baseline_provenance.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

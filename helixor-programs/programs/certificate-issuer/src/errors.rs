@@ -120,4 +120,15 @@ pub enum CertificateError {
     AttesterOverlapsCluster = 6088,
     #[msg("challenge_threshold invalid — must be 1..=challenge_attester_keys.len()")]
     InvalidChallengeThreshold = 6089,
+
+    // ── AW-03: on-chain baseline data-availability proof ────────────────────
+    #[msg("baseline_commit_nonce is zero — record_baseline now requires the \
+           AgentRegistration.commit_nonce that the baseline_hash was committed \
+           at on health-oracle (AW-03); pass it through so the cert can locate \
+           the on-chain DA account")]
+    ZeroBaselineCommitNonce = 6090,
+    #[msg("baseline_commit_nonce is not strictly greater than the previously \
+           recorded nonce — baseline-data nonces are appendable only and \
+           monotonic; a same/lower nonce would mask a stale DA account")]
+    BaselineCommitNonceNotMonotonic = 6091,
 }

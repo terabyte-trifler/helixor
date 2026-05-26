@@ -206,6 +206,14 @@ pub fn handler(
     // same transaction. Below threshold -> InsufficientSignatures -> ix
     // fails. This is the on-chain enforcement of 3-of-5 (or whatever the
     // configured threshold is).
+    // AW-03: bind the digest to the SPECIFIC baseline rotation. The cluster
+    // wrote `baseline_commit_nonce` into BaselineStats on `record_baseline`;
+    // we read it back here and fold it into the digest so the threshold
+    // signatures attest to a fetchable on-chain DA account, not just to a
+    // raw 32-byte hash. Legacy stats decode this as 0 (the pre-AW-03
+    // sentinel — see BaselineStats docstring); 0 still folds in deterministically.
+    let baseline_commit_nonce = ctx.accounts.baseline_stats.baseline_commit_nonce;
+
     let digest = crate::signing::cert_payload_digest(
         &ctx.accounts.baseline_stats.agent_wallet,
         epoch, score, alert_tier, flags,
@@ -214,6 +222,7 @@ pub fn handler(
         &input_commitment,        // AW-01: binds the cluster's input view
         slot_anchor_slot,         // AW-01-EXT: binds the Solana slot anchor
         &slot_anchor_hash,
+        baseline_commit_nonce,    // AW-03: binds the baseline rotation
     );
     let valid_signers = crate::signing::verify_threshold_signatures(
         &digest,
@@ -240,6 +249,10 @@ pub fn handler(
     cert.input_commitment  = input_commitment;       // AW-01
     cert.slot_anchor_slot  = slot_anchor_slot;       // AW-01-EXT
     cert.slot_anchor_hash  = slot_anchor_hash;       // AW-01-EXT
+    // AW-03: stamp the baseline rotation onto the cert so SDK consumers
+    // can derive the BaselineDataAccount PDA without re-reading
+    // BaselineStats (whose nonce may have rotated forward after issuance).
+    cert.baseline_commit_nonce = baseline_commit_nonce;
 
     emit!(CertificateIssued {
         agent_wallet:  cert.agent_wallet,

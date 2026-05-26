@@ -15,7 +15,8 @@ use certificate_issuer::instructions::issue_certificate::{
     validate_score_alert, GREEN_THRESHOLD, YELLOW_THRESHOLD,
 };
 use certificate_issuer::instructions::record_baseline::{
-    check_baseline_epoch_monotonic, is_authorised_baseline_writer,
+    check_baseline_commit_nonce_monotonic, check_baseline_epoch_monotonic,
+    is_authorised_baseline_writer,
 };
 use certificate_issuer::state::{AlertTier, BaselineStats, HealthCertificate, IssuerConfig};
 
@@ -68,7 +69,8 @@ fn layout_versions_are_current() {
     // v3: AW-01 — input_commitment added (32 bytes from reserved).
     // v4: AW-01-EXT — slot_anchor (40 bytes: 8B slot + 32B hash).
     // v5: AW-01-EXT.6 — challenge_state (1 byte, from reserved; same size as v4).
-    assert_eq!(HealthCertificate::CURRENT_LAYOUT_VERSION, 5);
+    // v6: AW-03 — baseline_commit_nonce (8 bytes, from reserved; same size as v5).
+    assert_eq!(HealthCertificate::CURRENT_LAYOUT_VERSION, 6);
     assert_eq!(BaselineStats::CURRENT_LAYOUT_VERSION, 1);
 }
 
@@ -288,4 +290,45 @@ fn vuln06_error_codes_are_stable() {
     assert_eq!(CertificateError::UnauthorizedBaselineWriter as u32, 6040);
     assert_eq!(CertificateError::BaselineRotationTooSoon as u32, 6041);
     assert_eq!(CertificateError::BaselineEpochNotMonotonic as u32, 6042);
+}
+
+// ── AW-03: baseline_commit_nonce append-only monotonicity ──────────────────
+
+#[test]
+fn first_aw03_record_is_always_permitted() {
+    // `stored_nonce == 0` is the legacy / never-recorded sentinel; any
+    // positive new nonce is permitted on the first AW-03 write.
+    assert!(check_baseline_commit_nonce_monotonic(0, 1).is_ok());
+    assert!(check_baseline_commit_nonce_monotonic(0, u64::MAX).is_ok());
+}
+
+#[test]
+fn aw03_same_nonce_is_refused() {
+    // A same-nonce rotation would mask a stale DA pointer.
+    let err = check_baseline_commit_nonce_monotonic(7, 7).unwrap_err();
+    assert!(err_matches(err, CertificateError::BaselineCommitNonceNotMonotonic));
+}
+
+#[test]
+fn aw03_lower_nonce_is_refused() {
+    let err = check_baseline_commit_nonce_monotonic(10, 9).unwrap_err();
+    assert!(err_matches(err, CertificateError::BaselineCommitNonceNotMonotonic));
+    let err = check_baseline_commit_nonce_monotonic(10, 0).unwrap_err();
+    // Note: 0 against a non-zero stored value is still a non-monotonic
+    // attempt — the handler's separate ZeroBaselineCommitNonce gate catches
+    // a fresh write of 0 upstream; this check exists for the rotation path.
+    assert!(err_matches(err, CertificateError::BaselineCommitNonceNotMonotonic));
+}
+
+#[test]
+fn aw03_strictly_higher_nonce_is_allowed() {
+    assert!(check_baseline_commit_nonce_monotonic(7, 8).is_ok());
+    assert!(check_baseline_commit_nonce_monotonic(7, 100).is_ok());
+}
+
+#[test]
+fn aw03_error_codes_are_stable() {
+    // The on-chain numbering is consumed by the SDK + audit gate.
+    assert_eq!(CertificateError::ZeroBaselineCommitNonce as u32, 6090);
+    assert_eq!(CertificateError::BaselineCommitNonceNotMonotonic as u32, 6091);
 }

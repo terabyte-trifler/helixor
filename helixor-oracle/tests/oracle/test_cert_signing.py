@@ -117,6 +117,42 @@ class TestCertPayloadDigest:
         b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, anchor_b)
         assert a != b
 
+    def test_digest_changes_with_baseline_commit_nonce(self):
+        # AW-03: a different commit_nonce names a different BaselineDataAccount
+        # PDA. Folding it into the digest means a cluster signature for nonce
+        # N cannot be replayed against the on-chain handler if the agent's
+        # current BaselineStats nonce has rotated to N+1.
+        a = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, baseline_commit_nonce=1,
+        )
+        b = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, baseline_commit_nonce=2,
+        )
+        assert a != b
+
+    def test_digest_legacy_default_nonce_is_zero(self):
+        # Pre-AW-03 callers omit the nonce and the digest matches an
+        # explicit nonce=0 — guarantees byte-identical digests across the
+        # legacy/AW-03 boundary.
+        default = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR,
+        )
+        explicit_zero = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, baseline_commit_nonce=0,
+        )
+        assert default == explicit_zero
+
+    def test_digest_rejects_out_of_range_baseline_commit_nonce(self):
+        with pytest.raises(ValueError, match="baseline_commit_nonce"):
+            cert_payload_digest(
+                AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+                SLOT_ANCHOR, baseline_commit_nonce=1 << 64,
+            )
+
     def test_digest_changes_with_immediate_red(self):
         a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, False, INPUT_COMMITMENT, SLOT_ANCHOR)

@@ -58,6 +58,20 @@
 // closes the bypass where a sophisticated attacker poisons the upstream data
 // pipeline (Geyser / Kafka / indexer) so every node honestly agrees on a
 // false score over false inputs.
+//
+// AW-03 — BASELINE DATA AVAILABILITY
+// ----------------------------------
+// The trailing 8-byte `baseline_commit_nonce` is the
+// `AgentRegistration.commit_nonce` at which the cluster's `baseline_hash`
+// was committed on health-oracle. Folding it into the digest means the
+// threshold signatures attest to a SPECIFIC ROTATION of the baseline — not
+// just to "some baseline with this hash". A third-party verifier derives the
+// `BaselineDataAccount` PDA from `["baseline_data", agent, nonce_le]`,
+// fetches the on-chain payload bytes, and confirms `sha256(payload) ==
+// baseline_hash`. Without the nonce in the digest, a malicious cluster
+// could rotate the agent's baseline mid-attack and still emit a cert with a
+// stale hash that no longer points at a fetchable DA account — folding it in
+// makes that drift cryptographically detectable.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -90,33 +104,42 @@ use crate::state::IssuerConfig;
 /// who poisoned every upstream RPC the cluster reads from STILL cannot
 /// produce a digest that survives on-chain verification, because
 /// Solana's own ledger is the independent third source of truth.
+///
+/// AW-03: `baseline_commit_nonce` is the `AgentRegistration.commit_nonce`
+/// the cluster's `baseline_hash` was committed at on health-oracle. It
+/// pins the digest to a SPECIFIC ROTATION of the baseline so a verifier
+/// can fetch the exact on-chain `BaselineDataAccount` and re-derive
+/// `sha256(payload) == baseline_hash`. The legacy value `0` is the
+/// pre-AW-03 sentinel (no DA account is reachable for this cert).
 pub fn cert_payload_digest(
-    agent_wallet:      &Pubkey,
-    epoch:             u64,
-    score:             u16,
-    alert_tier:        u8,
-    flags:             u32,
-    baseline_hash:     &[u8; 32],
-    immediate_red:     bool,
-    input_commitment:  &[u8; 32],
-    slot_anchor_slot:  u64,
-    slot_anchor_hash:  &[u8; 32],
+    agent_wallet:          &Pubkey,
+    epoch:                 u64,
+    score:                 u16,
+    alert_tier:            u8,
+    flags:                 u32,
+    baseline_hash:         &[u8; 32],
+    immediate_red:         bool,
+    input_commitment:      &[u8; 32],
+    slot_anchor_slot:      u64,
+    slot_anchor_hash:      &[u8; 32],
+    baseline_commit_nonce: u64,
 ) -> [u8; 32] {
     // The byte layout is FIXED and PUBLIC — every signer and verifier must
     // produce these exact bytes. No floats, no Vec, no length-varying
     // field, no separator ambiguity.
     let immediate_red_byte: u8 = if immediate_red { 1 } else { 0 };
     let h = hashv(&[
-        agent_wallet.as_ref(),               // 32 bytes
-        &epoch.to_be_bytes(),                //  8 bytes
-        &score.to_be_bytes(),                //  2 bytes
-        &[alert_tier],                       //  1 byte
-        &flags.to_be_bytes(),                //  4 bytes
-        baseline_hash,                       // 32 bytes
-        &[immediate_red_byte],               //  1 byte
-        input_commitment,                    // 32 bytes ← AW-01
-        &slot_anchor_slot.to_be_bytes(),     //  8 bytes ← AW-01-EXT
-        slot_anchor_hash,                    // 32 bytes ← AW-01-EXT
+        agent_wallet.as_ref(),                  // 32 bytes
+        &epoch.to_be_bytes(),                   //  8 bytes
+        &score.to_be_bytes(),                   //  2 bytes
+        &[alert_tier],                          //  1 byte
+        &flags.to_be_bytes(),                   //  4 bytes
+        baseline_hash,                          // 32 bytes
+        &[immediate_red_byte],                  //  1 byte
+        input_commitment,                       // 32 bytes ← AW-01
+        &slot_anchor_slot.to_be_bytes(),        //  8 bytes ← AW-01-EXT
+        slot_anchor_hash,                       // 32 bytes ← AW-01-EXT
+        &baseline_commit_nonce.to_be_bytes(),   //  8 bytes ← AW-03
     ]);
     h.to_bytes()
 }

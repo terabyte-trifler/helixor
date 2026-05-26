@@ -118,4 +118,26 @@ pub enum HelixorError {
     #[msg("the instructions sysvar account passed to advance_epoch is not \
            the canonical Sysvar1nstructions1111111111111111111111111 pubkey")]
     WrongAdvanceInstructionsSysvar = 6074,
+
+    // ── AW-03: on-chain baseline data-availability proof ────────────────────
+    #[msg("baseline payload is empty — refusing to commit a zero-byte canonical \
+           payload (the off-chain serializer dropped its body)")]
+    BaselinePayloadEmpty = 6080,
+    #[msg("baseline payload exceeds MAX_BASELINE_PAYLOAD_LEN (8192 bytes) — \
+           the canonical-payload contract has drifted; tighten the serializer \
+           and re-commit, the on-chain DA account must stay rent-bounded")]
+    BaselinePayloadTooLarge = 6081,
+    #[msg("sha256(baseline_payload) does not equal the committed baseline_hash — \
+           the on-chain DA invariant (AW-03) refuses to bind a hash to bytes \
+           that do not produce it; check the off-chain canonical serializer \
+           for drift from baseline.hashing")]
+    BaselinePayloadHashMismatch = 6082,
+    #[msg("the BaselineDataAccount account passed to commit_baseline is keyed \
+           on a commit_nonce that does not match args.commit_nonce — the DA \
+           account PDA seed and the commit_nonce arg must agree")]
+    BaselineDataNonceMismatch = 6083,
+    #[msg("the BaselineDataAccount account passed to commit_baseline is keyed \
+           on an agent_wallet that does not match the AgentRegistration agent — \
+           the DA account PDA seed and the registration must agree")]
+    BaselineDataAgentMismatch = 6084,
 }

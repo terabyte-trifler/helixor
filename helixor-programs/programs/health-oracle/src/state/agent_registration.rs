@@ -17,13 +17,24 @@
 //   baseline_committed_at        8   (i64 — unix seconds at commit)
 //   commit_nonce                 8   (u64 — monotonic counter; replay protection)
 //   layout_version               1   (u8 — account-layout version for future migrations)
+//   --- AW-03 (carved from _reserved, layout-compatible) ----
+//   baseline_data_pointer       32   (Pubkey — PDA of the latest BaselineDataAccount)
 //   --- reserved ----------------
-//   _reserved                   64   (zeroed; for future fields without realloc)
+//   _reserved                   32   (zeroed; was 64 pre-AW-03)
 //
-//   TOTAL DATA SIZE (without discriminator): 229 bytes
+//   TOTAL DATA SIZE (without discriminator): 229 bytes (UNCHANGED)
 //
-// The reserved 64 bytes are a deliberate cushion: small future additions can be
-// "carved out" of reserved without another realloc.
+// AW-03 BACKWARDS COMPATIBILITY
+// -----------------------------
+// The pointer was carved out of the existing 64-byte reserve. Total account
+// size is byte-for-byte identical, so a legacy account (committed before
+// AW-03 shipped) decodes with `baseline_data_pointer == Pubkey::default()`
+// — the zero-pubkey sentinel meaning "no DA account exists yet for the
+// current baseline". A consumer reading a legacy registration sees that
+// sentinel and falls back to the pre-AW-03 trust model (cluster-attested
+// hash only, no fetchable provenance). The NEXT `commit_baseline` after
+// the upgrade populates the pointer; all subsequent baselines are fully
+// AW-03-protected.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -58,8 +69,17 @@ pub struct AgentRegistration {
     pub commit_nonce:           u64,
     /// Account-layout version. Bumped if AgentRegistration is ever migrated again.
     pub layout_version:         u8,
-    /// Zero-padded reserve for small future fields (avoids realloc on minor changes).
-    pub _reserved:              [u8; 64],
+    /// AW-03: pubkey of the latest `BaselineDataAccount` for this agent (the
+    /// on-chain canonical-payload account whose `sha256(payload) ==
+    /// baseline_hash`). Carved from the previous 64-byte reserve, so the
+    /// total account size is unchanged; legacy accounts decode this field
+    /// as `Pubkey::default()` (32 zero bytes from the old reserve), which
+    /// is the sentinel meaning "no DA account exists yet — pre-AW-03
+    /// registration". The next `commit_baseline` populates it.
+    pub baseline_data_pointer:  Pubkey,
+    /// Zero-padded reserve for small future fields (was 64 bytes pre-AW-03;
+    /// 32 bytes of the original reserve are now `baseline_data_pointer`).
+    pub _reserved:              [u8; 32],
 }
 
 impl Default for AgentRegistration {
@@ -77,7 +97,8 @@ impl Default for AgentRegistration {
             baseline_committed_at: 0,
             commit_nonce:          0,
             layout_version:        0,
-            _reserved:             [0u8; 64],
+            baseline_data_pointer: Pubkey::default(),
+            _reserved:             [0u8; 32],
         }
     }
 }
@@ -89,11 +110,13 @@ impl AgentRegistration {
     /// Total account size in bytes (NOT including the 8-byte Anchor discriminator).
     ///   32 + 32 + 8 + 1 + 1  =  74    (v1 fields)
     /// + 1 + 32 + 1 + 32 + 8 + 8 + 1   =  83    (v2 fields)
-    /// + 64                            =  64    (reserved)
-    ///   = 221
+    /// + 32                            =  32    (AW-03 baseline_data_pointer)
+    /// + 32                            =  32    (reserved; was 64 pre-AW-03)
+    ///   = 221  (unchanged — AW-03 carved its field from reserve)
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize = 32 + 32 + 8 + 1 + 1
                                                  + 1 + 32 + 1 + 32 + 8 + 8 + 1
-                                                 + 64;
+                                                 + 32
+                                                 + 32;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;

@@ -31,8 +31,10 @@
 //   slot_anchor_slot         8   (u64    — AW-01-EXT Solana slot the cluster pinned)
 //   slot_anchor_hash        32   ([u8;32]— AW-01-EXT Solana block hash for that slot)
 //   challenge_state          1   (u8    — AW-01-EXT.6: None / Upheld / Rejected)
-//   _reserved               14   (zeroed cushion for future fields)
-//   TOTAL (without discriminator): 210 bytes
+//   --- AW-03 (carved from _reserved, layout-compatible) ----
+//   baseline_commit_nonce    8   (u64 — links to AgentRegistration.commit_nonce)
+//   _reserved                6   (zeroed cushion; was 14 pre-AW-03)
+//   TOTAL (without discriminator): 210 bytes (UNCHANGED)
 //
 // AW-01: `input_commitment` is the 32-byte SHA-256 cluster-majority commitment
 // over the canonical input transactions + windows the cluster scored. It is
@@ -170,8 +172,19 @@ pub struct HealthCertificate {
     /// layout grows v4 → v5 without realloc — consumes 1 byte of the
     /// previous `_reserved`.
     pub challenge_state: u8,
+    /// AW-03: the `AgentRegistration.commit_nonce` the baseline used to
+    /// produce this cert's `baseline_hash`. Stored so a consumer reading
+    /// this cert can derive the exact `BaselineDataAccount` PDA from
+    /// `["baseline_data", agent_wallet, baseline_commit_nonce_le]` —
+    /// without it, AgentRegistration may have rotated to a newer baseline
+    /// and the consumer would derive the wrong PDA. Carved from the
+    /// previous 14-byte `_reserved`; legacy certs decode this as 0 (the
+    /// sentinel meaning "pre-AW-03 — no DA account exists for this cert's
+    /// baseline").
+    pub baseline_commit_nonce: u64,
     /// Zero-padded reserve for small future fields without a realloc.
-    pub _reserved:      [u8; 14],
+    /// Was 14 bytes pre-AW-03; 8 bytes are now `baseline_commit_nonce`.
+    pub _reserved:      [u8; 6],
 }
 
 impl HealthCertificate {
@@ -186,7 +199,9 @@ impl HealthCertificate {
     /// implicit in the new space constant).
     /// v5: AW-01-EXT.6 — added challenge_state (1 byte, from _reserved).
     /// Total account size UNCHANGED at 210 — the byte was reserved.
-    pub const CURRENT_LAYOUT_VERSION: u8 = 5;
+    /// v6: AW-03 — added baseline_commit_nonce (8 bytes, from _reserved).
+    /// Total account size UNCHANGED at 210 — the 8 bytes were reserved.
+    pub const CURRENT_LAYOUT_VERSION: u8 = 6;
 
     /// The highest valid composite score. Mirrors the off-chain 0..1000 range.
     pub const MAX_SCORE: u16 = 1000;
@@ -197,10 +212,11 @@ impl HealthCertificate {
     /// +  8 slot_anchor_slot                                =   8  (AW-01-EXT)
     /// + 32 slot_anchor_hash                                =  32  (AW-01-EXT)
     /// +  1 challenge_state                                 =   1  (AW-01-EXT.6)
-    /// + 14 reserved                                        =  14
-    ///   = 210
+    /// +  8 baseline_commit_nonce                           =   8  (AW-03)
+    /// +  6 reserved                                        =   6  (was 14 pre-AW-03)
+    ///   = 210 (unchanged)
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
-        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1 + 32 + 8 + 32 + 1 + 14;
+        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1 + 32 + 8 + 32 + 1 + 8 + 6;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;

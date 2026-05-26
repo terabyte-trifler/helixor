@@ -77,15 +77,25 @@ pub mod certificate_issuer {
     /// Create or rotate an agent's BaselineStats record. A certificate
     /// stamps the baseline_hash it derives from, so the baseline must be
     /// recorded before a certificate can be issued.
+    ///
+    /// AW-03: `baseline_commit_nonce` is the `AgentRegistration.commit_nonce`
+    /// at which `baseline_hash` was committed on the health-oracle program.
+    /// Stored on BaselineStats and stamped onto every cert so a third-party
+    /// verifier can derive the on-chain `BaselineDataAccount` PDA from
+    /// `["baseline_data", agent, nonce_le]` and re-check
+    /// `sha256(payload) == baseline_hash`. Must be non-zero and strictly
+    /// monotonic versus the previously-stored nonce.
     pub fn record_baseline(
         ctx:                   Context<RecordBaseline>,
         agent_wallet:          Pubkey,
         baseline_hash:         [u8; 32],
         baseline_algo_version: u8,
         epoch:                 u64,
+        baseline_commit_nonce: u64,
     ) -> Result<()> {
         instructions::record_baseline::handler(
             ctx, agent_wallet, baseline_hash, baseline_algo_version, epoch,
+            baseline_commit_nonce,
         )
     }
 

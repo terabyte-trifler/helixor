@@ -30,8 +30,19 @@
 //   epoch_recorded           8   (u64 — the epoch this baseline became active)
 //   bump                     1   (u8)
 //   layout_version           1   (u8)
-//   _reserved               32   (zeroed cushion)
-//   TOTAL (without discriminator): 147 bytes
+//   --- AW-03 (carved from _reserved, layout-compatible) ----
+//   baseline_commit_nonce    8   (u64 — links to AgentRegistration.commit_nonce)
+//   _reserved               24   (zeroed cushion; was 32 pre-AW-03)
+//   TOTAL (without discriminator): 147 bytes (UNCHANGED)
+//
+// AW-03 BACKWARDS COMPATIBILITY
+// -----------------------------
+// `baseline_commit_nonce` was carved out of the existing 32-byte reserve.
+// Total account size unchanged. Legacy accounts (recorded pre-AW-03)
+// decode this field as 0 (the bytes were zeroed reserve), which is the
+// sentinel meaning "no commit_nonce was tracked". The next
+// `record_baseline` after the upgrade writes the real nonce, and from then
+// on `issue_certificate` stamps it onto every cert it writes.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -55,8 +66,16 @@ pub struct BaselineStats {
     pub bump:                  u8,
     /// Account-layout version.
     pub layout_version:        u8,
-    /// Zero-padded reserve.
-    pub _reserved:             [u8; 32],
+    /// AW-03: the `AgentRegistration.commit_nonce` this baseline-hash was
+    /// committed at on health-oracle. Carved from `_reserved`; legacy
+    /// accounts decode this as 0 (the sentinel for "pre-AW-03"). When
+    /// non-zero, consumers compute the on-chain `BaselineDataAccount` PDA
+    /// from `["baseline_data", agent_wallet, baseline_commit_nonce_le]`,
+    /// fetch the account, and verify `sha256(payload) == baseline_hash`.
+    pub baseline_commit_nonce: u64,
+    /// Zero-padded reserve (was 32 bytes pre-AW-03; 8 bytes are now
+    /// `baseline_commit_nonce`).
+    pub _reserved:             [u8; 24],
 }
 
 impl BaselineStats {
@@ -64,10 +83,11 @@ impl BaselineStats {
 
     /// Data size WITHOUT the 8-byte Anchor discriminator.
     ///   32 + 32 + 1 + 8 + 32 + 8 + 1 + 1 = 115
-    /// + 32 reserved                      =  32
-    ///   = 147
+    /// +  8 baseline_commit_nonce         =   8   (AW-03)
+    /// + 24 reserved                      =  24   (was 32 pre-AW-03)
+    ///   = 147 (unchanged)
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
-        32 + 32 + 1 + 8 + 32 + 8 + 1 + 1 + 32;
+        32 + 32 + 1 + 8 + 32 + 8 + 1 + 1 + 8 + 24;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;

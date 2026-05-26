@@ -61,12 +61,21 @@ class CommitterKind(enum.IntEnum):
 # Instruction args encoding
 # =============================================================================
 
+# AW-03: the on-chain BaselineDataAccount caps payload at 8 KB. The
+# canonical-JSON payload from baseline/hashing.py is typically a few
+# hundred bytes (means + counts + a handful of metadata), so an 8 KB
+# ceiling is generous; we still validate here so a too-large payload
+# fails BEFORE it hits the chain.
+MAX_BASELINE_PAYLOAD_LEN = 8 * 1024
+
+
 def encode_commit_baseline_args(
     *,
     baseline_hash:         bytes,
     baseline_algo_version: int,
     commit_nonce:          int,
     committer_kind:        CommitterKind,
+    payload:               bytes,
 ) -> bytes:
     """
     Borsh-encode the CommitBaselineArgs struct. Layout matches the Rust
@@ -75,6 +84,11 @@ def encode_commit_baseline_args(
         u8         baseline_algo_version
         u64        commit_nonce
         CommitterKind (u8 variant tag)
+        Vec<u8>    payload                (AW-03: u32 LE length prefix + bytes)
+
+    AW-03: `payload` is the canonical-JSON bytes from
+    `baseline.hashing.compute_stats_hash`. The on-chain handler enforces
+    `sha256(payload) == baseline_hash` — a mismatch aborts the commit.
     """
     if len(baseline_hash) != 32:
         raise ValueError(f"baseline_hash must be 32 bytes, got {len(baseline_hash)}")
@@ -82,11 +96,33 @@ def encode_commit_baseline_args(
         raise ValueError(f"baseline_algo_version out of u8 range: {baseline_algo_version}")
     if not 0 <= commit_nonce <= 2**64 - 1:
         raise ValueError(f"commit_nonce out of u64 range: {commit_nonce}")
+    if not isinstance(payload, (bytes, bytearray)):
+        raise TypeError(f"payload must be bytes, got {type(payload).__name__}")
+    if len(payload) == 0:
+        # On-chain rejects this with BaselinePayloadEmpty (6080); fail fast
+        # off-chain so the submitter does not waste a tx.
+        raise ValueError("payload is empty — refusing to submit an empty DA payload")
+    if len(payload) > MAX_BASELINE_PAYLOAD_LEN:
+        raise ValueError(
+            f"payload too large: {len(payload)} bytes > "
+            f"{MAX_BASELINE_PAYLOAD_LEN} (rent-bound ceiling)"
+        )
+    # AW-03 binding pin: the submitter MUST have hashed the exact bytes
+    # they ship as the payload. Catching the drift here avoids a
+    # round-trip to the chain only to read back BaselinePayloadHashMismatch
+    # (6082).
+    if hashlib.sha256(bytes(payload)).digest() != bytes(baseline_hash):
+        raise ValueError(
+            "baseline_hash does not match sha256(payload) — "
+            "off-chain serializer/hasher are out of sync"
+        )
     return (
         bytes(baseline_hash)
         + struct.pack("<B", baseline_algo_version)
         + struct.pack("<Q", commit_nonce)
         + struct.pack("<B", int(committer_kind))
+        + struct.pack("<I", len(payload))   # Borsh Vec<u8> length prefix
+        + bytes(payload)
     )
 
 
@@ -110,6 +146,11 @@ class DecodedRegistration:
     baseline_committed_at:  int
     commit_nonce:           int
     layout_version:         int
+    # AW-03: pointer to the latest BaselineDataAccount the agent committed.
+    # Zero (Pubkey::default()) on legacy registrations recorded before
+    # AW-03 — the sentinel meaning "no DA account is available; only the
+    # hash commitment exists".
+    baseline_data_pointer:  Pubkey
 
 
 def decode_agent_registration_v2(data: bytes) -> DecodedRegistration:
@@ -131,9 +172,10 @@ def decode_agent_registration_v2(data: bytes) -> DecodedRegistration:
      148..156     baseline_committed_at       (i64 LE)
      156..164     commit_nonce                (u64 LE)
      164..165     layout_version              (u8)
-     165..229     _reserved                   ([u8; 64])
+     165..197     baseline_data_pointer       (Pubkey, AW-03 carved from reserve)
+     197..229     _reserved                   ([u8; 32])
     """
-    if len(data) < 165:
+    if len(data) < 197:
         raise ValueError(f"AgentRegistration data too short: {len(data)} bytes")
     if data[:8] != AGENT_REGISTRATION_DISCRIMINATOR:
         raise ValueError(
@@ -154,4 +196,5 @@ def decode_agent_registration_v2(data: bytes) -> DecodedRegistration:
         baseline_committed_at  = struct.unpack("<q", data[148:156])[0],
         commit_nonce           = struct.unpack("<Q", data[156:164])[0],
         layout_version         = data[164],
+        baseline_data_pointer  = Pubkey.from_bytes(data[165:197]),
     )

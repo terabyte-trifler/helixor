@@ -419,6 +419,14 @@ def _sign_and_submit(
                   "against Solana's SlotHashes sysvar",
         )
 
+    # AW-03: cluster pipeline does not yet thread the BaselineStats commit
+    # nonce through Phase-4 chaos tests — production submission goes through
+    # `epoch_runner` → `submit_baseline_commitment`, which writes the DA
+    # account directly. The off-chain pipeline therefore signs with `0`, the
+    # pre-AW-03 sentinel; the on-chain handler accepts it as legacy. Phase-5
+    # production replaces this with the nonce just submitted to BaselineStats
+    # so the cluster signature binds to a specific BaselineDataAccount PDA.
+    baseline_commit_nonce = 0
     digest = cert_payload_digest(
         agent_pk,
         epoch=epoch_id,
@@ -429,6 +437,7 @@ def _sign_and_submit(
         immediate_red=aggregated.immediate_red,
         input_commitment=input_commitment,
         slot_anchor=slot_anchor,
+        baseline_commit_nonce=baseline_commit_nonce,
     )
 
     # ── COLLECT signatures from every verified cluster node ─────────────────

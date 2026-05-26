@@ -67,6 +67,15 @@ export interface DecodedHealthCertificate {
    * challenge ix only existed from v5 onward.
    */
   challengeState: number;
+  /**
+   * AW-03 `AgentRegistration.commit_nonce` the baseline used to produce
+   * this cert's `baseline_hash` (v6+). Together with `agentWallet` this
+   * uniquely identifies the on-chain `BaselineDataAccount`. On a pre-v6
+   * certificate the bytes are zero (the bytes were zeroed reserved
+   * padding) — the sentinel meaning "no DA account exists for this
+   * cert's baseline; only the hash commitment is available".
+   */
+  baselineCommitNonce: bigint;
 }
 
 /** AW-01-EXT.6: human-readable names for the `challengeState` byte. */
@@ -93,11 +102,15 @@ export const CHALLENGE_STATE_REJECTED = 2;
  *       (AW-01-EXT). 40 bytes added — account grows to 210+8.
  *   v5: challenge_state (1 byte) consumes the first byte of _reserved
  *       (AW-01-EXT.6). Account size UNCHANGED at 210+8.
+ *   v6: baseline_commit_nonce (8 bytes, u64 LE) consumes the next 8
+ *       bytes of _reserved (AW-03). Account size UNCHANGED at 210+8.
  *
  * Decoding a SHORT (pre-v4) buffer returns the zero sentinel for the new
  * fields; the caller can detect this via `layoutVersion < 4`. A pre-v5
  * buffer (length 210, layoutVersion == 4) reads the reserved byte as 0,
  * which equals `CHALLENGE_STATE_NONE` — safe (the byte was always zero).
+ * A pre-v6 buffer (layoutVersion < 6) reads the 8 nonce bytes as 0 — the
+ * sentinel "no DA account exists for this cert's baseline".
  */
 export function decodeHealthCertificate(
   data: Buffer | Uint8Array
@@ -134,7 +147,17 @@ export function decodeHealthCertificate(
   let challengeState: number = CHALLENGE_STATE_NONE;
   if (buf.length >= o + 1) {
     challengeState = buf.readUInt8(o);
-    // o += 1; // (not used; _reserved [14] follows and is not decoded)
+    o += 1;
+  }
+
+  // AW-03 baseline_commit_nonce (v6+). Pre-v6 (or buffer too short)
+  // collapses to 0 — the sentinel "no DA account exists for this cert's
+  // baseline". The bytes were reserved padding in v5, so a pre-v6 buffer
+  // reads them as zeros, which equals 0n here.
+  let baselineCommitNonce: bigint = 0n;
+  if (buf.length >= o + 8) {
+    baselineCommitNonce = buf.readBigUInt64LE(o);
+    // o += 8; // (not used; _reserved [6] follows and is not decoded)
   }
 
   return {
@@ -154,6 +177,91 @@ export function decodeHealthCertificate(
     slotAnchorSlot,
     slotAnchorHash,
     challengeState,
+    baselineCommitNonce,
+  };
+}
+
+// =============================================================================
+// BaselineDataAccount (AW-03)
+// =============================================================================
+
+export interface DecodedBaselineDataAccount {
+  /** The agent this baseline belongs to. */
+  agentWallet: Uint8Array; // 32 bytes
+  /** Strictly-monotonic commit_nonce — pins this account to ONE rotation. */
+  commitNonce: bigint;
+  /** SHA-256(payload). Equal to AgentRegistration.baseline_hash by construction. */
+  baselineHash: Uint8Array; // 32 bytes
+  /** Algorithm version that produced the payload + hash. */
+  baselineAlgoVersion: number;
+  /** Unix seconds when this baseline was committed (Clock::get()). */
+  committedAt: bigint;
+  /** Signer that wrote this baseline. */
+  committer: Uint8Array; // 32 bytes
+  /** Canonical-JSON payload bytes — `sha256(payload) === baselineHash`. */
+  payload: Uint8Array;
+  /** Canonical PDA bump. */
+  bump: number;
+  /** Account-layout version (v1 = AW-03 initial). */
+  layoutVersion: number;
+}
+
+/**
+ * Decode a `BaselineDataAccount` (the AW-03 on-chain data-availability
+ * account). The payload is the canonical-JSON bytes produced by the
+ * off-chain Python serializer; its SHA-256 MUST equal `baselineHash`,
+ * which is the on-chain hash binding enforced at write time.
+ *
+ * LAYOUT (after the 8-byte discriminator, total 135 + N bytes):
+ *   agent_wallet           32   commit_nonce                8
+ *   baseline_hash          32   baseline_algo_version       1
+ *   committed_at            8   committer                  32
+ *   payload_len             4   payload                     N
+ *   bump                    1   layout_version              1
+ *   _reserved              16
+ */
+export function decodeBaselineDataAccount(
+  data: Buffer | Uint8Array
+): DecodedBaselineDataAccount {
+  const buf = Buffer.from(data);
+  let o = DISCRIMINATOR_LEN;
+
+  if (buf.length < o + 32 + 8 + 32 + 1 + 8 + 32 + 4) {
+    throw new Error(
+      `BaselineDataAccount buffer too short: ${buf.length} bytes`
+    );
+  }
+
+  const agentWallet = buf.subarray(o, o + 32); o += 32;
+  const commitNonce = buf.readBigUInt64LE(o); o += 8;
+  const baselineHash = buf.subarray(o, o + 32); o += 32;
+  const baselineAlgoVersion = buf.readUInt8(o); o += 1;
+  const committedAt = buf.readBigInt64LE(o); o += 8;
+  const committer = buf.subarray(o, o + 32); o += 32;
+
+  const payloadLen = buf.readUInt32LE(o); o += 4;
+  if (buf.length < o + payloadLen + 1 + 1 + 16) {
+    throw new Error(
+      `BaselineDataAccount truncated: claims payload_len=${payloadLen} but only ` +
+      `${buf.length - o} bytes remain (need ${payloadLen + 18})`
+    );
+  }
+  const payload = buf.subarray(o, o + payloadLen); o += payloadLen;
+
+  const bump = buf.readUInt8(o); o += 1;
+  const layoutVersion = buf.readUInt8(o); o += 1;
+  // _reserved [16] follows.
+
+  return {
+    agentWallet,
+    commitNonce,
+    baselineHash,
+    baselineAlgoVersion,
+    committedAt,
+    committer,
+    payload,
+    bump,
+    layoutVersion,
   };
 }
 

@@ -44,15 +44,17 @@ from oracle.cluster.identity import NodeIdentity, NodeKeypair
 # =============================================================================
 
 def cert_payload_digest(
-    agent_wallet_bytes: bytes,
-    epoch:              int,
-    score:              int,
-    alert_tier:         int,
-    flags:              int,
-    baseline_hash:      bytes,
-    immediate_red:      bool,
-    input_commitment:   bytes,
-    slot_anchor:        "SlotAnchor",
+    agent_wallet_bytes:    bytes,
+    epoch:                 int,
+    score:                 int,
+    alert_tier:            int,
+    flags:                 int,
+    baseline_hash:         bytes,
+    immediate_red:         bool,
+    input_commitment:      bytes,
+    slot_anchor:           "SlotAnchor",
+    *,
+    baseline_commit_nonce: int = 0,
 ) -> bytes:
     """
     The 32-byte canonical cert-payload digest — byte-identical to the
@@ -85,6 +87,16 @@ def cert_payload_digest(
     the input_commitment (off-chain agreement) AND into this digest
     (on-chain attestation); the redundancy is intentional — either layer
     catches a forged anchor on its own.
+
+    AW-03: `baseline_commit_nonce` is the per-(agent) strict-monotonic
+    counter that names the BaselineDataAccount this cert was scored
+    against. Folding it into the digest closes a substitution gap where
+    an attacker swaps the on-chain data account between cluster signing
+    and on-chain verification: the cluster signs against nonce N, the
+    on-chain handler reads nonce N from BaselineStats, and the digests
+    only agree if the cluster scored against the exact data account the
+    chain now stamps. Pre-AW-03 callers pass `0` and the on-chain handler
+    treats `0` as the legacy sentinel.
     """
     import hashlib
 
@@ -110,6 +122,10 @@ def cert_payload_digest(
         raise ValueError(f"flags out of u32 range: {flags}")
     if not (0 <= epoch <= 0xFFFFFFFFFFFFFFFF):
         raise ValueError(f"epoch out of u64 range: {epoch}")
+    if not (0 <= baseline_commit_nonce <= 0xFFFFFFFFFFFFFFFF):
+        raise ValueError(
+            f"baseline_commit_nonce out of u64 range: {baseline_commit_nonce}"
+        )
 
     anchor_bytes = slot_anchor.to_bytes()
     assert len(anchor_bytes) == SLOT_ANCHOR_BYTES, \
@@ -126,6 +142,7 @@ def cert_payload_digest(
         + immediate_red_byte                            #  1
         + bytes(input_commitment)                       # 32  ← AW-01
         + anchor_bytes                                  # 40  ← AW-01-EXT
+        + baseline_commit_nonce.to_bytes(8, "big")      #  8  ← AW-03
     )
     return hashlib.sha256(payload).digest()
 

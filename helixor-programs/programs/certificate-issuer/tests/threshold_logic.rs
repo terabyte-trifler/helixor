@@ -41,11 +41,18 @@ fn slot_anchor_hash() -> [u8; 32] {
     [0x99; 32]
 }
 
+// AW-03: fixed test commit_nonce. Real nonces come from the
+// AgentRegistration.commit_nonce field on health-oracle at the moment the
+// baseline_hash was committed.
+fn baseline_commit_nonce() -> u64 {
+    7
+}
+
 #[test]
 fn digest_is_32_bytes() {
     let d = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     assert_eq!(d.len(), 32);
 }
@@ -54,11 +61,11 @@ fn digest_is_32_bytes() {
 fn digest_is_deterministic() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     assert_eq!(a, b);
 }
@@ -67,11 +74,11 @@ fn digest_is_deterministic() {
 fn digest_changes_with_score() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 852, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     assert_ne!(a, b);
 }
@@ -80,11 +87,11 @@ fn digest_changes_with_score() {
 fn digest_changes_with_epoch() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     let b = cert_payload_digest(
         &agent(), 2, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     assert_ne!(a, b);
 }
@@ -93,11 +100,11 @@ fn digest_changes_with_epoch() {
 fn digest_changes_with_alert_tier() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 0, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     assert_ne!(a, b);
 }
@@ -106,11 +113,11 @@ fn digest_changes_with_alert_tier() {
 fn digest_changes_with_flags() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 0, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     assert_ne!(a, b);
 }
@@ -119,11 +126,11 @@ fn digest_changes_with_flags() {
 fn digest_changes_with_baseline_hash() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &[0x33; 32], true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &[0x44; 32], true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     assert_ne!(a, b);
 }
@@ -132,11 +139,11 @@ fn digest_changes_with_baseline_hash() {
 fn digest_changes_with_immediate_red() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), false, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     assert_ne!(a, b);
 }
@@ -146,11 +153,11 @@ fn digest_changes_with_agent() {
     let other = Pubkey::new_from_array([0x22; 32]);
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     let b = cert_payload_digest(
         &other, 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     assert_ne!(a, b);
 }
@@ -162,11 +169,11 @@ fn digest_changes_with_agent() {
 fn digest_changes_with_input_commitment() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &[0x77; 32],
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &[0x88; 32],
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     assert_ne!(
         a, b,
@@ -183,11 +190,11 @@ fn digest_changes_with_input_commitment() {
 fn digest_changes_with_slot_anchor_slot() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        250_000_000, &slot_anchor_hash(),
+        250_000_000, &slot_anchor_hash(), baseline_commit_nonce(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        250_000_001, &slot_anchor_hash(),
+        250_000_001, &slot_anchor_hash(), baseline_commit_nonce(),
     );
     assert_ne!(a, b, "AW-01-EXT slot must be folded into the digest");
 }
@@ -196,13 +203,33 @@ fn digest_changes_with_slot_anchor_slot() {
 fn digest_changes_with_slot_anchor_hash() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &[0x99; 32],
+        slot_anchor_slot(), &[0x99; 32], baseline_commit_nonce(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &[0xAA; 32],
+        slot_anchor_slot(), &[0xAA; 32], baseline_commit_nonce(),
     );
     assert_ne!(a, b, "AW-01-EXT block hash must be folded into the digest");
+}
+
+// AW-03: changing the baseline_commit_nonce MUST change the digest. Without
+// this the threshold signature would not be bound to a specific baseline
+// rotation — defeating the data-availability provenance pointer.
+#[test]
+fn digest_changes_with_baseline_commit_nonce() {
+    let a = cert_payload_digest(
+        &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
+        slot_anchor_slot(), &slot_anchor_hash(), 7,
+    );
+    let b = cert_payload_digest(
+        &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
+        slot_anchor_slot(), &slot_anchor_hash(), 8,
+    );
+    assert_ne!(
+        a, b,
+        "AW-03 baseline_commit_nonce must be folded into the digest — \
+         a verifier MUST be able to detect a rotation drift",
+    );
 }
 
 #[test]
@@ -222,7 +249,7 @@ fn digest_is_byte_identical_to_python_implementation() {
     //   ).hex()
     let d = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
-        slot_anchor_slot(), &slot_anchor_hash(),
+        slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
     );
     // sanity-check: it's the same 32 bytes you'd get from re-running the
     // line above. The Python integration test pins the same vector from

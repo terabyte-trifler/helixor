@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import pytest
 
+import hashlib
+
 from baseline.hashing import (
     _canon_float,
     build_hash_payload,
     compute_stats_hash,
+    compute_stats_payload_bytes,
     stats_hash_to_bytes,
 )
 from baseline.types import HASH_FLOAT_PRECISION
@@ -189,3 +192,46 @@ class TestStatsHashToBytes:
     def test_non_hex_rejected(self):
         with pytest.raises(ValueError, match="not valid hex"):
             stats_hash_to_bytes("z" * 64)
+
+
+# =============================================================================
+# AW-03 — canonical payload bytes
+# =============================================================================
+
+class TestComputeStatsPayloadBytes:
+    """The bytes shipped on-chain as the BaselineDataAccount payload MUST
+    hash to the same value `compute_stats_hash` produces — otherwise the
+    on-chain `sha256(payload) == baseline_hash` gate refuses the commit.
+    These tests pin that binding."""
+
+    def test_payload_bytes_hash_equals_compute_stats_hash(self):
+        kwargs = _base_kwargs()
+        payload_bytes = compute_stats_payload_bytes(**kwargs)
+        digest_hex = hashlib.sha256(payload_bytes).hexdigest()
+        assert digest_hex == compute_stats_hash(**kwargs)
+
+    def test_payload_bytes_are_deterministic(self):
+        kwargs = _base_kwargs()
+        a = compute_stats_payload_bytes(**kwargs)
+        b = compute_stats_payload_bytes(**kwargs)
+        assert a == b
+
+    def test_payload_bytes_change_with_means(self):
+        a = compute_stats_payload_bytes(**_base_kwargs(feature_means=[0.1, 0.2, 0.3]))
+        b = compute_stats_payload_bytes(**_base_kwargs(feature_means=[0.1, 0.2, 0.4]))
+        assert a != b
+
+    def test_payload_bytes_are_pure_utf8(self):
+        # The on-chain handler stores raw bytes; nothing in the canonical
+        # JSON should require multi-byte UTF-8 in production (no exotic
+        # strings), but the contract is: decode-from-utf8 round-trips.
+        kwargs = _base_kwargs()
+        payload_bytes = compute_stats_payload_bytes(**kwargs)
+        assert payload_bytes.decode("utf-8")  # raises if invalid
+
+    def test_payload_bytes_under_8kb_ceiling(self):
+        # AW-03: the BaselineDataAccount payload is capped at 8 KB
+        # (rent-bound ceiling). A real production baseline is a few
+        # hundred bytes; this test pins that headroom.
+        kwargs = _base_kwargs()
+        assert len(compute_stats_payload_bytes(**kwargs)) < 8 * 1024

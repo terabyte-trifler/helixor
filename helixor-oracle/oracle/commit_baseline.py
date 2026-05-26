@@ -37,6 +37,7 @@ from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
 from baseline import BASELINE_ALGO_VERSION, BaselineStats, stats_hash_to_bytes
+from baseline.hashing import compute_stats_payload_bytes
 from oracle.serialization import (
     AGENT_PDA_SEED,
     COMMIT_BASELINE_DISCRIMINATOR,
@@ -45,6 +46,42 @@ from oracle.serialization import (
     decode_agent_registration_v2,
     encode_commit_baseline_args,
 )
+
+# AW-03: on-chain BaselineDataAccount seed prefix. Matches the Rust constant
+# `BaselineDataAccount::SEED_PREFIX = b"baseline_data"`.
+BASELINE_DATA_PDA_SEED = b"baseline_data"
+# Solana system program — needed as an account for `init` of the DA PDA.
+SYSTEM_PROGRAM_ID = Pubkey.from_string("11111111111111111111111111111111")
+
+
+def derive_baseline_data_pda(
+    program_id:   Pubkey,
+    agent_wallet: Pubkey,
+    commit_nonce: int,
+) -> tuple[Pubkey, int]:
+    """AW-03: derive the BaselineDataAccount PDA for a (agent, commit_nonce)."""
+    return Pubkey.find_program_address(
+        [BASELINE_DATA_PDA_SEED, bytes(agent_wallet), int(commit_nonce).to_bytes(8, "little")],
+        program_id,
+    )
+
+
+def build_baseline_payload_bytes(baseline: BaselineStats) -> bytes:
+    """AW-03: re-derive the canonical-JSON bytes that hashed to
+    `baseline.stats_hash`. These ARE the bytes shipped on-chain as the
+    BaselineDataAccount payload — by construction
+    `sha256(build_baseline_payload_bytes(b)) == stats_hash_to_bytes(b.stats_hash)`.
+    """
+    return compute_stats_payload_bytes(
+        baseline_algo_version       = baseline.baseline_algo_version,
+        feature_schema_fingerprint  = baseline.feature_schema_fingerprint,
+        feature_means               = baseline.feature_means,
+        feature_stds                = baseline.feature_stds,
+        txtype_distribution         = baseline.txtype_distribution,
+        action_entropy              = baseline.action_entropy,
+        success_rate_30d            = baseline.success_rate_30d,
+        daily_success_rate_series   = baseline.daily_success_rate_series,
+    )
 
 log = structlog.get_logger(__name__)
 
@@ -199,20 +236,42 @@ async def submit_baseline_commitment(
 
         next_nonce = current.commit_nonce + 1
 
+        # AW-03: re-derive the canonical payload bytes that hashed to
+        # `baseline.stats_hash`. The on-chain handler enforces
+        # `sha256(payload) == baseline_hash`; the encoder also pins this
+        # locally so a serializer drift is caught BEFORE the tx is sent.
+        payload_bytes = build_baseline_payload_bytes(baseline)
+
+        # AW-03: the DA account PDA. Each (agent, commit_nonce) tuple yields
+        # a unique PDA — write-once via Anchor `init`, so the full rotation
+        # history is preserved on-chain.
+        baseline_data_pda, _ = derive_baseline_data_pda(
+            config.program_id, agent_pubkey, next_nonce,
+        )
+
         # ── 2. Build the instruction ────────────────────────────────────────
         ix_data = COMMIT_BASELINE_DISCRIMINATOR + encode_commit_baseline_args(
             baseline_hash=hash_bytes,
             baseline_algo_version=baseline.baseline_algo_version,
             commit_nonce=next_nonce,
             committer_kind=config.committer_kind,
+            payload=payload_bytes,
         )
 
+        # Account order must mirror the on-chain CommitBaseline struct:
+        #   1. agent_registration   (mut)
+        #   2. oracle_config        (read)
+        #   3. baseline_data        (mut, AW-03 init)
+        #   4. signer               (mut, pays rent for baseline_data)
+        #   5. system_program       (read, required for `init`)
         ix = Instruction(
             program_id=config.program_id,
             accounts=[
-                AccountMeta(pubkey=agent_pda,        is_signer=False, is_writable=True),
-                AccountMeta(pubkey=oracle_cfg_pda,   is_signer=False, is_writable=False),
-                AccountMeta(pubkey=keypair.pubkey(), is_signer=True,  is_writable=False),
+                AccountMeta(pubkey=agent_pda,         is_signer=False, is_writable=True),
+                AccountMeta(pubkey=oracle_cfg_pda,    is_signer=False, is_writable=False),
+                AccountMeta(pubkey=baseline_data_pda, is_signer=False, is_writable=True),
+                AccountMeta(pubkey=keypair.pubkey(),  is_signer=True,  is_writable=True),
+                AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
             ],
             data=ix_data,
         )
