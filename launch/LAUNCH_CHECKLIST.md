@@ -799,6 +799,32 @@ file.
       `0.75 * 48h` threshold to fail-closed all Verified Integrators
       automatically). On-call confirms they can recite the four
       steps and find the linked instruction handlers in <5 minutes.
+- [ ] **Score-manipulation runbook reviewed by lead.** The 4-step
+      incident response in `launch/runbooks/score_manipulation_response.md`
+      composes the existing primitives — Step 1 (`challenge_certificate`
+      + `ChallengeRecord` PDA in
+      `programs/certificate-issuer/src/state/challenge_record.rs`
+      flips `challenge_state` to `Upheld=1` per affected
+      `(agent, epoch)` after attester quorum), Step 2
+      (`issue_certificate` accepts `alert_tier` as input and signs
+      it into the cluster digest; the `HELIXOR_FORCE_YELLOW_AGENTS`
+      cluster-side config forces YELLOW for the affected agent set,
+      and FRP-3 `MAX_CERT_REISSUE_INTERVAL_SECONDS = 4*3600` reissues
+      them under the rotated tier within 4h with no new instruction),
+      Step 3 (DeFi consumers read upheld `challenge_state` on-chain
+      via the DBP-3 pattern, then SOL-3 per-operation freshness
+      floors and the DBP-4 `cert.degrading` webhook compose to
+      fail-closed Verified Integrators automatically; a courtesy
+      notice goes out via the existing partner-notify channel),
+      Step 4 (forensic queries Q1–Q4 against TimescaleDB
+      `agent_score_history` + `byzantine_flags` and Kafka topics
+      `scores.raw` / `commits` / `reveals` / `input_commitments`
+      under the documented retention floors — Kafka 30d,
+      TimescaleDB indefinite, Prometheus 30d, PITR 7d — plus
+      re-runs of `audit/forge_high_score_check.py` and
+      `audit/inflate_score_check.py` to file the postmortem).
+      On-call confirms they can recite the four steps and find
+      the linked instruction handlers in <5 minutes.
 - [ ] Monitoring stack (Prometheus + Alertmanager) live and tested in
       dev — every alert in `launch/monitoring/alerts.yml` fired
       manually at least once
