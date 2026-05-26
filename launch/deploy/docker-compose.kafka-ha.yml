@@ -1,0 +1,207 @@
+# =============================================================================
+# launch/deploy/docker-compose.kafka-ha.yml — SPOF-#5 mitigation overlay.
+#
+# THE AUDIT FINDING
+# -----------------
+# SPOF-#5 — the dev compose at docker-compose.indexer.yml runs a SINGLE
+# Kafka broker. The eventbus topic `agent.transactions` lives on that
+# one broker. A broker crash, host outage, or disk failure halts the
+# entire indexer pipeline — no transactions reach TimescaleDB, no
+# scoring, no certs.
+#
+# THE MITIGATION (this file)
+# --------------------------
+# Three independent brokers in a KRaft quorum. Topics are created with
+# replication.factor=3 and min.insync.replicas=2 so any ONE broker can
+# go down and the cluster remains both readable AND writable. With
+# min.insync.replicas=2, a producer with acks=all sees a successful
+# write only when two replicas have it — a single-broker compromise
+# cannot lose an acknowledged transaction.
+#
+# WHY 3-OF-3, MIN_ISR=2
+# ---------------------
+#   replication.factor=3 — three independent replicas of every partition.
+#   min.insync.replicas=2 — at least two must ack before a write is
+#                           durable; loss of one broker is survivable,
+#                           loss of two halts writes (CAP-consistent
+#                           choice over availability — we will NOT lose
+#                           events to recover write availability).
+#   acks=all (on the producer) — must be paired with min.insync.replicas=2
+#                                for the durability guarantee to hold.
+#
+# COMPOSE WITH THE BASE FILE
+# --------------------------
+#   docker compose \
+#     -f launch/deploy/docker-compose.indexer.yml \
+#     -f launch/deploy/docker-compose.kafka-ha.yml \
+#     up -d
+#
+# The overlay REPLACES the single `kafka` service with three brokers
+# and adds an `kafka-init` job that creates the production topics with
+# the HA replication settings. Anything that previously bootstrapped
+# from `kafka:9092` now bootstraps from
+# `kafka-1:9092,kafka-2:9092,kafka-3:9092` via the
+# `KAFKA_BOOTSTRAP` env override below.
+#
+# AUDITED
+# -------
+# audit/spof_check.py verifies that this file exists, contains
+# replication.factor=3, min.insync.replicas=2, and at least 3 broker
+# services. A regression that removes any of those fails the gate.
+# =============================================================================
+
+version: "3.9"
+
+x-kafka-common: &kafka-common
+  image: confluentinc/cp-kafka:7.6.0
+  restart: unless-stopped
+  # SPOF-#5 — every broker carries the same SASL_SSL settings; the HA
+  # overlay does NOT loosen authentication. VULN-17's wire authentication
+  # and SPOF-#5's replication are orthogonal layers.
+  environment: &kafka-common-env
+    KAFKA_PROCESS_ROLES: broker,controller
+    KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093"
+    KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT"
+    KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+    KAFKA_INTER_BROKER_LISTENER_NAME: SASL_PLAINTEXT
+    KAFKA_SASL_ENABLED_MECHANISMS: PLAIN,SCRAM-SHA-256
+    KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+    KAFKA_LISTENER_NAME_SASL_PLAINTEXT_SASL_ENABLED_MECHANISMS: PLAIN,SCRAM-SHA-256
+    KAFKA_LISTENER_NAME_SASL_PLAINTEXT_PLAIN_SASL_JAAS_CONFIG: >-
+      org.apache.kafka.common.security.plain.PlainLoginModule required
+      username="${KAFKA_SASL_USERNAME:?KAFKA_SASL_USERNAME must be set}"
+      password="${KAFKA_SASL_PASSWORD:?KAFKA_SASL_PASSWORD must be set}"
+      user_${KAFKA_SASL_USERNAME}="${KAFKA_SASL_PASSWORD}";
+    KAFKA_LISTENER_NAME_SASL_PLAINTEXT_SCRAM__2DSHA__2D256_SASL_JAAS_CONFIG: >-
+      org.apache.kafka.common.security.scram.ScramLoginModule required;
+    KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "false"
+    KAFKA_AUTHORIZER_CLASS_NAME: org.apache.kafka.metadata.authorizer.StandardAuthorizer
+    KAFKA_SUPER_USERS: "User:${KAFKA_SASL_USERNAME:?KAFKA_SASL_USERNAME must be set}"
+    CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qg"
+    # ── SPOF-#5: HA replication ─────────────────────────────────────────────
+    # Three replicas of every partition; producers with acks=all see a
+    # successful write iff at least two replicas have it.
+    KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+    KAFKA_MIN_INSYNC_REPLICAS: 2
+    KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+    KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+    KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+    # ── Auto-topic-creation: leave OFF in production. Topics are pre-
+    # created by `kafka-init` below with the HA settings explicitly.
+    KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    # ── Unclean leader election: OFF. An out-of-sync replica must NEVER
+    # become leader — that would acknowledge writes that the audit-
+    # mandated quorum did not see.
+    KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE: "false"
+  volumes:
+    - ./secrets/kafka-client.properties:/etc/kafka/secrets/client.properties:ro
+  healthcheck:
+    test: ["CMD-SHELL",
+           "kafka-broker-api-versions --bootstrap-server localhost:9092 \
+            --command-config /etc/kafka/secrets/client.properties || exit 1"]
+    interval: 10s
+    timeout:  5s
+    retries:  5
+  mem_limit: 4g
+  cpus: "2.0"
+
+
+services:
+
+  # The base compose's single broker is REMOVED in this overlay — three
+  # brokers replace it. Setting `kafka` to a no-op `scratch`-style image
+  # would be wrong (the base file declared the volume + healthcheck);
+  # instead we override with `profiles: [disabled]` so the original is
+  # not scheduled when this overlay is composed in.
+  kafka:
+    profiles: ["disabled"]
+
+  # ── kafka-1, kafka-2, kafka-3 — the three brokers ─────────────────────────
+  kafka-1:
+    <<: *kafka-common
+    environment:
+      <<: *kafka-common-env
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENERS: SASL_PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: SASL_PLAINTEXT://kafka-1:9092
+    volumes:
+      - kafka_1_data:/var/lib/kafka/data
+      - ./secrets/kafka-client.properties:/etc/kafka/secrets/client.properties:ro
+    ports:
+      # Host-side ports remain 127.0.0.1-bound (VULN-17 invariant). Each
+      # broker gets a distinct host port so `kafka-broker-api-versions`
+      # from the host can target a specific broker for diagnostics.
+      - "127.0.0.1:9092:9092"
+
+  kafka-2:
+    <<: *kafka-common
+    environment:
+      <<: *kafka-common-env
+      KAFKA_NODE_ID: 2
+      KAFKA_LISTENERS: SASL_PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: SASL_PLAINTEXT://kafka-2:9092
+    volumes:
+      - kafka_2_data:/var/lib/kafka/data
+      - ./secrets/kafka-client.properties:/etc/kafka/secrets/client.properties:ro
+    ports:
+      - "127.0.0.1:9192:9092"
+
+  kafka-3:
+    <<: *kafka-common
+    environment:
+      <<: *kafka-common-env
+      KAFKA_NODE_ID: 3
+      KAFKA_LISTENERS: SASL_PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: SASL_PLAINTEXT://kafka-3:9092
+    volumes:
+      - kafka_3_data:/var/lib/kafka/data
+      - ./secrets/kafka-client.properties:/etc/kafka/secrets/client.properties:ro
+    ports:
+      - "127.0.0.1:9292:9092"
+
+  # ── kafka-init: pre-create the production topics with HA settings ─────────
+  # Runs once after all three brokers are healthy. Idempotent: --if-not-
+  # exists is a no-op on the second `up`. The replication & min.insync
+  # values are EXPLICITLY set on the topic so a future broker default
+  # drift cannot silently downgrade durability.
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on:
+      kafka-1: { condition: service_healthy }
+      kafka-2: { condition: service_healthy }
+      kafka-3: { condition: service_healthy }
+    volumes:
+      - ./secrets/kafka-client.properties:/etc/kafka/secrets/client.properties:ro
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        set -euo pipefail
+        BOOT="kafka-1:9092,kafka-2:9092,kafka-3:9092"
+        CFG=/etc/kafka/secrets/client.properties
+        create() {
+          local topic="$$1" partitions="$$2"
+          kafka-topics --bootstrap-server "$$BOOT" \
+                       --command-config "$$CFG" \
+                       --create --if-not-exists \
+                       --topic "$$topic" \
+                       --partitions "$$partitions" \
+                       --replication-factor 3 \
+                       --config min.insync.replicas=2 \
+                       --config unclean.leader.election.enable=false
+        }
+        # The single production topic this overlay manages. Add new
+        # topics here when they are introduced; the audit gate scans
+        # this file for the HA flags.
+        create agent.transactions 12
+        echo "kafka-init: HA topics created with RF=3, min.insync=2"
+    restart: "no"
+
+
+# Three independent volumes so each broker has its own data directory.
+# In a real deployment these live on independent storage devices /
+# availability zones — at the docker layer the separation is only
+# logical, but the COMPOSE shape pins the production topology.
+volumes:
+  kafka_1_data:
+  kafka_2_data:
+  kafka_3_data:

@@ -64,9 +64,10 @@ pub mod slash_authority {
         )
     }
 
-    /// VULN-04: admin-gated rotation of the three role keys and the
-    /// settlement timelock. Keys must remain distinct, timelock must
-    /// remain >= MIN_SETTLEMENT_TIMELOCK_SECONDS (72h).
+    /// SPOF-#2 DEPRECATED-AND-REFUSED. Pre-mitigation this was admin-gated
+    /// single-tx rotation. It now ALWAYS returns
+    /// `SingleAdminUpdateRemoved` (6088) — use the propose/attest/enact
+    /// ceremony below. Retained for IDL compatibility only.
     pub fn update_authorities(
         ctx:                         Context<UpdateAuthorities>,
         slash_executor:              Pubkey,
@@ -81,6 +82,62 @@ pub mod slash_authority {
             pause_authority,
             settlement_timelock_seconds,
         )
+    }
+
+    // ── SPOF-#2: time-locked, 2-of-3-attested authority rotation ───────────
+    //
+    // The audit flagged single-admin role-key replacement as HIGH risk
+    // (collapses VULN-04 separation). Rotation now mirrors VULN-13's
+    // oracle-key ceremony: 48h+ timelock, attestation from a strict
+    // majority of the LIVE role keys (2 of 3), and any honest role key
+    // can cancel during the window.
+
+    /// SPOF-#2: propose a slash-authority rotation. Singleton PDA;
+    /// admin OR any current role key may propose. Role-key proposers
+    /// auto-attest; admin alone cannot enact.
+    pub fn propose_authority_rotation(
+        ctx:                                 Context<ProposeAuthorityRotation>,
+        new_slash_executor:                  Pubkey,
+        new_appeal_resolver:                 Pubkey,
+        new_pause_authority:                 Pubkey,
+        new_treasury:                        Pubkey,
+        new_settlement_timelock_seconds:     i64,
+        timelock_seconds:                    i64,
+    ) -> Result<()> {
+        instructions::propose_authority_rotation::handler(
+            ctx,
+            new_slash_executor,
+            new_appeal_resolver,
+            new_pause_authority,
+            new_treasury,
+            new_settlement_timelock_seconds,
+            timelock_seconds,
+        )
+    }
+
+    /// SPOF-#2: a current role key attests to the open proposal.
+    /// Admin attestations do NOT count (separation by design).
+    pub fn attest_authority_rotation(
+        ctx: Context<AttestAuthorityRotation>,
+    ) -> Result<()> {
+        instructions::attest_authority_rotation::handler(ctx)
+    }
+
+    /// SPOF-#2: enact a fully-vetted proposal. Anyone may call once
+    /// `now >= enact_after` AND attestations >= 2-of-3.
+    pub fn enact_authority_rotation(
+        ctx: Context<EnactAuthorityRotation>,
+    ) -> Result<()> {
+        instructions::enact_authority_rotation::handler(ctx)
+    }
+
+    /// SPOF-#2: cancel an open proposal. Admin OR any current role key
+    /// may cancel — a single honest role key is enough to veto a
+    /// hostile proposal during the 48h window.
+    pub fn cancel_authority_rotation(
+        ctx: Context<CancelAuthorityRotation>,
+    ) -> Result<()> {
+        instructions::cancel_authority_rotation::handler(ctx)
     }
 
     /// VULN-04: the pause kill switch — freeze execute_slash,

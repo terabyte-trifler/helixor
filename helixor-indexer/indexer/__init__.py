@@ -70,6 +70,17 @@ from indexer.plugin_pin import (
     manifest_to_json,
     verify_plugin_binary,
 )
+from indexer.production_config import (
+    CLUSTER_ENV,
+    ENDPOINTS_ENV,
+    MAINNET_CLUSTERS,
+    MAINNET_MIN_ENDPOINTS,
+    MIN_CONSENSUS_THRESHOLD,
+    GeyserConfigError,
+    ProductionGeyserConfig,
+    SinglePointGeyserError,
+    build_production_geyser_config,
+)
 from indexer.reconciler import (
     DivergenceSeverity,
     ReconciliationReport,
@@ -123,4 +134,9 @@ __all__ = [
     "compute_binary_sha256", "verify_plugin_binary",
     "manifest_from_json", "manifest_to_json",
     "PluginPinError", "UntrustedReleaseSigner",
+    # SPOF-#8 — multi-endpoint production default
+    "CLUSTER_ENV", "ENDPOINTS_ENV",
+    "MAINNET_CLUSTERS", "MAINNET_MIN_ENDPOINTS", "MIN_CONSENSUS_THRESHOLD",
+    "GeyserConfigError", "SinglePointGeyserError",
+    "ProductionGeyserConfig", "build_production_geyser_config",
 ]

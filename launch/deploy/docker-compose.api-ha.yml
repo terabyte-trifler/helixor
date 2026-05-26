@@ -1,0 +1,124 @@
+# =============================================================================
+# launch/deploy/docker-compose.api-ha.yml — SPOF-#7+#9 mitigation overlay.
+#
+# THE AUDIT FINDINGS
+# ------------------
+# SPOF-#7 — the dev compose runs ONE API container on port 8080. A
+# crash or rolling restart 502s every dashboard.
+# SPOF-#9 — there is no load balancer in front of the API. Even if you
+# stand up a second container, every client still talks to the first one.
+#
+# THE MITIGATION (this file)
+# --------------------------
+# Three identical API replicas (`api-1`, `api-2`, `api-3`) behind an
+# nginx load balancer (`api-lb`). The LB:
+#
+#   * least-conn-balances across the three replicas.
+#   * active-health-probes each one and removes failing replicas.
+#   * retries idempotent GETs against the next replica on 502/503/504.
+#   * exposes `/lb-health` so the operator's runbook can `curl` the LB
+#     directly (vs. a passthrough to a replica).
+#
+# Three is the smallest N where one replica can roll AND the LB still
+# has two healthy ones; the audit set this as the production floor.
+#
+# COMPOSE WITH THE BASE FILE
+# --------------------------
+#   docker compose \
+#     -f launch/deploy/docker-compose.indexer.yml \
+#     -f launch/deploy/docker-compose.timescale-ha.yml \
+#     -f launch/deploy/docker-compose.api-ha.yml \
+#     up -d
+#
+# The overlay DISABLES the base `api` service and replaces it with
+# three replicas + the nginx LB. External clients hit `api-lb:8080`
+# instead of `api:8080` — the runbook documents the URL change.
+#
+# AUDITED
+# -------
+# audit/spof_check.py verifies this file exists, declares >= 3 `api-*`
+# services and an `api-lb` service, and that
+# launch/deploy/nginx/api_upstream.conf is a valid nginx config with
+# >= 3 upstream servers and `proxy_next_upstream` set.
+# =============================================================================
+
+version: "3.9"
+
+x-api-common: &api-common
+  image: helixor/api:${HELIXOR_VERSION:?HELIXOR_VERSION must be set}
+  restart: unless-stopped
+  environment: &api-common-env
+    HELIXOR_NETWORK:      "${HELIXOR_NETWORK:-devnet}"
+    HELIXOR_MAINNET_OK:   "${HELIXOR_MAINNET_OK:-}"
+    DATABASE_URL:         "postgres://helixor_indexer:${TIMESCALE_PASSWORD}@timescale-primary/helixor"
+    READ_DATABASE_URL:    "postgres://helixor_indexer:${TIMESCALE_PASSWORD}@timescale-standby/helixor"
+    HELIXOR_API_PORT:     "8080"
+    LOG_LEVEL:            "INFO"
+    SCORING_ALGO_VERSION:    "${SCORING_ALGO_VERSION:-}"
+    SCORING_WEIGHTS_VERSION: "${SCORING_WEIGHTS_VERSION:-}"
+  healthcheck:
+    # The replicas expose `/health` (api/app.py:535) — a fast no-I/O
+    # liveness probe. The LB uses passive health checks based on
+    # response status; this docker-level healthcheck is for the
+    # `depends_on: service_healthy` ordering.
+    test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+    interval: 10s
+    timeout:  5s
+    retries:  5
+  mem_limit: 1g
+  cpus: "2.0"
+
+
+services:
+
+  # Disable the single-replica `api` from the base file.
+  api:
+    profiles: ["disabled"]
+
+  api-1:
+    <<: *api-common
+    environment:
+      <<: *api-common-env
+      HELIXOR_API_REPLICA_ID: "api-1"
+    depends_on:
+      timescale-primary: { condition: service_healthy, required: false }
+      indexer:           { condition: service_started }
+
+  api-2:
+    <<: *api-common
+    environment:
+      <<: *api-common-env
+      HELIXOR_API_REPLICA_ID: "api-2"
+    depends_on:
+      timescale-primary: { condition: service_healthy, required: false }
+      indexer:           { condition: service_started }
+
+  api-3:
+    <<: *api-common
+    environment:
+      <<: *api-common-env
+      HELIXOR_API_REPLICA_ID: "api-3"
+    depends_on:
+      timescale-primary: { condition: service_healthy, required: false }
+      indexer:           { condition: service_started }
+
+  # ── api-lb — nginx in front of the three replicas ─────────────────────────
+  api-lb:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      api-1: { condition: service_healthy }
+      api-2: { condition: service_healthy }
+      api-3: { condition: service_healthy }
+    volumes:
+      - ./nginx/api_upstream.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      # External clients now hit the LB, not the replicas directly.
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/lb-health || exit 1"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+    mem_limit: 256m
+    cpus: "0.5"

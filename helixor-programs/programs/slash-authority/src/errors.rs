@@ -94,4 +94,31 @@ pub enum SlashError {
     NotInConflict = 6052,
     #[msg("the accused oracle and the challenger must differ")]
     SelfChallenge = 6053,
+
+    // ── SPOF-#2: time-locked, 2-of-3-attested authority rotation ───────────
+    #[msg("signer is not admin or a current role key — cannot propose a rotation")]
+    NotRotationProposer = 6080,
+    #[msg("signer is not a current role key — only executor / resolver / \
+           pauser may attest. Admin attestations do not count by design.")]
+    NotRoleKeyAttester = 6081,
+    #[msg("this role key has already attested to the open proposal")]
+    DuplicateAuthorityAttestation = 6082,
+    #[msg("authority rotation timelock has not elapsed — wait 48h+ from \
+           proposed_at before enacting")]
+    RotationTimelockNotElapsed = 6083,
+    #[msg("authority rotation has fewer than 2 attestations from the 3 \
+           current role keys")]
+    InsufficientAuthorityAttestations = 6084,
+    #[msg("authority rotation timelock floor is 48h — propose with a \
+           larger timelock_seconds")]
+    RotationTimelockTooShort = 6085,
+    #[msg("proposed authority set is identical to the current authority \
+           set — no-op rotation rejected")]
+    NoopAuthorityRotation = 6086,
+    #[msg("signer is not admin or a current role key — cannot cancel a \
+           pending rotation")]
+    NotRotationCanceller = 6087,
+    #[msg("single-admin update_authorities is removed — use the \
+           propose/attest/enact ceremony")]
+    SingleAdminUpdateRemoved = 6088,
 }

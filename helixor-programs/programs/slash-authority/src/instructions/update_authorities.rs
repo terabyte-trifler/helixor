@@ -1,94 +1,61 @@
 // =============================================================================
 // programs/slash-authority/src/instructions/update_authorities.rs
 //
-// update_authorities — admin-gated rotation of the three role keys and
-// the settlement timelock. VULN-04 requires the keys to stay distinct
-// after rotation and the timelock to remain >= MIN_SETTLEMENT_TIMELOCK.
+// SPOF-#2 REMEDIATION — DEPRECATED-AND-REFUSED.
 //
-// Use this to:
-//   - rotate a leaked slash_executor without redeploying,
-//   - swap a single-key role for the Phase-4 multisig PDA,
-//   - lengthen (never shorten below the floor) the settlement timelock.
+// The pre-SPOF-#2 design admin-gated a single-tx rotation of all three
+// role keys + the settlement timelock. That collapsed the audit's
+// VULN-04 separated-authority guarantee back to a single-key risk: a
+// compromised admin could install three attacker-controlled role keys
+// in one transaction and drain every escrow vault.
 //
-// The admin key itself is not rotated here — that is a deliberate
-// separation; a compromised slash_executor cannot escalate to admin via
-// this instruction.
+// The fix replaces single-admin rotation with the time-locked,
+// 2-of-3-attested propose/attest/enact ceremony in:
+//   - instructions::propose_authority_rotation
+//   - instructions::attest_authority_rotation
+//   - instructions::enact_authority_rotation
+//   - instructions::cancel_authority_rotation
+//
+// This handler is RETAINED only so callers of the old IDL get a clean,
+// typed rejection (`SingleAdminUpdateRemoved`, code 6088) pointing them
+// at the new ceremony. The instruction now ALWAYS returns the error
+// regardless of signer, arguments, or state — it cannot be used to
+// rewrite authority.
 // =============================================================================
 
 use anchor_lang::prelude::*;
 
 use crate::errors::SlashError;
-use crate::events::AuthoritiesUpdated;
-use crate::state::{
-    validate_authority_separation, AuthoritySeparationError, SlashConfig,
-    MIN_SETTLEMENT_TIMELOCK_SECONDS,
-};
+use crate::state::SlashConfig;
 
 #[derive(Accounts)]
 pub struct UpdateAuthorities<'info> {
-    /// SlashConfig — the role keys live here.
+    /// SlashConfig — read-only here. Retained on the account-list so the
+    /// IDL shape matches the pre-SPOF-#2 instruction; the handler refuses
+    /// before any state read matters.
     #[account(
-        mut,
         seeds = [SlashConfig::SEED],
         bump  = slash_config.bump,
     )]
     pub slash_config: Account<'info, SlashConfig>,
 
-    /// The admin — only key permitted to rotate the role set.
-    #[account(
-        constraint = admin.key() == slash_config.admin @ SlashError::NotAdmin,
-    )]
+    /// Retained for IDL compatibility; signature is not validated because
+    /// the handler always refuses.
     pub admin: Signer<'info>,
 }
 
 pub fn handler(
-    ctx:                         Context<UpdateAuthorities>,
-    slash_executor:              Pubkey,
-    appeal_resolver:             Pubkey,
-    pause_authority:             Pubkey,
-    settlement_timelock_seconds: i64,
+    _ctx:                         Context<UpdateAuthorities>,
+    _slash_executor:              Pubkey,
+    _appeal_resolver:             Pubkey,
+    _pause_authority:             Pubkey,
+    _settlement_timelock_seconds: i64,
 ) -> Result<()> {
-    // Authority separation re-validated on every rotation.
-    match validate_authority_separation(
-        &slash_executor,
-        &appeal_resolver,
-        &pause_authority,
-    ) {
-        Ok(()) => {}
-        Err(AuthoritySeparationError::DefaultPubkey) => {
-            return err!(SlashError::DefaultPubkey);
-        }
-        Err(AuthoritySeparationError::NotDistinct) => {
-            return err!(SlashError::AuthoritiesMustDiffer);
-        }
-    }
-
-    // Timelock floor — never below the protocol minimum (72h). A future
-    // admin could raise it but never lower below this gate.
-    require!(
-        settlement_timelock_seconds >= MIN_SETTLEMENT_TIMELOCK_SECONDS,
-        SlashError::SettlementTimelockTooShort,
-    );
-
-    let config = &mut ctx.accounts.slash_config;
-    config.slash_executor              = slash_executor;
-    config.appeal_resolver             = appeal_resolver;
-    config.pause_authority             = pause_authority;
-    config.settlement_timelock_seconds = settlement_timelock_seconds;
-
-    emit!(AuthoritiesUpdated {
-        slash_executor,
-        appeal_resolver,
-        pause_authority,
-        settlement_timelock_seconds,
-        updated_at: Clock::get()?.unix_timestamp,
-    });
-
     msg!(
-        "slash-authority roles rotated: executor={}, resolver={}, \
-         pauser={}, timelock={}s",
-        slash_executor, appeal_resolver, pause_authority,
-        settlement_timelock_seconds,
+        "update_authorities is removed under SPOF-#2 — use \
+         propose_authority_rotation + attest_authority_rotation + \
+         enact_authority_rotation (48h timelock, 2-of-3 role keys must \
+         attest)",
     );
-    Ok(())
+    err!(SlashError::SingleAdminUpdateRemoved)
 }

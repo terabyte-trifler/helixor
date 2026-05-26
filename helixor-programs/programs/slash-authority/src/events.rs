@@ -126,6 +126,55 @@ pub struct SlashPaused {
     pub authority: Pubkey,
 }
 
+// ── SPOF-#2 events: time-locked, 2-of-3-attested authority rotation ────────
+
+/// Emitted when a PendingAuthorityRotation is opened.
+#[event]
+pub struct AuthorityRotationProposed {
+    pub proposer:                        Pubkey,
+    pub new_slash_executor:              Pubkey,
+    pub new_appeal_resolver:             Pubkey,
+    pub new_pause_authority:             Pubkey,
+    pub new_treasury:                    Pubkey,
+    pub new_settlement_timelock_seconds: i64,
+    pub enact_after:                     i64,
+    pub proposed_at:                     i64,
+}
+
+/// Emitted when a current role key attests to the open proposal.
+#[event]
+pub struct AuthorityRotationAttested {
+    pub attester:              Pubkey,
+    pub total_attestations:    u8,
+    pub required_attestations: u8,
+    pub attested_at:           i64,
+}
+
+/// Emitted when the proposal is enacted (timelock + threshold satisfied).
+#[event]
+pub struct AuthorityRotationEnacted {
+    pub enactor:                          Pubkey,
+    pub old_slash_executor:               Pubkey,
+    pub new_slash_executor:               Pubkey,
+    pub old_appeal_resolver:              Pubkey,
+    pub new_appeal_resolver:              Pubkey,
+    pub old_pause_authority:              Pubkey,
+    pub new_pause_authority:              Pubkey,
+    pub old_treasury:                     Pubkey,
+    pub new_treasury:                     Pubkey,
+    pub old_settlement_timelock_seconds:  i64,
+    pub new_settlement_timelock_seconds:  i64,
+    pub attestation_count:                u8,
+    pub enacted_at:                       i64,
+}
+
+/// Emitted when an open proposal is cancelled before enactment.
+#[event]
+pub struct AuthorityRotationCancelled {
+    pub canceller:    Pubkey,
+    pub cancelled_at: i64,
+}
+
 /// Emitted when a watchdog files an oracle challenge.
 #[event]
 pub struct OracleChallenged {

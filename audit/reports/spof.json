@@ -1,0 +1,16 @@
+{
+  "checked": [
+    "SPOF-#2 slash_authority",
+    "SPOF-#3 upgrade_authority",
+    "SPOF-#5 kafka",
+    "SPOF-#6 timescaledb",
+    "SPOF-#7+#9 api",
+    "SPOF-#8 geyser"
+  ],
+  "findings": [],
+  "summary": {
+    "checks": 6,
+    "hard_findings": 0,
+    "soft_findings": 0
+  }
+}

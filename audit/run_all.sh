@@ -108,6 +108,19 @@ run "aw04 scoring provenance sweep"  python3 audit/scoring_provenance_check.py \
     --json audit/reports/aw04_scoring_provenance.json
 
 
+# ── 1k. SPOF audit gate ─────────────────────────────────────────────────────
+# Architectural fix for the 9 SPOFs enumerated in
+# launch/design/spof_resolution.md. Verifies, mechanically, that each
+# mitigation is still in place: slash-authority rotation ceremony,
+# upgrade-authority multisig, Kafka 3-broker HA overlay, TimescaleDB
+# primary/standby/WAL-archive overlay, API multi-replica + nginx LB,
+# Geyser multi-endpoint mainnet floor. A refactor that quietly undoes
+# any mitigation lights this gate red before the change reaches
+# mainnet.
+run "spof gate"  python3 audit/spof_check.py \
+    --json audit/reports/spof.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

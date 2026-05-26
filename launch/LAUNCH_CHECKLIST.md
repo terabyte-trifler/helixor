@@ -232,6 +232,19 @@ file.
       score from the fetched payload. A DeFi consumer can detect a
       silent kernel swap OR an arithmetically inconsistent score
       without trusting either the cluster OR a separate DA service.
+- [ ] **SPOF audit gate clean** —
+      `python3 audit/spof_check.py --json audit/reports/spof.json`
+      reports **0 HARD findings**. The gate is the mechanical
+      regression alarm for the 9-entry SPOF inventory in
+      `launch/design/spof_resolution.md`: SPOF-#2 (slash-authority
+      rotation ceremony), SPOF-#3 (Squads upgrade authority),
+      SPOF-#5 (Kafka RF=3 min.insync=2), SPOF-#6 (TimescaleDB
+      primary+standby+WAL archive), SPOF-#7+#9 (3 API replicas
+      behind nginx LB), SPOF-#8 (Geyser N>=3 with
+      `SinglePointGeyserError` boot refusal). A regression that
+      removes any mitigation lights the gate red BEFORE the change
+      reaches mainnet; SPOF-#1 and SPOF-#4 are covered by the AW-02
+      and cluster-threshold gates respectively.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain
@@ -511,6 +524,35 @@ the entry gate.
       (b) a regression that the audit sweep above should have
       caught (re-run the sweep). Runbook:
       `launch/runbooks/score_provenance.md`.
+- [ ] **SPOF mitigations active on first mainnet day.** Verify all
+      six platform-substrate mitigations are running BEFORE the
+      first agent registers:
+        1. **Kafka HA** — `docker compose ps` shows three healthy
+           `kafka-1/-2/-3` brokers; topic `agent.transactions` was
+           created by `kafka-init` with `--replication-factor 3
+           --config min.insync.replicas=2`.
+        2. **TimescaleDB HA** — `timescale-primary` accepting writes,
+           `timescale-standby` in hot-standby with
+           `pg_is_in_recovery() = t` and replication lag < 5s,
+           `wal-archive` shipping WAL into the `wal_archive` volume.
+        3. **API multi-replica** — all three of `api-1/-2/-3` return
+           200 on `/health`; nginx `api-lb` returns 200 on
+           `/lb-health`. External traffic hits port 8080 of `api-lb`,
+           not a replica directly.
+        4. **Geyser consensus** — the indexer boot log shows
+           `ProductionGeyserConfig(total_sources=N>=3,
+           consensus_threshold>=2, is_mainnet=True)`. A
+           `SinglePointGeyserError` at boot is the gate REFUSING the
+           launch — fix the endpoint config, do NOT relax the floor.
+        5. **slash-authority rotation ceremony** — the deployed
+           `update_authorities` instruction returns
+           `SingleAdminUpdateRemoved (6088)` on call; the propose/
+           attest/enact instructions are present in the IDL.
+        6. **Squads upgrade authority** — `solana program show <id>`
+           reports the multisig PDA as the upgrade authority for
+           each deployed program. A single-key upgrade authority on
+           mainnet is a P0 — invoke `launch/runbooks/spof_failover.md`
+           to revoke and re-point at the multisig before launching.
 - [ ] **The first epoch on mainnet completes** end-to-end, on-chain
       cert visible via explorer
 
@@ -612,6 +654,37 @@ the entry gate.
       finding from this job is a P0 (the cluster's RPCs and the
       external RPC disagree — at least one is lying). Output:
       `audit/reports/slot_anchor_weekly_<YYYY-MM-DD>.json`.
+- [ ] **Daily SPOF substrate health review.** Run, against
+      Prometheus, the queries that watch each SPOF mitigation
+      under load:
+        1. **Kafka** — `kafka_under_replicated_partitions{} == 0`
+           AND `kafka_isr_shrinks_total[1d] == 0`. A non-zero ISR
+           shrink rate means a broker is repeatedly falling out of
+           sync; investigate before the next broker incident
+           pushes the cluster below min.insync.
+        2. **TimescaleDB** — replication lag from
+           `pg_last_xact_replay_timestamp()` on the standby is
+           < 60s sustained, and `pg_stat_archiver.failed_count`
+           is 0. WAL-archive failures silently break PITR.
+        3. **API** — each of `api-1/-2/-3` returns 200 on
+           `/health` over the last 24h with > 99.5% success;
+           `nginx_upstream_responses_seconds_total{upstream="api-N",
+           status="5xx"}` is < 0.1% of total. An asymmetric error
+           rate on one replica means the LB has not been ejecting
+           it cleanly.
+        4. **Geyser consensus** —
+           `geyser_consensus_conflicts_total[1d] == 0`. ANY
+           conflict in steady state is a P0 (one endpoint emitted
+           different canonical bytes for the same signature than
+           the other(s) — at least one is lying). The runbook is
+           `launch/runbooks/spof_failover.md`
+           "Geyser consensus alerts".
+        5. **slash-authority** — no `AuthorityRotationProposed`
+           event without a matching `AuthorityRotationEnacted`
+           OR `AuthorityRotationCancelled` within 14 days
+           (a proposal that never resolved is operator drift,
+           not a security finding, but it indicates the rotation
+           runbook is not being exercised).
 - [ ] Weekly rolling restart of one node at a time (confirms cluster
       tolerates planned restarts the same way it tolerates failures)
 - [ ] Monthly cert byte-match re-verification — deployed `.so` still

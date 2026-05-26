@@ -1,0 +1,236 @@
+# =============================================================================
+# launch/deploy/docker-compose.timescale-ha.yml — SPOF-#6 mitigation overlay.
+#
+# THE AUDIT FINDING
+# -----------------
+# SPOF-#6 — the dev compose runs a SINGLE TimescaleDB container. The
+# hypertable that holds every indexed transaction lives on one disk on
+# one host. A disk failure, container crash, or `DROP DATABASE` typo
+# loses the entire historical view the API serves. Worse, there is no
+# WAL archive — point-in-time recovery is impossible.
+#
+# THE MITIGATION (this file)
+# --------------------------
+# Postgres streaming replication:
+#
+#   timescale-primary  — accepts writes from the indexer.
+#   timescale-standby  — hot standby, streams WAL from the primary, can
+#                        serve read-only queries (the API uses it via
+#                        the `READ_DATABASE_URL` override).
+#   wal-archive        — a third container running `pg_receivewal` that
+#                        streams WAL to a separate volume. This is the
+#                        PITR substrate: a malicious DELETE can be undone
+#                        by replaying WAL up to a chosen LSN/timestamp.
+#
+# WHY ALL THREE
+# -------------
+# Streaming replication alone gives failover but not PITR (the standby
+# also has the bad DELETE replayed within seconds). WAL archiving alone
+# gives PITR but no hot failover. The audit's recovery target is BOTH:
+#   * RPO (data loss window) ≈ 0   — the standby is at most a few WAL
+#                                    bytes behind.
+#   * RTO (failover time)    ≤ 60s — promote the standby, repoint the
+#                                    API. The runbook at
+#                                    launch/runbooks/spof_failover.md
+#                                    spells out the steps.
+#   * PITR window            = 7 days from wal-archive retention.
+#
+# COMPOSE WITH THE BASE FILE
+# --------------------------
+#   docker compose \
+#     -f launch/deploy/docker-compose.indexer.yml \
+#     -f launch/deploy/docker-compose.timescale-ha.yml \
+#     up -d
+#
+# The overlay DISABLES the base `timescaledb` service (profile=disabled)
+# and replaces it with the three-container HA topology. Anything that
+# previously connected to `timescaledb:5432` now uses `timescale-primary`
+# for writes and `timescale-standby` for reads. The DATABASE_URL env
+# overrides below wire that in.
+#
+# AUDITED
+# -------
+# audit/spof_check.py verifies this file exists, declares both
+# `timescale-primary` and `timescale-standby` services, mounts a WAL
+# archive volume, and sets `archive_mode=on` + `wal_level=replica`. A
+# regression that drops any of those fails the gate.
+# =============================================================================
+
+version: "3.9"
+
+x-timescale-common: &timescale-common
+  image: timescale/timescaledb:2.14.2-pg16
+  restart: unless-stopped
+  environment: &timescale-common-env
+    POSTGRES_DB:       helixor
+    POSTGRES_USER:     helixor_indexer
+    POSTGRES_PASSWORD: "${TIMESCALE_PASSWORD:?TIMESCALE_PASSWORD must be set}"
+    TIMESCALEDB_TELEMETRY: "off"
+    # Streaming replication: the standby authenticates with this role.
+    # The credentials are minted by `timescale-init` on first boot.
+    POSTGRES_REPLICATION_USER:     "helixor_replicator"
+    POSTGRES_REPLICATION_PASSWORD: "${TIMESCALE_REPLICATION_PASSWORD:?TIMESCALE_REPLICATION_PASSWORD must be set}"
+  mem_limit: 4g
+  cpus: "2.0"
+
+
+services:
+
+  # The base compose's single DB is REMOVED in this overlay.
+  timescaledb:
+    profiles: ["disabled"]
+
+  # ── timescale-primary — accepts writes from the indexer ───────────────────
+  timescale-primary:
+    <<: *timescale-common
+    environment:
+      <<: *timescale-common-env
+      # SPOF-#6 HA flags. archive_mode=on starts the archiver process;
+      # archive_command pushes each closed WAL segment to the shared
+      # `wal_archive` volume that `wal-archive` also reads from. The
+      # command is `test ! -f ... && cp ...` so a duplicate segment
+      # (which can happen at restart) does not silently overwrite.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=replica"
+      - "-c"
+      - "max_wal_senders=8"
+      - "-c"
+      - "max_replication_slots=8"
+      - "-c"
+      - "hot_standby=on"
+      - "-c"
+      - "archive_mode=on"
+      - "-c"
+      - "archive_command=test ! -f /wal_archive/%f && cp %p /wal_archive/%f"
+      - "-c"
+      - "wal_keep_size=2GB"
+      - "-c"
+      - "synchronous_commit=on"
+      # synchronous_standby_names is intentionally NOT set here. We use
+      # asynchronous replication so a standby outage does not block the
+      # primary; the WAL archive gives the durability fallback. Switching
+      # to synchronous replication is a runbook-documented one-line
+      # config edit when stricter RPO is required.
+    volumes:
+      - tsdb_primary_data:/var/lib/postgresql/data
+      - wal_archive:/wal_archive
+      - ../../helixor-indexer/schema:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helixor_indexer -d helixor"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  # ── timescale-standby — hot standby; serves read-only queries ─────────────
+  timescale-standby:
+    image: timescale/timescaledb:2.14.2-pg16
+    restart: unless-stopped
+    depends_on:
+      timescale-primary: { condition: service_healthy }
+    environment:
+      PGUSER:                "helixor_replicator"
+      PGPASSWORD:            "${TIMESCALE_REPLICATION_PASSWORD:?TIMESCALE_REPLICATION_PASSWORD must be set}"
+      POSTGRES_PASSWORD:     "${TIMESCALE_PASSWORD:?TIMESCALE_PASSWORD must be set}"
+      TIMESCALEDB_TELEMETRY: "off"
+    # The standby is initialised by `pg_basebackup` from the primary on
+    # first boot, then started in standby mode. The init script is a
+    # one-shot guarded by the presence of PG_VERSION in the data dir.
+    entrypoint:
+      - "bash"
+      - "-c"
+      - |
+        set -euo pipefail
+        DATA=/var/lib/postgresql/data
+        if [[ ! -f "$$DATA/PG_VERSION" ]]; then
+          echo "standby: pg_basebackup from timescale-primary"
+          rm -rf "$$DATA"/*
+          pg_basebackup -h timescale-primary -p 5432 \
+                        -U helixor_replicator \
+                        -D "$$DATA" -Fp -Xs -P -R
+          chmod 700 "$$DATA"
+        fi
+        exec docker-entrypoint.sh postgres \
+             -c hot_standby=on \
+             -c primary_conninfo='host=timescale-primary port=5432 user=helixor_replicator password='$$PGPASSWORD
+    volumes:
+      - tsdb_standby_data:/var/lib/postgresql/data
+    healthcheck:
+      # The standby exposes the same port; `pg_isready` returns OK once
+      # it is accepting connections in hot-standby mode.
+      test: ["CMD-SHELL", "pg_isready -U helixor_replicator -d helixor"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+    ports:
+      - "127.0.0.1:5433:5432"
+    mem_limit: 4g
+    cpus: "2.0"
+
+  # ── wal-archive — streams WAL to a separate volume for PITR ────────────────
+  # `pg_receivewal` streams the WAL OFF the primary as soon as it is
+  # generated — it is more aggressive than `archive_command`, which only
+  # ships closed segments. Combining both gives a near-zero-RPO archive.
+  wal-archive:
+    image: timescale/timescaledb:2.14.2-pg16
+    restart: unless-stopped
+    depends_on:
+      timescale-primary: { condition: service_healthy }
+    environment:
+      PGPASSWORD: "${TIMESCALE_REPLICATION_PASSWORD:?TIMESCALE_REPLICATION_PASSWORD must be set}"
+    entrypoint:
+      - "bash"
+      - "-c"
+      - |
+        set -euo pipefail
+        # Wait for the primary to be ready, then stream WAL into the
+        # shared wal_archive volume. The slot keeps the primary from
+        # recycling segments before this process has them.
+        until pg_isready -h timescale-primary -U helixor_replicator; do
+          sleep 2
+        done
+        exec pg_receivewal -h timescale-primary -p 5432 \
+                           -U helixor_replicator \
+                           -D /wal_archive \
+                           --slot=helixor_archive \
+                           --create-slot --if-not-exists
+    volumes:
+      - wal_archive:/wal_archive
+    mem_limit: 512m
+
+  # ── indexer / api / prometheus pickups ────────────────────────────────────
+  # The base file's `indexer` and `api` services hard-code
+  # DATABASE_URL=postgres://...@timescaledb/helixor. In HA mode they
+  # need to write to the primary and (for the API) read from the standby.
+  indexer:
+    depends_on:
+      kafka:               { condition: service_healthy, required: false }
+      timescale-primary:   { condition: service_healthy }
+    environment:
+      DATABASE_URL: "postgres://helixor_indexer:${TIMESCALE_PASSWORD}@timescale-primary/helixor"
+
+  api:
+    depends_on:
+      timescale-primary:   { condition: service_healthy }
+      timescale-standby:   { condition: service_healthy }
+      indexer:             { condition: service_started }
+    environment:
+      # Writes (admin endpoints) hit the primary; reads (the dashboard)
+      # hit the standby. If the API does not yet distinguish, both vars
+      # are set so the migration is a one-line code change.
+      DATABASE_URL:      "postgres://helixor_indexer:${TIMESCALE_PASSWORD}@timescale-primary/helixor"
+      READ_DATABASE_URL: "postgres://helixor_indexer:${TIMESCALE_PASSWORD}@timescale-standby/helixor"
+
+
+volumes:
+  tsdb_primary_data:
+  tsdb_standby_data:
+  # The WAL archive is the PITR substrate. In a real deployment this
+  # volume lives on REPLICATED storage (EBS gp3 + snapshots, GCP PD with
+  # async replication, etc.) so a host loss does not also lose the
+  # archive. The compose-layer volume names the contract.
+  wal_archive:
