@@ -35,11 +35,12 @@ def test_all_dbp1_families_are_checked():
         "DBP-1b",  # VULN-23 anchor
         "DBP-1c",  # SOL-3 anchor
         "DBP-1d",  # AW-01-EXT anchor
+        "DBP-1e",  # DBP-3 safe-default invariant
     ):
         assert marker in checked, (
             f"DBP-1 gate missed family {marker!r} — every Path-4 "
             f"closure substrate (per-manifest + VULN-23 + SOL-3 + "
-            f"AW-01-EXT anchors) must have a probe."
+            f"AW-01-EXT anchors + DBP-3 safe-default) must have a probe."
         )
 
 
@@ -63,8 +64,103 @@ def test_report_serialises_to_json():
     body = consumer_integration_check.run().to_json()
     parsed = json.loads(body)
     assert "summary" in parsed
-    assert parsed["summary"]["checks"] == 4
+    assert parsed["summary"]["checks"] == 5
     assert parsed["summary"]["hard_findings"] == 0
+
+
+def test_unsafe_import_without_safe_reader_is_rejected(tmp_path, monkeypatch):
+    """DBP-1e: a per-source check — a partner cert-reader source that imports
+    from `@helixor/sdk/unsafe` WITHOUT also using `SafeCertReader` must HARD
+    fail. This is the exact pattern Path-4 attackers exploit.
+    """
+    # Build a tiny throwaway manifest + reader source in a temp dir, then
+    # point the linter at it via REPO_ROOT monkeypatch.
+    integrations = tmp_path / "launch" / "integrations"
+    integrations.mkdir(parents=True)
+    sdk = tmp_path / "helixor-sdk" / "src"
+    sdk.mkdir(parents=True)
+    oracle = tmp_path / "helixor-oracle" / "oracle"
+    oracle.mkdir(parents=True)
+
+    # Stubs so the cross-checks don't trip on unrelated families.
+    (sdk / "safe_reader.ts").write_text(
+        'export class SafeCertReader {}\n'
+        'export const CERT_MAX_AGE_SECONDS = 48 * 60 * 60;\n'
+        'export const MAX_SCORE_VELOCITY = 200;\n'
+        'export const VELOCITY_WINDOW_EPOCHS = 3;\n'
+        'export const MIN_HISTORY_REQUIRED = 2;\n'
+    )
+    (sdk / "input_provenance.ts").write_text(
+        'export function verifyAgainstSolanaLedger() {}\n'
+        'export function verifyInputProvenance() {}\n'
+    )
+    (sdk / "index.ts").write_text(
+        'export { SafeCertReader } from "./safe_reader";\n'
+        'export { verifyAgainstSolanaLedger } from "./input_provenance";\n'
+    )
+    (sdk / "unsafe.ts").write_text(
+        'export { HelixorClient } from "./http_client";\n'
+        'export { HelixorChainClient } from "./client";\n'
+    )
+    (oracle / "operation_freshness.py").write_text(
+        'from enum import Enum\n'
+        'class Operation(str, Enum):\n'
+        '    LOAN_ISSUE = "LOAN_ISSUE"\n'
+        '    LOAN_INCREASE = "LOAN_INCREASE"\n'
+        '    LIQUIDATION_CHECK = "LIQUIDATION_CHECK"\n'
+        '    STATUS_READ = "STATUS_READ"\n'
+        'LOAN_ISSUE_MAX_AGE_SECONDS = 4 * 3600\n'
+        'LOAN_INCREASE_MAX_AGE_SECONDS = 8 * 3600\n'
+        'LIQUIDATION_CHECK_MAX_AGE_SECONDS = 12 * 3600\n'
+        'STATUS_READ_MAX_AGE_SECONDS = 48 * 3600\n'
+        'def verify_operation_freshness(): pass\n'
+    )
+
+    # The bad reader: imports /unsafe but does NOT use SafeCertReader.
+    bad_reader = tmp_path / "launch" / "integrations" / "bad_reader.ts"
+    bad_reader.write_text(
+        'import { HelixorChainClient } from "@helixor/sdk/unsafe";\n'
+        '// raw read with no safety wrap, no provenance check, no\n'
+        '// slot anchor — this is the Path-4 attack pattern.\n'
+        'export async function readScore(c, ids, agent) {\n'
+        '  return new HelixorChainClient(c, ids).getScore(agent);\n'
+        '}\n'
+    )
+
+    manifest = {
+        "partner_name": "Bad Faith Partner",
+        "partner_wallet": "11111111111111111111111111111111",
+        "integration_version": "1.0.0",
+        "cert_reader_source_paths": [
+            "launch/integrations/bad_reader.ts",
+        ],
+        "operations_bound": ["STATUS_READ"],
+        "safe_reader_imported": True,
+        "input_provenance_verified": True,
+        "slot_anchor_verified": True,
+        "signature_ed25519": "deadbeef",
+    }
+    # Recompute the canonical hash for this manifest.
+    manifest["integration_hash"] = consumer_integration_check._canonical_hash(
+        manifest,
+    )
+    (integrations / "bad.json").write_text(json.dumps(manifest))
+
+    monkeypatch.setattr(consumer_integration_check, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(
+        consumer_integration_check, "INTEGRATIONS_DIR", integrations,
+    )
+
+    report = consumer_integration_check.run()
+    rules = {f.rule for f in report.hard()}
+    # The /unsafe-without-wrap finding MUST fire HARD against this source.
+    assert any(
+        r.startswith("unsafe-import-must-wrap[") for r in rules
+    ), (
+        "DBP-1e linter did not flag a cert-reader source that imports "
+        "@helixor/sdk/unsafe without using SafeCertReader. Findings: "
+        f"{sorted(rules)}"
+    )
 
 
 def test_canonical_hash_recompute_matches_manifest():

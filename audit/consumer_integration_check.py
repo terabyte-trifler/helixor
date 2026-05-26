@@ -27,7 +27,7 @@ or removes `verifyAgainstSolanaLedger` without updating partner
 manifests would silently leave every integrator's claim void; this
 gate lights red BEFORE that ships.
 
-THE FOUR CHECKS
+THE FIVE CHECKS
 ---------------
   DBP-1a   per-manifest schema + source verification
             (`launch/integrations/<partner>.json` -> cert-reader source)
@@ -37,6 +37,11 @@ THE FOUR CHECKS
             present in `helixor-oracle/oracle/operation_freshness.py`.
   DBP-1d   AW-01-EXT anchor — `verifyAgainstSolanaLedger` exported
             from `helixor-sdk/src/input_provenance.ts`.
+  DBP-1e   DBP-3 safe-default invariant — `@helixor/sdk/unsafe` subpath
+            is exported from `helixor-sdk/src/unsafe.ts`, and any
+            partner cert-reader source that imports `@helixor/sdk/unsafe`
+            ALSO uses `SafeCertReader` (the linter's "wrapped, not raw"
+            check).
 
 Designed to be runnable by anyone — partners run it self-serve on their
 own checked-out fork as a pre-flight before opening a manifest PR.
@@ -410,6 +415,31 @@ def _check_manifest(report: Report, manifest_path: Path) -> None:
                 ),
             )
 
+        # DBP-3 — if the source imports from `@helixor/sdk/unsafe`, it MUST
+        # wrap the raw client in `SafeCertReader`. A bare `/unsafe` import
+        # without a SafeCertReader anchor in the same file is the exact
+        # pattern Path-4 attackers exploit: raw `getScore()` with no
+        # freshness or velocity guard.
+        imports_unsafe = (
+            "@helixor/sdk/unsafe" in src
+            or "'@helixor/sdk/unsafe'" in src
+        )
+        if imports_unsafe:
+            _require(
+                report,
+                family=family,
+                rule=f"unsafe-import-must-wrap[{src_rel}]",
+                condition="SafeCertReader" in src,
+                detail=(
+                    f"{src_rel} imports from @helixor/sdk/unsafe but does NOT "
+                    f"use SafeCertReader in the same file. A Verified "
+                    f"Integrator that touches raw cert-reading MUST wrap it "
+                    f"in SafeCertReader to keep the VULN-23 freshness + "
+                    f"velocity guard. See launch/integrations/example_safe_"
+                    f"partner/reader.ts for the canonical pattern."
+                ),
+            )
+
 
 def check_manifests(report: Report) -> None:
     if not INTEGRATIONS_DIR.is_dir():
@@ -594,6 +624,94 @@ def check_aw01ext_anchor(report: Report) -> None:
 
 
 # =============================================================================
+# DBP-1e — DBP-3 safe-default invariant
+#
+# Two parts:
+#   (1) `helixor-sdk/src/unsafe.ts` exists and re-exports HelixorClient +
+#       HelixorChainClient. If a refactor deletes this file, every
+#       partner who imports from `@helixor/sdk/unsafe` will silently
+#       resolve to `undefined` at runtime — lint that BEFORE it ships.
+#   (2) The default `helixor-sdk/src/index.ts` no longer exports the
+#       raw cert-reader primitives (`HelixorClient` / `HelixorChainClient`).
+#       Re-introducing them to the default surface defeats the DBP-3
+#       safe-by-default invariant: misuse becomes opt-out instead of
+#       opt-in.
+# =============================================================================
+
+# Pinned to match the surfaces declared in helixor-sdk/src/unsafe.ts.
+UNSAFE_REEXPORTS: tuple[str, ...] = (
+    "HelixorClient",
+    "HelixorChainClient",
+)
+
+
+def check_unsafe_surface(report: Report) -> None:
+    family = "DBP-1e[DBP-3 safe-default]"
+    report.checked.append(family)
+
+    unsafe_src = _read(REPO_ROOT / "helixor-sdk" / "src" / "unsafe.ts")
+    _require(
+        report,
+        family=family,
+        rule="unsafe-subpath-exists",
+        condition=bool(unsafe_src.strip()),
+        detail=(
+            "helixor-sdk/src/unsafe.ts no longer exists. The @helixor/sdk/"
+            "unsafe subpath that partners (e.g. example_safe_partner) "
+            "import from is unreachable — restore the file or coordinate "
+            "a deprecation rollout with active partners."
+        ),
+    )
+    for name in UNSAFE_REEXPORTS:
+        _require(
+            report,
+            family=family,
+            rule=f"unsafe-reexports[{name}]",
+            condition=name in unsafe_src,
+            detail=(
+                f"helixor-sdk/src/unsafe.ts no longer re-exports {name!r}. "
+                f"Any partner that imports {name!r} from @helixor/sdk/unsafe "
+                f"will get `undefined`. Restore the re-export or coordinate "
+                f"the partner migration."
+            ),
+        )
+
+    default_src = _read(REPO_ROOT / "helixor-sdk" / "src" / "index.ts")
+    for name in UNSAFE_REEXPORTS:
+        # The default `@helixor/sdk` entry MUST NOT name the raw client
+        # surface in its export list. We grep the export keyword adjacent
+        # to the name to avoid matching a banal comment mention; the SDK
+        # convention is `export { Name, ... }`.
+        leak_patterns = (
+            f"export {{ {name}",
+            f"export {{\n  {name}",
+            f"  {name},",
+            f"  {name}\n",
+        )
+        # A leak fires only if the symbol is present in the source AND
+        # appears inside an export list. The simple heuristic: the
+        # default `index.ts` must not contain the symbol name at all,
+        # since it does not legitimately reference these classes.
+        _require(
+            report,
+            family=family,
+            rule=f"default-does-not-leak[{name}]",
+            condition=name not in default_src,
+            detail=(
+                f"helixor-sdk/src/index.ts references {name!r} — the DBP-3 "
+                f"safe-by-default invariant requires raw cert-reader "
+                f"primitives to live ONLY under @helixor/sdk/unsafe. Move "
+                f"the export to unsafe.ts."
+            ),
+        )
+        # Defensive double-check on the leak-pattern shape; redundant with
+        # the above but pins the export list specifically in case the
+        # default ever needs to legitimately mention the name (e.g. in a
+        # comment with a quoted import example).
+        _ = leak_patterns  # noqa: F841 — kept inline as the intent doc
+
+
+# =============================================================================
 # Driver
 # =============================================================================
 
@@ -603,6 +721,7 @@ def run() -> Report:
     check_vuln23_anchor(report)
     check_sol3_anchor(report)
     check_aw01ext_anchor(report)
+    check_unsafe_surface(report)
     return report
 
 

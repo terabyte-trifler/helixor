@@ -604,11 +604,11 @@ file.
       check, (4b) DeFi protocol uses cert without score threshold
       validation, (4c) DeFi protocol's cert-reading code has bugs.
       Closed by a four-substrate "Verified Integrator" tier whose
-      first deliverable (DBP-1) ships in this commit and whose
-      remaining deliverables (DBP-2 on-chain `VerifiedConsumer`
-      PDA, DBP-3 safe-default `@helixor/sdk` export, DBP-4 SLA-
-      backed freshness webhooks) are the revenue surface for the
-      tier. DBP-1 specifically: a self-serve consumer integration
+      first three deliverables (DBP-1 linter, DBP-2 on-chain
+      `VerifiedConsumer` PDA, DBP-3 safe-default `@helixor/sdk`
+      export partition) have shipped and whose remaining
+      deliverable (DBP-4 SLA-backed freshness webhooks) is the
+      revenue surface for the tier. DBP-1 specifically: a self-serve consumer integration
       linter (`audit/consumer_integration_check.py`) that verifies
       every `launch/integrations/*.json` partner manifest claims
       only allowed `operations_bound` (subset of
@@ -642,18 +642,59 @@ file.
       AW-01-EXT anchor (`verifyAgainstSolanaLedger` +
       `verifyInputProvenance` in
       `helixor-sdk/src/input_provenance.ts` and the re-export from
-      `helixor-sdk/src/index.ts`) — so any rename or removal of a
+      `helixor-sdk/src/index.ts`), and the DBP-3 safe-default
+      partition (`helixor-sdk/src/unsafe.ts` re-exports
+      `HelixorClient` + `HelixorChainClient`; the default
+      `helixor-sdk/src/index.ts` MUST NOT name either symbol; any
+      partner cert-reader source that imports `@helixor/sdk/
+      unsafe` MUST also reference `SafeCertReader` — the
+      `[DBP-1e][DBP-3 safe-default]` family fires HARD on any of
+      the three regressions) — so any rename or removal of a
       surface partner manifests bind against lights red BEFORE the
       change reaches mainnet, giving every active integrator a
       coordinated migration window rather than a silent void. The
       pytest self-test at `audit/test_consumer_integration_check.
       py` ALSO pins the canonical-hash invariant
       (`example_safe_partner.json::integration_hash ==
-      sha256(canonical_json(manifest_minus_signature))`) so a
-      schema drift between the manifest and its pinned hash lights
-      red on commit. A regression that removes any of these
-      mitigations lights the gate red BEFORE the change reaches
-      mainnet.
+      sha256(canonical_json(manifest_minus_signature))`) and the
+      five-family check count
+      (`summary.checks == 5` — DBP-1a..DBP-1e) so a schema drift
+      between the manifest and its pinned hash, or a silent removal
+      of an entire DBP-1 family, lights red on commit. A regression
+      that removes any of these mitigations lights the gate red
+      BEFORE the change reaches mainnet.
+- [ ] **DBP-2 Verified-Integrator badge live on chain** — the
+      `certificate-issuer` program exposes
+      `register_verified_consumer(integration_hash)` and
+      `revoke_verified_consumer(reason)` (anchors:
+      `programs/certificate-issuer/src/instructions/
+      register_verified_consumer.rs` +
+      `programs/certificate-issuer/src/instructions/
+      revoke_verified_consumer.rs` +
+      `programs/certificate-issuer/src/state/
+      verified_consumer.rs`). The PDA seed is
+      `[b"verified_consumer", partner_wallet]`; partner_wallet IS
+      the tx Signer so the binding is cryptographic without an
+      Ed25519 precompile dance. The 148-byte layout (8
+      discriminator + 140 data: partner_wallet, integration_hash,
+      registered_at_{slot,unix}, state, revoked_at_unix, revoked_by,
+      revoke_reason, layout_version, 16-byte _reserved) is pinned
+      by the SDK decoder at `helixor-sdk/src/verified_consumer.ts`
+      and the 9-test SDK suite at
+      `helixor-sdk/test/verified_consumer.test.ts`. The revoke
+      flow is dual-path: `PartnerSelfRevoke` requires the partner
+      to sign; `AdminBadFaith` / `AdminTerminated` require
+      `issuer_config.authority` to sign. The account is NEVER
+      closed on revoke so the audit trail persists; downstream
+      lending contracts MUST gate on
+      `isVerifiedConsumerActive(decoded)` (the
+      `is_active()` discriminator check on the `state` byte) and
+      treat "had a badge, lost it" as a refusal — presence alone
+      is insufficient. The
+      `REGISTRATION_DOMAIN_TAG = "helixor-dbp2-verified-consumer"`
+      digest helper is exported on both Rust and TS sides so any
+      future delegated-submission v2 path AND off-chain auditors
+      arrive at the same SHA256.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain

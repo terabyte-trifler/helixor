@@ -1,24 +1,28 @@
 // =============================================================================
 // helixor-sdk — the Helixor V2 client SDK.
 //
-// `getScore` is the MVP-compatible entry point — same shape, new on-chain
-// source. Everything else (epoch history) is additive.
+// DBP-3 — SAFE BY DEFAULT
+// -----------------------
+// The default entry point exposes ONLY structurally-safe surfaces:
+//   * `SafeCertReader` (VULN-23 freshness + velocity guard)
+//   * `verifyInputProvenance` / `verifyAgainstSolanaLedger` (AW-01 / AW-01-EXT)
+//   * `verifyBaselineProvenance` / `verifyScoreComputation` (AW-03 / AW-04)
+//   * DBP-2 `VerifiedConsumer` helpers
+//   * PDA derivation helpers, account decoders, type definitions
+//
+// Raw cert-reading clients live behind the explicit `@helixor/sdk/unsafe`
+// subpath. A consumer who genuinely needs the raw primitives types the
+// word `unsafe` to import them; the DBP-1 linter then verifies they wrap
+// the raw client in a safety-checking reader rather than reading it raw.
+//
+// See `launch/design/defi_bypass_resolution.md` §DBP-3 for the rollout
+// and the runbook for the failure modes.
 // =============================================================================
 
-// HTTP REST client (used by the ElizaOS plugin and off-chain consumers)
-export {
-  HelixorClient,
-  HelixorError,
-  AgentNotFoundError,
-  type TrustScore,
-  type RequireMinScoreOptions,
-} from "./http_client";
-
-// On-chain Solana client (reads certificates directly from the chain)
-export {
-  HelixorChainClient,
-  CertificateNotFoundError,
-} from "./client";
+// Safe types — shared between the raw clients (in `/unsafe`) and the
+// SafeCertReader contract. Exporting AlertTier / HealthScore / EpochScore
+// here keeps consumer-side type annotations intact even if they never
+// instantiate a raw client.
 export {
   AlertTier,
   alertTierFromCode,
