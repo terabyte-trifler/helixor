@@ -145,6 +145,24 @@ run "centralization gate"  python3 audit/centralization_check.py \
     --json audit/reports/centralization.json
 
 
+# ── 1m+. OFAC-1 silent-delist transparency gate ─────────────────────────────
+# A nation-state could pressure oracle node operators to delist certain
+# agent wallets. The cluster's existing defenses (HCR-4, 3-of-5
+# threshold, write-once cert PDAs) make a single coerced node
+# insufficient and make retrospective censorship visible — but offer no
+# real-time signal that the cluster considered an agent and DECLINED to
+# issue. OFAC-1 adds that signal: a structured `CertRefusal` record
+# (oracle/cert_refusal_log.py) is emitted onto the new
+# `Topic.CERT_REFUSED = "agent.cert_events.refused"` topic by every per-
+# agent gate (NSS-3, FRP-3, PDS-2, AW-01, AW-01-EXT, quorum,
+# threshold-sig, OPERATOR_OVERRIDE). This gate enforces that the
+# substrate, the canonical topic name, and the wire serialiser pair all
+# remain in place — a refactor that removes any of them makes silent
+# operator-side delisting invisible.
+run "OFAC-1 cert-refusal gate"  python3 audit/cert_refusal_check.py \
+    --json audit/reports/cert_refusal.json
+
+
 # ── 1n. Protocol Death Spiral audit gate ────────────────────────────────────
 # Architectural fix for catastrophic Scenario A from the audit: attacker
 # compromises 2 oracle nodes, runs VULN-03 slow drift for 30 epochs, all

@@ -155,3 +155,110 @@ def deserialize_alert(data: bytes) -> dict:
             f"alert wire version mismatch: got {payload.get('wire_version')}"
         )
     return payload
+
+
+# =============================================================================
+# CertRefusal <-> bytes  (OFAC-1 silent-delist transparency)
+# =============================================================================
+#
+# The cluster considered (agent_wallet, epoch) for cert issuance and
+# declined. The substrate is `oracle/cert_refusal_log.py`; this is the
+# wire serialisation for `Topic.CERT_REFUSED = "agent.cert_events.refused"`.
+#
+# The schema is intentionally narrow — no per-gate internals are
+# serialised, only the audit-relevant identifiers:
+#
+#   agent_wallet     base58 pubkey
+#   epoch            Helixor epoch
+#   requested_tier   the tier the cluster would have stamped (`GREEN` /
+#                    `YELLOW` / `RED` / `""` for tier-agnostic gates)
+#   gate             one of `RefusalGate` (NSS-3 / PDS-2 / OPERATOR-OVERRIDE / …)
+#   reasons          tuple of stable reason-code strings
+#   detected_at      RFC-3339 UTC timestamp of the refusal decision
+#
+# Round-trip exact — sorted keys, no whitespace drift — so the
+# indexer's idempotent dedup can use the serialised bytes as a stable
+# fingerprint. Bump CERT_REFUSED_WIRE_VERSION if the schema changes.
+
+CERT_REFUSED_WIRE_VERSION = 1
+
+
+def serialize_cert_refused(
+    *,
+    agent_wallet:   str,
+    epoch:          int,
+    requested_tier: str,
+    gate:           str,
+    reasons:        tuple[str, ...] | list[str],
+    detected_at:    datetime,
+) -> bytes:
+    """
+    Serialise a cert-refusal record for the `agent.cert_events.refused`
+    topic. Canonical JSON, sorted keys, UTF-8 — byte-identical
+    round-trip with `deserialize_cert_refused`.
+
+    Accepts the field set DIRECTLY (rather than a `CertRefusal`
+    instance) so this serialiser does NOT import `helixor-oracle`. The
+    indexer is the consumer side; importing the oracle substrate
+    would create a circular dependency. Callers on the oracle side
+    pass `refusal.agent_wallet, refusal.epoch, ...` explicitly.
+    """
+    if not agent_wallet or not agent_wallet.strip():
+        raise SerializationError(
+            "cert_refused.agent_wallet must be non-empty"
+        )
+    if epoch < 0:
+        raise SerializationError(
+            f"cert_refused.epoch must be >= 0, got {epoch}"
+        )
+    if not reasons:
+        raise SerializationError(
+            "cert_refused.reasons must be non-empty"
+        )
+    if detected_at.tzinfo is None:
+        raise SerializationError(
+            "cert_refused.detected_at must be tz-aware (UTC)"
+        )
+    payload = {
+        "wire_version":   CERT_REFUSED_WIRE_VERSION,
+        "agent_wallet":   agent_wallet,
+        "epoch":          int(epoch),
+        "requested_tier": requested_tier,
+        "gate":           gate,
+        "reasons":        list(reasons),
+        "detected_at":    detected_at.astimezone(timezone.utc).isoformat(),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def deserialize_cert_refused(data: bytes) -> dict:
+    """
+    Deserialise an `agent.cert_events.refused` payload back to a dict.
+    Returns the canonical payload shape; the consumer chooses how to
+    project it (TimescaleDB row, audit-gate input, etc.).
+
+    Raises SerializationError on malformed data or wire-version
+    mismatch — a poison message the consumer routes to the
+    dead-letter topic.
+    """
+    try:
+        payload = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SerializationError(f"not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise SerializationError("payload is not a JSON object")
+    if payload.get("wire_version") != CERT_REFUSED_WIRE_VERSION:
+        raise SerializationError(
+            f"cert_refused wire version mismatch: got "
+            f"{payload.get('wire_version')}, expected "
+            f"{CERT_REFUSED_WIRE_VERSION}"
+        )
+    for required in (
+        "agent_wallet", "epoch", "requested_tier",
+        "gate", "reasons", "detected_at",
+    ):
+        if required not in payload:
+            raise SerializationError(
+                f"cert_refused payload missing required field {required!r}"
+            )
+    return payload

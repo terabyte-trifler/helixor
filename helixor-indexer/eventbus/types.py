@@ -54,6 +54,21 @@ class Topic(str, enum.Enum):
     # still by `agent_wallet`, so per-agent ordering of cert events is
     # preserved.
     CERT_EVENTS  = "agent.cert_events"
+    # OFAC-1 SILENT-DELIST TRANSPARENCY. The cluster considered an
+    # (agent_wallet, epoch) pair for cert issuance and DECLINED. The
+    # substrate is `helixor-oracle/oracle/cert_refusal_log.py` —
+    # every per-agent gate (NSS-3, FRP-3, PDS-2, AW-01, AW-01-EXT,
+    # quorum, threshold-sig) drops a structured `CertRefusal` here.
+    # The auditable property: a captured cluster cannot SILENTLY
+    # refuse to score an OFAC-pressured agent, because every refusal
+    # carries a stable reason code + the deciding gate. Indexer
+    # audit script `audit/cert_refusal_check.py` flags suspicious
+    # patterns (`OPERATOR_OVERRIDE` codes, per-jurisdiction-tagged
+    # refusal-rate spikes, repeated refusals against a single agent
+    # without a corresponding incident-response entry). Per-partition
+    # keying is by `agent_wallet`, so per-agent ordering of refusals
+    # is preserved across the topic.
+    CERT_REFUSED = "agent.cert_events.refused"
 
 
 # =============================================================================

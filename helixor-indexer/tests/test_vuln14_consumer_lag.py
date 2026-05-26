@@ -145,11 +145,16 @@ class TestCertEventsTopicIsolation:
         # cert topics from general telemetry". The dedicated topic value is
         # the contract operators read.
         assert Topic.CERT_EVENTS.value == "agent.cert_events"
+        # OFAC-1 transparency topic is also part of the cert-events family,
+        # routed to its OWN topic so refusal records cannot queue behind
+        # high-volume telemetry on `agent.transactions`.
+        assert Topic.CERT_REFUSED.value == "agent.cert_events.refused"
         # Distinct from every other topic — otherwise isolation is in name only.
         all_values = {t.value for t in Topic}
         assert len(all_values) == len({
             Topic.TRANSACTIONS.value, Topic.ALERTS.value,
             Topic.DEAD_LETTER.value, Topic.CERT_EVENTS.value,
+            Topic.CERT_REFUSED.value,
         })
 
 
