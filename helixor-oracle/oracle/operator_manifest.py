@@ -68,7 +68,21 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+try:                                                       # pragma: no cover
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PublicKey,
+    )
+    _ED25519_AVAILABLE = True
+except ImportError:                                        # pragma: no cover
+    _ED25519_AVAILABLE = False
+
+try:                                                       # pragma: no cover
+    from solders.pubkey import Pubkey as _SoldersPubkey
+    _SOLDERS_AVAILABLE = True
+except ImportError:                                        # pragma: no cover
+    _SOLDERS_AVAILABLE = False
 
 
 # =============================================================================
@@ -110,6 +124,36 @@ class OperatorManifestError(ValueError):
     """Raised on a malformed `OperatorManifest` construction."""
 
 
+class OperatorSignatureError(RuntimeError):
+    """
+    OFAC-1 HARDENING: raised when one or more operator attestations
+    fail cryptographic signature verification.
+
+    The diversity gate (`verify_operator_diversity`) only checks that
+    the manifest's DECLARED tallies are diverse. It cannot tell whether
+    an operator LIED about their org or jurisdiction. This signature
+    gate closes that gap: each operator signs the canonical bytes of
+    their own attestation with the same Ed25519 key they declare as
+    `pubkey`. If they lie about org / jurisdiction / contact / node_id
+    without re-signing, verification fails. If they re-sign, they have
+    proven possession of the same key the cluster uses for cert
+    signing — so the lie costs the same key compromise the rest of
+    the protocol is already designed around.
+
+    The exception's `.report` carries per-attestation verdicts.
+    """
+
+    def __init__(self, message: str, report: "OperatorSignatureReport"):
+        super().__init__(message)
+        self.report = report
+
+
+class OperatorSigningUnavailable(RuntimeError):
+    """Raised if the `cryptography` or `solders` package is missing
+    when sig verification is attempted. Production wheels include
+    both; this is only hit in stripped-down dev environments."""
+
+
 # =============================================================================
 # OperatorAttestation / OperatorManifest / Report
 # =============================================================================
@@ -129,12 +173,29 @@ class OperatorAttestation:
     `jurisdiction`   ISO-3166 alpha-2 country code (`"US"`, `"DE"`,
                      `"SG"`). Two-letter code so the gate can apply
                      uniform validation.
+    `signature`      OFAC-1 HARDENING: hex-encoded 64-byte Ed25519
+                     signature over `attestation_canonical_bytes(self)`
+                     produced by the SAME private key whose public
+                     half is declared in `pubkey`. Empty string (the
+                     default) means the attestation is unsigned —
+                     `verify_attestation_signature` returns False and
+                     the production boot gate refuses the manifest.
+                     The diversity gate ignores this field, so
+                     diversity-only tests can omit it. The sig binds
+                     the operator's declaration of org / jurisdiction
+                     to the same key they sign certs with — lying
+                     about jurisdiction without re-signing fails the
+                     gate; re-signing requires possession of the key
+                     and therefore the lie costs the same key
+                     compromise the rest of the protocol already
+                     assumes the adversary cannot perform.
     """
     node_id:          str
     pubkey:           str
     operator_org:     str
     operator_contact: str
     jurisdiction:     str
+    signature:        str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,7 +375,170 @@ def verify_operator_diversity(
     return report
 
 
+# =============================================================================
+# OFAC-1 HARDENING — operator attestation cryptographic binding
+# =============================================================================
+#
+# The diversity gate above checks only what the manifest DECLARES. An
+# operator who lies — running Org A's node while attesting as Org B in
+# jurisdiction SG when they are physically in US — defeats HCR-4 without
+# breaking it. The external auditor catches this in retrospect, but not
+# at boot.
+#
+# The sig binding closes that gap: each operator signs their own
+# attestation with the SAME Ed25519 private key whose public half they
+# declare as `pubkey`. The same key signs certs in production, so
+# lying about jurisdiction now costs the operator the same private key
+# the rest of the protocol assumes the adversary cannot exfiltrate.
+#
+# Canonical bytes are intentionally NOT JSON — JSON encoders disagree
+# on whitespace, key order, and Unicode normalisation across versions
+# and languages. A pipe-separated UTF-8 byte string is unambiguous,
+# stable across hosts, and trivially reproducible in any language an
+# operator might use to sign offline.
+
+#: Canonical sig-binding prefix. Folded into the signed bytes so a sig
+#: generated for one domain (e.g. cert-payload) can never be replayed
+#: against an attestation, and vice-versa. Bump the version suffix if
+#: the canonical format ever changes.
+ATTESTATION_DOMAIN_TAG = b"helixor.operator_attestation.v1"
+
+
+def attestation_canonical_bytes(att: OperatorAttestation) -> bytes:
+    """
+    The canonical bytes the operator signs to bind their attestation.
+
+    Format::
+
+        ATTESTATION_DOMAIN_TAG
+        |node_id|pubkey|operator_org|operator_contact|jurisdiction
+
+    Joined with the ASCII `|` byte. UTF-8 encoded. Deterministic — two
+    callers given the same attestation produce byte-identical output.
+
+    `signature` is NOT included (you cannot sign over your own
+    signature). Every OTHER declared field IS included, so a lie about
+    any of them invalidates the sig.
+    """
+    pieces = (
+        att.node_id,
+        att.pubkey,
+        att.operator_org,
+        att.operator_contact,
+        att.jurisdiction,
+    )
+    body = "|".join(pieces).encode("utf-8")
+    return ATTESTATION_DOMAIN_TAG + b"|" + body
+
+
+def _decode_pubkey_bytes(pubkey: str) -> bytes:
+    """Decode a base58 Solana pubkey to its raw 32 bytes via solders."""
+    if not _SOLDERS_AVAILABLE:                              # pragma: no cover
+        raise OperatorSigningUnavailable(
+            "operator sig verification needs the 'solders' package for "
+            "base58 pubkey decoding"
+        )
+    return bytes(_SoldersPubkey.from_string(pubkey))
+
+
+def verify_attestation_signature(att: OperatorAttestation) -> bool:
+    """
+    Verify the operator's Ed25519 sig over `attestation_canonical_bytes(att)`.
+
+    Returns True iff:
+      * `att.signature` is a hex string of exactly 64 bytes.
+      * `att.pubkey` is a valid base58 Solana pubkey (32 bytes).
+      * `Ed25519PublicKey(pubkey_bytes).verify(sig_bytes, canonical)`
+        succeeds.
+
+    Returns False on ANY of: empty signature, malformed hex, wrong sig
+    length, malformed pubkey, verification failure. Never raises for a
+    bad signature — only `OperatorSigningUnavailable` if the crypto
+    backend is missing (stripped dev env).
+    """
+    if not _ED25519_AVAILABLE:                              # pragma: no cover
+        raise OperatorSigningUnavailable(
+            "operator sig verification needs the 'cryptography' package"
+        )
+    if not att.signature:
+        return False
+    try:
+        sig_bytes = bytes.fromhex(att.signature)
+    except ValueError:
+        return False
+    if len(sig_bytes) != 64:
+        return False
+    try:
+        pubkey_bytes = _decode_pubkey_bytes(att.pubkey)
+    except (ValueError, Exception):                         # noqa: BLE001
+        # solders raises a plain ValueError on bad base58 — and historic
+        # builds have surfaced other errors. Treat all as verification
+        # failure rather than letting them surface as runtime crashes.
+        return False
+    try:
+        Ed25519PublicKey.from_public_bytes(pubkey_bytes).verify(
+            sig_bytes, attestation_canonical_bytes(att),
+        )
+        return True
+    except Exception:                                       # noqa: BLE001
+        return False
+
+
+@dataclass(frozen=True, slots=True)
+class OperatorSignatureReport:
+    """
+    One run of the operator-signature gate.
+
+    `verdicts`   tuple of (node_id, ok) pairs in input order. Ordered
+                 so the report is deterministic across two operators
+                 running the gate on the same manifest.
+    """
+    verdicts: tuple[tuple[str, bool], ...] = field(default_factory=tuple)
+
+    @property
+    def all_signed(self) -> bool:
+        return all(ok for _, ok in self.verdicts)
+
+    @property
+    def failed_node_ids(self) -> tuple[str, ...]:
+        return tuple(node_id for node_id, ok in self.verdicts if not ok)
+
+
+def verify_attestation_signatures(
+    manifest: OperatorManifest,
+) -> OperatorSignatureReport:
+    """
+    Verify every attestation in the manifest carries a valid sig from
+    its declared pubkey. Returns the report on full-pass; raises
+    `OperatorSignatureError` (with the report attached) on any failure.
+
+    This is the production boot gate. Tests that only care about
+    diversity (no real keypairs) skip this and call
+    `verify_operator_diversity` alone.
+    """
+    verdicts = tuple(
+        (a.node_id, verify_attestation_signature(a))
+        for a in manifest.attestations
+    )
+    report = OperatorSignatureReport(verdicts=verdicts)
+    if report.all_signed:
+        return report
+    raise OperatorSignatureError(
+        f"HCR-4 sig binding: {len(report.failed_node_ids)} of "
+        f"{len(manifest.attestations)} operator attestation(s) FAILED "
+        f"signature verification: {list(report.failed_node_ids)!r}. "
+        f"Either the attestation was never signed (empty `signature` "
+        f"field) or the operator lied about their declared fields "
+        f"without re-signing. Re-issue the manifest with each operator "
+        f"re-signing `attestation_canonical_bytes(att)` with the "
+        f"SAME private key whose public half is in `att.pubkey`, then "
+        f"redeploy.",
+        report,
+    )
+
+
 __all__ = [
+    "ATTESTATION_DOMAIN_TAG",
     "MIN_DISTINCT_JURISDICTIONS",
     "MIN_DISTINCT_OPERATORS",
     "OperatorAttestation",
@@ -322,6 +546,12 @@ __all__ = [
     "OperatorDiversityReport",
     "OperatorManifest",
     "OperatorManifestError",
+    "OperatorSignatureError",
+    "OperatorSignatureReport",
+    "OperatorSigningUnavailable",
+    "attestation_canonical_bytes",
     "build_manifest",
+    "verify_attestation_signature",
+    "verify_attestation_signatures",
     "verify_operator_diversity",
 ]
