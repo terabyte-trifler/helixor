@@ -113,6 +113,13 @@ class ConsensusStream:
     `drain_conflicts()` for the deployment alerter.
     """
 
+    # TA-2: duck-typed marker that production_config.assert_source_verified_
+    # for_cluster() reads to confirm the runner is consuming the verified
+    # consensus path. Any class with this attr set to literal True qualifies;
+    # bypass-attempts via raw YellowstoneStreamSource / ListStreamSource do
+    # not have it, so the mainnet pre-flight rejects them.
+    is_verified_consensus_source: bool = True
+
     __slots__ = (
         "_trusted", "_min_agreements", "_window_size",
         "_window",

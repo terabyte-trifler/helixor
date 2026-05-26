@@ -245,6 +245,23 @@ file.
       removes any mitigation lights the gate red BEFORE the change
       reaches mainnet; SPOF-#1 and SPOF-#4 are covered by the AW-02
       and cluster-threshold gates respectively.
+- [ ] **Trust-assumption audit gate clean** —
+      `python3 audit/trust_assumption_check.py --json audit/reports/trust_assumption.json`
+      reports **0 HARD findings**. The gate is the mechanical
+      regression alarm for the 8-entry TRUST ASSUMPTIONS inventory in
+      `launch/design/trust_resolution.md`: TA-1 (oracle-node honesty —
+      `DivergenceDetector` + `DEFAULT_SCORE_TOLERANCE=50`), TA-2
+      (Geyser data integrity — runner pre-flight +
+      `is_verified_consensus_source` marker), TA-3 (scoring
+      properties — monotonicity + IMMEDIATE_RED invariants pinned),
+      TA-4 (library verification — `EXPECTED_LIBRARY_VERSIONS` in
+      lockstep with `requirements.in`), TA-5 (tx-window digest —
+      `compute_tx_window_digest` present), TA-6 (cert freshness —
+      `MAX_AGE_SECONDS=48h` + `is_fresh_at`), TA-7 (Squads transition
+      deadline 2026-09-01T00:00:00Z pinned), TA-8 (multi-RPC consensus
+      — `MAINNET_MIN_RPC_ENDPOINTS=3`, `MIN_RPC_CONSENSUS_THRESHOLD=2`).
+      A regression that removes any of these mitigations lights the
+      gate red BEFORE the change reaches mainnet.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain

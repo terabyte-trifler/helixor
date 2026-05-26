@@ -121,6 +121,18 @@ run "spof gate"  python3 audit/spof_check.py \
     --json audit/reports/spof.json
 
 
+# ── 1l. Trust-assumption audit gate ─────────────────────────────────────────
+# Architectural fix for the 8 TRUST ASSUMPTIONS enumerated in the audit
+# (TA-1..TA-8). Each was closed by a real mechanism — Byzantine-node
+# divergence detector, Geyser pre-flight gate, scoring property tests,
+# runtime library-version verification, tx-window digest commitment,
+# cert freshness ceiling, Squads transition deadline, multi-RPC
+# consensus. This gate greps each marker so a refactor that quietly
+# removes a mitigation lights red BEFORE mainnet.
+run "trust assumption gate"  python3 audit/trust_assumption_check.py \
+    --json audit/reports/trust_assumption.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

@@ -252,4 +252,46 @@ impl HealthCertificate {
 
     /// The PDA seed prefix for a certificate.
     pub const SEED_PREFIX: &'static [u8] = b"cert";
+
+    // =========================================================================
+    // TA-6: cert-freshness contract.
+    //
+    // THE TRUST ASSUMPTION (audit)
+    // -----------------------------
+    //   "DeFi protocols implement freshness checks — not enforced by
+    //   Helixor."
+    //
+    // The off-chain SafeCertReader (helixor-sdk/src/safe_reader.ts) DOES
+    // enforce a 48h ceiling. But a raw-cert consumer that bypasses the
+    // SDK gets only `issued_at` on chain and no on-chain
+    // recommendation of how stale is too stale. The constants + helper
+    // below put that contract IN the cert struct itself so any consumer
+    // — Rust, Anchor CPI, or hand-written SDK — sees the same number.
+    // =========================================================================
+
+    /// TA-6: the authoritative maximum age (in seconds) after which a
+    /// certificate is considered stale. Mirrors the SDK's
+    /// `CERT_MAX_AGE_SECONDS` (48 * 3600 = 172_800). A raw-cert consumer
+    /// SHOULD refuse certs older than this; a CPI consumer can call
+    /// `is_fresh(&clock)` below.
+    pub const MAX_AGE_SECONDS: i64 = 48 * 60 * 60;
+
+    /// TA-6: pure freshness predicate. Returns true iff the certificate
+    /// is at most `max_age_seconds` old at `now_unix`. A negative result
+    /// (cert from the future) also reads as STALE so a clock-skew attack
+    /// cannot smuggle a forged "young" cert past the gate.
+    pub fn is_fresh_at(&self, now_unix: i64, max_age_seconds: i64) -> bool {
+        if max_age_seconds < 0 {
+            return false;
+        }
+        let age = now_unix.saturating_sub(self.issued_at);
+        // Cert from the future ⇒ negative age ⇒ refuse.
+        age >= 0 && age <= max_age_seconds
+    }
+
+    /// TA-6: convenience wrapper that uses `MAX_AGE_SECONDS`. Suitable
+    /// for direct CPI consumers that have not adopted a custom age.
+    pub fn is_fresh_default(&self, now_unix: i64) -> bool {
+        self.is_fresh_at(now_unix, Self::MAX_AGE_SECONDS)
+    }
 }

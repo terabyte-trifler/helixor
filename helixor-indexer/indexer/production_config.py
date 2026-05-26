@@ -364,10 +364,79 @@ def build_production_geyser_config(
     )
 
 
+# =============================================================================
+# TA-2 enforcement: mainnet runner MUST consume a ConsensusStream
+# =============================================================================
+#
+# SPOF-#8's factory refuses to BUILD a single-endpoint mainnet config. TA-2
+# extends the gate to refuse to RUN a single-endpoint stream: if a caller
+# bypasses the factory and hands the runner an unverified StreamSource on
+# mainnet, the runner's pre-flight check must reject it.
+#
+# The marker is a duck-typed property `is_verified_consensus_source` on the
+# stream object. `ConsensusStream` exposes it as `True`; an unverified
+# YellowstoneStreamSource / ListStreamSource does not, and the check fails.
+# This keeps `indexer/runner.py` free of import-time dependencies on the
+# auth / consensus modules — the runner imports only this module's
+# `assert_source_verified_for_cluster` helper.
+
+
+class UnverifiedStreamSourceError(SinglePointGeyserError):
+    """
+    Raised when a mainnet `GeyserIndexer` is constructed with a StreamSource
+    that is NOT a verified consensus stream. A subclass of
+    `SinglePointGeyserError` so existing alert wiring catches it under the
+    same SPOF-#8 family.
+    """
+
+
+def is_verified_consensus_source(source: object) -> bool:
+    """
+    Duck-typed predicate: returns True iff `source` claims to be the
+    verified ConsensusStream production path.
+
+    The contract is: any StreamSource whose `is_verified_consensus_source`
+    attribute is the literal `True` is accepted; anything else is rejected.
+    `ConsensusStream` sets this attribute in its class body so honest
+    callers do not have to remember it.
+    """
+    return getattr(source, "is_verified_consensus_source", False) is True
+
+
+def assert_source_verified_for_cluster(
+    source: object,
+    *,
+    cluster: str | None = None,
+) -> None:
+    """
+    Pre-flight check used by `GeyserIndexer.__init__`. On a mainnet
+    cluster, the source MUST be a verified ConsensusStream — raises
+    `UnverifiedStreamSourceError` otherwise. On non-mainnet, no check.
+
+    Reading the env var here keeps the runner ignorant of cluster policy:
+    one helper, one place that knows what mainnet means.
+    """
+    if cluster is None:
+        cluster = os.environ.get(CLUSTER_ENV, "").strip()
+    if not _is_mainnet_cluster(cluster):
+        return
+    if not is_verified_consensus_source(source):
+        raise UnverifiedStreamSourceError(
+            f"TA-2: cluster {cluster!r} requires a verified ConsensusStream "
+            f"source (got {type(source).__name__!r}). Construct the indexer "
+            f"with build_production_geyser_config() + ConsensusStream — "
+            f"plain YellowstoneStreamSource is refused on mainnet so a "
+            f"compromised single endpoint cannot poison the ingest path.",
+        )
+
+
 __all__ = [
     "CLUSTER_ENV", "ENDPOINTS_ENV",
     "MAINNET_CLUSTERS", "MAINNET_MIN_ENDPOINTS", "MIN_CONSENSUS_THRESHOLD",
     "GeyserConfigError", "SinglePointGeyserError",
+    "UnverifiedStreamSourceError",
     "ProductionGeyserConfig",
     "build_production_geyser_config",
+    "is_verified_consensus_source",
+    "assert_source_verified_for_cluster",
 ]

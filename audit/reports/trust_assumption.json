@@ -1,0 +1,18 @@
+{
+  "checked": [
+    "TA-1 oracle-node honesty",
+    "TA-2 geyser data integrity",
+    "TA-3 scoring properties",
+    "TA-4 library verification",
+    "TA-5 tx-window digest",
+    "TA-6 cert freshness",
+    "TA-7 squads transition deadline",
+    "TA-8 multi-RPC consensus"
+  ],
+  "findings": [],
+  "summary": {
+    "checks": 8,
+    "hard_findings": 0,
+    "soft_findings": 0
+  }
+}

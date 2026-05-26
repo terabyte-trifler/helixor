@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from indexer.production_config import assert_source_verified_for_cluster
 from indexer.stream import StreamSource
 from indexer.types import IngestedTransaction, IngestionSource
 from indexer.writer import IngestionWriter
@@ -68,6 +69,10 @@ class GeyserIndexer:
     __slots__ = ("_source", "_writer")
 
     def __init__(self, source: StreamSource, writer: IngestionWriter) -> None:
+        # TA-2: pre-flight gate. On mainnet, refuses any source that does
+        # not advertise `is_verified_consensus_source = True`. On non-mainnet
+        # this is a no-op so devnet/localnet runners stay simple.
+        assert_source_verified_for_cluster(source)
         self._source = source
         self._writer = writer
 
