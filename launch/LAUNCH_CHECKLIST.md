@@ -785,6 +785,20 @@ file.
 - [ ] All 5 multisig members have hardware wallets, have signed a test
       tx to confirm key custody
 - [ ] **Mainnet runbook reviewed by lead** + filed on-call rotation
+- [ ] **Oracle-key-compromise runbook reviewed by lead.** The 4-step
+      incident response in `launch/runbooks/oracle_key_compromise_response.md`
+      composes the existing primitives — Step 1 (Squads
+      propose/enact rotation, 48h `MIN_TIMELOCK_SECONDS` from
+      `programs/health-oracle/.../state/pending_oracle_rotation.rs`),
+      Step 2 (`revoke_verified_consumer` with `AdminBadFaith`),
+      Step 3 (FRP-3 `MAX_CERT_REISSUE_INTERVAL_SECONDS = 4*3600`
+      cadence floor reissues certs under the rotated cluster within
+      4h with no new instruction), Step 4 (SOL-3 per-operation
+      freshness floors in `launch/integrations/example_safe_partner/reader.ts`
+      compose with the DBP-4 `cert.degrading` webhook at the 36h
+      `0.75 * 48h` threshold to fail-closed all Verified Integrators
+      automatically). On-call confirms they can recite the four
+      steps and find the linked instruction handlers in <5 minutes.
 - [ ] Monitoring stack (Prometheus + Alertmanager) live and tested in
       dev — every alert in `launch/monitoring/alerts.yml` fired
       manually at least once
