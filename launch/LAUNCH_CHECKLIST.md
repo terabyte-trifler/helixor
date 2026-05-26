@@ -799,6 +799,31 @@ file.
       `0.75 * 48h` threshold to fail-closed all Verified Integrators
       automatically). On-call confirms they can recite the four
       steps and find the linked instruction handlers in <5 minutes.
+- [ ] **API-DDoS runbook reviewed by lead.** The 3-step incident
+      response in `launch/runbooks/api_ddos_response.md` composes the
+      existing primitives — Step 1 (tighten the VULN-09 sliding-window
+      limiter in `helixor-api/api/rate_limit.py` via the
+      `HELIXOR_PUBLIC_RATE_LIMIT_PER_MIN` env var; NGINX upstream pool
+      at `launch/deploy/nginx/api_upstream.conf` already enforces
+      `max_fails=3 fail_timeout=15s` ejection + 64KiB body cap + GET-only
+      `proxy_next_upstream` failover; per-key tier overrides via
+      `HELIXOR_API_KEYS`), Step 2 (Verified Integrators switch to the
+      DBP-3 `SafePartnerReader` in
+      `launch/integrations/example_safe_partner/reader.ts`, which reads
+      `HealthCertificate` PDAs directly via Solana RPC with NO
+      dependency on `helixor-api`; the 2h epoch cadence stays well
+      under the SOL-3 LOAN_ISSUE 4h freshness floor so direct readers
+      remain valid throughout the flood), Step 3 (tighten Prometheus
+      `scrape_interval` from 15s to 5s in
+      `launch/monitoring/prometheus.yml` via hot-reload — `curl -X POST
+      /-/reload` — so on-call gets 3x faster signal on cluster health
+      while the API is degraded; the on-chain 2h cadence is unchanged
+      because changing it requires the VULN-13 48h timelock ceremony
+      and the existing cadence already meets SOL-3 floors). A
+      Redis-backed distributed limiter + managed CDN + kill-switch are
+      noted in the runbook as additive future work, not blockers.
+      On-call confirms they can recite the three steps and find the
+      linked files in <5 minutes.
 - [ ] **Score-manipulation runbook reviewed by lead.** The 4-step
       incident response in `launch/runbooks/score_manipulation_response.md`
       composes the existing primitives — Step 1 (`challenge_certificate`
