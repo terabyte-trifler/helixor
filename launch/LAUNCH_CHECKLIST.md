@@ -318,6 +318,50 @@ file.
       internal clamp and the SDK cap cannot drift out of lockstep
       silently. A regression that removes any of these mitigations
       lights the gate red BEFORE the change reaches mainnet.
+- [ ] **Nation-State Silent Subversion audit gate clean** —
+      `python3 audit/nation_state_check.py --json audit/reports/nation_state.json`
+      reports **0 HARD findings**. The gate is the mechanical
+      regression alarm for the catastrophic Scenario B
+      "Nation-State Silent Subversion" attack chain in
+      `launch/design/nation_state_subversion_resolution.md` —
+      nation-state compromises a cloud provider hosting oracle
+      nodes, a hypervisor kernel module exfiltrates Ed25519 private
+      keys, attacker accumulates K-of-N cluster keys, issues GREEN
+      certs for fresh state-controlled wallets, agents accumulate
+      large DeFi positions over weeks, coordinated market action.
+      Closed by three orthogonal mitigations: NSS-1 cluster cloud-
+      provider diversity gate
+      (`verify_cloud_diversity` + `MIN_DISTINCT_CLOUD_PROVIDERS=2`,
+      `DEFAULT_CLUSTER_SIZE=5`, `DEFAULT_CLUSTER_THRESHOLD=3` —
+      max nodes per cloud = N−K = 2, `KNOWN_CLOUD_PROVIDERS`
+      includes aws/gcp/azure/hetzner/self-hosted/etc. — refuses to
+      boot a cluster whose nodes concentrate on one cloud regardless
+      of region), NSS-2 mainnet HSM-only signing enforcement
+      (`classify_signer` + `verify_production_signer` +
+      `enforce_production_signer`, three pinned bucket constants
+      `SIGNER_BUCKET_IN_PROCESS="in-process"`,
+      `SIGNER_BUCKET_HSM="hsm"`, `SIGNER_BUCKET_UNKNOWN="unknown"`,
+      `HSMSigner`-suffix rule, opt-in env var
+      `HELIXOR_INPROCESS_SIGNER_OK` — refuses to start a mainnet
+      oracle node with an in-process Ed25519 signer so the
+      hypervisor-kernel exfil substrate is not present), NSS-3
+      cluster-side agent-registration-age floor
+      (`verify_agent_age_for_tier` + `enforce_agent_age_for_tier` +
+      `MIN_AGENT_AGE_SECONDS_FOR_GREEN = 14 * 24 * 3600` (14 days),
+      `MIN_AGENT_AGE_EPOCHS_FOR_GREEN = 168` (168 epochs at 2h
+      cadence), `GATED_TIER_GREEN = "GREEN"`,
+      `REASON_TIME_TRAVEL = "AGENT_REGISTERED_IN_FUTURE"` — refuses
+      to stamp a GREEN cert on a wallet whose `AgentRegistration` PDA
+      is younger than the dual seconds + epochs floors, so a state-
+      controlled fresh wallet either ages publicly visible or never
+      receives a collateral-grade endorsement). The gate ALSO
+      cross-checks the VULN-25 signer surface
+      (`InProcessSigner` + `HSMSigner` in
+      `oracle/cluster/signer.py`) and lights a SOFT finding if the
+      consumer-side VULN-23 `MIN_HISTORY_REQUIRED` marker in
+      `helixor-sdk/src/lib/cert_reader.ts` disappears. A regression
+      that removes any of these mitigations lights the gate red
+      BEFORE the change reaches mainnet.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain
