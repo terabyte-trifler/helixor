@@ -48,11 +48,25 @@ fn baseline_commit_nonce() -> u64 {
     7
 }
 
+// AW-04: fixed test scoring-bundle hash. Real hashes come from
+// `scoring/bundle_hash.py::compute_scoring_bundle_hash`.
+fn scoring_code_hash() -> [u8; 32] {
+    [0xBB; 32]
+}
+
+// AW-04: fixed test score-components hash. Real hashes come from
+// `oracle/score_components.py::score_components_hash` over the
+// canonical-JSON breakdown bytes.
+fn score_components_hash() -> [u8; 32] {
+    [0xCC; 32]
+}
+
 #[test]
 fn digest_is_32_bytes() {
     let d = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     assert_eq!(d.len(), 32);
 }
@@ -62,10 +76,12 @@ fn digest_is_deterministic() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     assert_eq!(a, b);
 }
@@ -75,10 +91,12 @@ fn digest_changes_with_score() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 852, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     assert_ne!(a, b);
 }
@@ -88,10 +106,12 @@ fn digest_changes_with_epoch() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     let b = cert_payload_digest(
         &agent(), 2, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     assert_ne!(a, b);
 }
@@ -101,10 +121,12 @@ fn digest_changes_with_alert_tier() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 0, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     assert_ne!(a, b);
 }
@@ -114,10 +136,12 @@ fn digest_changes_with_flags() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 0, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     assert_ne!(a, b);
 }
@@ -127,10 +151,12 @@ fn digest_changes_with_baseline_hash() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &[0x33; 32], true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &[0x44; 32], true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     assert_ne!(a, b);
 }
@@ -140,10 +166,12 @@ fn digest_changes_with_immediate_red() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), false, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     assert_ne!(a, b);
 }
@@ -154,10 +182,12 @@ fn digest_changes_with_agent() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     let b = cert_payload_digest(
         &other, 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     assert_ne!(a, b);
 }
@@ -170,10 +200,12 @@ fn digest_changes_with_input_commitment() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &[0x77; 32],
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &[0x88; 32],
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     assert_ne!(
         a, b,
@@ -191,10 +223,12 @@ fn digest_changes_with_slot_anchor_slot() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         250_000_000, &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         250_000_001, &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     assert_ne!(a, b, "AW-01-EXT slot must be folded into the digest");
 }
@@ -204,10 +238,12 @@ fn digest_changes_with_slot_anchor_hash() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &[0x99; 32], baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &[0xAA; 32], baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     assert_ne!(a, b, "AW-01-EXT block hash must be folded into the digest");
 }
@@ -220,10 +256,12 @@ fn digest_changes_with_baseline_commit_nonce() {
     let a = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), 7,
+        &scoring_code_hash(), &score_components_hash(),
     );
     let b = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), 8,
+        &scoring_code_hash(), &score_components_hash(),
     );
     assert_ne!(
         a, b,
@@ -250,6 +288,7 @@ fn digest_is_byte_identical_to_python_implementation() {
     let d = cert_payload_digest(
         &agent(), 1, 851, 2, 8, &baseline_hash(), true, &input_commitment(),
         slot_anchor_slot(), &slot_anchor_hash(), baseline_commit_nonce(),
+        &scoring_code_hash(), &score_components_hash(),
     );
     // sanity-check: it's the same 32 bytes you'd get from re-running the
     // line above. The Python integration test pins the same vector from

@@ -72,6 +72,7 @@ from oracle.cluster.cert_signing import (
 from oracle.cluster.identity import NodeKeypair
 from oracle.cluster.input_commitment import SlotAnchor
 from oracle.epoch_runner import AgentEpochInput
+from scoring.bundle_hash import compute_scoring_bundle_hash
 
 if TYPE_CHECKING:
     from oracle.node import OracleNode
@@ -230,6 +231,16 @@ def run_full_pipeline_epoch(
     agent_list = list(agent_inputs)
     baseline_hashes = _baseline_hashes_by_wallet(agent_list, computed_at=ts)
 
+    # AW-04: hash the canonical scoring-kernel source bytes (composite.py,
+    # weights.py, _gaming.py, determinism.py, detection/types.py) plus the
+    # algo + weights version labels. Computed ONCE per epoch — the bundle
+    # cannot change at runtime, and the bytes are folded into every cert
+    # digest below so the Ed25519 signature attests to the EXACT source
+    # bytes the cluster ran. A node that patched its own scoring code is
+    # caught by the on-chain hash mismatch (the cert digest will not
+    # match the digest other honest nodes signed).
+    scoring_code_hash = compute_scoring_bundle_hash()
+
     # ── DETECT unreachable nodes BEFORE running the epoch ───────────────────
     # A node whose service is unregistered (the "kill node" model) is
     # detected by transport probing — equivalent to the Phase-4 cluster's
@@ -278,6 +289,7 @@ def run_full_pipeline_epoch(
             byz_result, epoch_id, signing_kps,
             all_cluster_keys, threshold, submit_fn,
             baseline_hashes=baseline_hashes,
+            scoring_code_hash=scoring_code_hash,
         ))
 
     elapsed = time.perf_counter() - started
@@ -342,14 +354,15 @@ def _probe_unreachable(nodes: Sequence["OracleNode"]) -> set[str]:
 
 
 def _sign_and_submit(
-    byz_result:       ByzantineAgentResult,
-    epoch_id:         int,
-    signing_kps:      Sequence[NodeKeypair],
-    cluster_keys:     Sequence[bytes],
-    threshold:        int,
-    submit_fn:        OnChainSubmitFn,
+    byz_result:        ByzantineAgentResult,
+    epoch_id:          int,
+    signing_kps:       Sequence[NodeKeypair],
+    cluster_keys:      Sequence[bytes],
+    threshold:         int,
+    submit_fn:         OnChainSubmitFn,
     *,
-    baseline_hashes:  dict[str, bytes],
+    baseline_hashes:   dict[str, bytes],
+    scoring_code_hash: bytes,
 ) -> PipelineAgentResult:
     """Sign one agent's aggregated score and submit it on-chain."""
     wallet = byz_result.agent_wallet
@@ -427,6 +440,15 @@ def _sign_and_submit(
     # production replaces this with the nonce just submitted to BaselineStats
     # so the cluster signature binds to a specific BaselineDataAccount PDA.
     baseline_commit_nonce = 0
+    # AW-04: the chaos pipeline does not yet thread a single canonical
+    # ScoreResult through the byzantine_runner (the aggregated score is the
+    # MEDIAN across nodes, so the components hash needs a canonical
+    # per-agent ScoreResult — produced by Phase-5's `epoch_runner` integration
+    # which feeds `build_components_and_hash` per cert). The chaos pipeline
+    # signs with the `b"\x00" * 32` legacy sentinel; the on-chain handler
+    # accepts it as the pre-AW-04 "no components binding" path. Production
+    # submission goes through epoch_runner and binds the real hash.
+    score_components_hash = b"\x00" * 32
     digest = cert_payload_digest(
         agent_pk,
         epoch=epoch_id,
@@ -438,6 +460,8 @@ def _sign_and_submit(
         input_commitment=input_commitment,
         slot_anchor=slot_anchor,
         baseline_commit_nonce=baseline_commit_nonce,
+        scoring_code_hash=scoring_code_hash,
+        score_components_hash=score_components_hash,
     )
 
     # ── COLLECT signatures from every verified cluster node ─────────────────

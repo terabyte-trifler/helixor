@@ -94,6 +94,20 @@ run "aw03 baseline provenance sweep"  python3 audit/baseline_provenance_check.py
     --json audit/reports/aw03_baseline_provenance.json
 
 
+# ── 1j. AW-04 scoring-provenance pin sweep ──────────────────────────────────
+# Architectural fix for scoring black-box opacity: every production
+# cluster-signing callsite must bind BOTH `scoring_code_hash` and
+# `score_components_hash` so the cert digest names a SPECIFIC scoring
+# kernel + SPECIFIC fetchable `ScoreComponentsAccount` PDA on chain.
+# A regression that drops either argument would silently emit certs
+# that bind to "no code"/"no components" — defeating AW-04 without any
+# type error, since both kwargs default to 32 zero bytes for legacy
+# compat. Also pins `scoreComponentsPda(.., epoch)` — the components
+# account is per-epoch and must be addressed accordingly.
+run "aw04 scoring provenance sweep"  python3 audit/scoring_provenance_check.py \
+    --json audit/reports/aw04_scoring_provenance.json
+
+
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
     run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"

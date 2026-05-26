@@ -131,4 +131,26 @@ pub enum CertificateError {
            recorded nonce — baseline-data nonces are appendable only and \
            monotonic; a same/lower nonce would mask a stale DA account")]
     BaselineCommitNonceNotMonotonic = 6091,
+
+    // ── AW-04: scoring-engine provenance ────────────────────────────────────
+    #[msg("scoring_code_hash is all zeros — the cluster must compute the \
+           canonical scoring-bundle hash before issuing a cert (AW-04); a \
+           zero hash indicates the off-chain submitter skipped the scoring-\
+           kernel provenance binding")]
+    MissingScoringCodeHash = 6100,
+    #[msg("score_components_hash is all zeros — every cert must publish a \
+           paired ScoreComponentsAccount with the per-dimension breakdown \
+           (AW-04); a zero hash indicates the off-chain submitter skipped \
+           the score-components binding")]
+    MissingScoreComponentsHash = 6101,
+    #[msg("score-components payload is empty — refusing to write an empty \
+           components account")]
+    ScoreComponentsPayloadEmpty = 6102,
+    #[msg("score-components payload exceeds MAX_SCORE_COMPONENTS_PAYLOAD_LEN — \
+           the off-chain serializer drifted from the canonical form")]
+    ScoreComponentsPayloadTooLarge = 6103,
+    #[msg("sha256(score_components_payload) != score_components_hash — the \
+           on-chain bytes and the cluster-signed hash disagree; refusing \
+           to write the components account (AW-04 invariant)")]
+    ScoreComponentsHashMismatch = 6104,
 }

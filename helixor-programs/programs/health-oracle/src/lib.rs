@@ -107,19 +107,25 @@ pub mod health_oracle {
     /// SlotHashes sysvar — Solana itself becomes a third source of truth
     /// beyond the cluster's RPC fleet.
     pub fn submit_score(
-        ctx:              Context<SubmitScore>,
-        epoch:            u64,
-        score:            u16,
-        alert_tier:       u8,
-        flags:            u32,
-        immediate_red:    bool,
-        input_commitment: [u8; 32],
-        slot_anchor_slot: u64,
-        slot_anchor_hash: [u8; 32],
+        ctx:                      Context<SubmitScore>,
+        epoch:                    u64,
+        score:                    u16,
+        alert_tier:               u8,
+        flags:                    u32,
+        immediate_red:            bool,
+        input_commitment:         [u8; 32],
+        slot_anchor_slot:         u64,
+        slot_anchor_hash:         [u8; 32],
+        // AW-04: scoring-kernel bundle hash + raw canonical components
+        // payload. Forwarded to the certificate-issuer CPI which hashes
+        // the payload on chain and folds both into the cert digest.
+        scoring_code_hash:        [u8; 32],
+        score_components_payload: Vec<u8>,
     ) -> Result<()> {
         instructions::submit_score::handler(
             ctx, epoch, score, alert_tier, flags, immediate_red,
             input_commitment, slot_anchor_slot, slot_anchor_hash,
+            scoring_code_hash, score_components_payload,
         )
     }
 

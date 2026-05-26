@@ -27,14 +27,16 @@ use certificate_issuer::state::{AlertTier, BaselineStats, HealthCertificate, Iss
 #[test]
 fn health_certificate_size_constants_are_correct() {
     //   32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1 = 123  (signer_count added v2)
-    // + 32 input_commitment (AW-01, v3)                  =  32
-    // +  8 slot_anchor_slot (AW-01-EXT, v4)              =   8
-    // + 32 slot_anchor_hash (AW-01-EXT, v4)              =  32
-    // +  1 challenge_state  (AW-01-EXT.6, v5)            =   1
-    // + 14 reserved                                       =  14
-    // = 210 (size unchanged from v4 — challenge_state came out of _reserved)
-    assert_eq!(HealthCertificate::SIZE_WITHOUT_DISCRIMINATOR, 210);
-    assert_eq!(HealthCertificate::SPACE, 218);          // + 8 discriminator
+    // + 32 input_commitment       (AW-01,     v3)        =  32
+    // +  8 slot_anchor_slot       (AW-01-EXT, v4)        =   8
+    // + 32 slot_anchor_hash       (AW-01-EXT, v4)        =  32
+    // +  1 challenge_state        (AW-01-EXT.6, v5)      =   1
+    // +  8 baseline_commit_nonce  (AW-03,     v6)        =   8  (from reserve)
+    // + 32 scoring_code_hash      (AW-04,     v7)        =  32  (appended; +32 growth)
+    // +  6 reserved                                       =   6
+    // = 242 (was 210 pre-AW-04; +32 from appending scoring_code_hash)
+    assert_eq!(HealthCertificate::SIZE_WITHOUT_DISCRIMINATOR, 242);
+    assert_eq!(HealthCertificate::SPACE, 250);          // + 8 discriminator
 }
 
 #[test]
@@ -70,7 +72,8 @@ fn layout_versions_are_current() {
     // v4: AW-01-EXT — slot_anchor (40 bytes: 8B slot + 32B hash).
     // v5: AW-01-EXT.6 — challenge_state (1 byte, from reserved; same size as v4).
     // v6: AW-03 — baseline_commit_nonce (8 bytes, from reserved; same size as v5).
-    assert_eq!(HealthCertificate::CURRENT_LAYOUT_VERSION, 6);
+    // v7: AW-04 — scoring_code_hash (32 bytes APPENDED; size 210 -> 242).
+    assert_eq!(HealthCertificate::CURRENT_LAYOUT_VERSION, 7);
     assert_eq!(BaselineStats::CURRENT_LAYOUT_VERSION, 1);
 }
 

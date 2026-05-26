@@ -54,7 +54,9 @@ def cert_payload_digest(
     input_commitment:      bytes,
     slot_anchor:           "SlotAnchor",
     *,
-    baseline_commit_nonce: int = 0,
+    baseline_commit_nonce:  int   = 0,
+    scoring_code_hash:      bytes = b"\x00" * 32,
+    score_components_hash:  bytes = b"\x00" * 32,
 ) -> bytes:
     """
     The 32-byte canonical cert-payload digest — byte-identical to the
@@ -97,6 +99,25 @@ def cert_payload_digest(
     only agree if the cluster scored against the exact data account the
     chain now stamps. Pre-AW-03 callers pass `0` and the on-chain handler
     treats `0` as the legacy sentinel.
+
+    AW-04: `scoring_code_hash` is the 32-byte SHA-256 over the canonical
+    scoring kernel source bytes plus the algo/weights version labels
+    (see scoring/bundle_hash.py). `score_components_hash` is the 32-byte
+    SHA-256 over the canonical-JSON payload published in the cert's
+    paired `ScoreComponentsAccount` PDA (see oracle/score_components.py).
+    Folding both into the cert digest closes the scoring-engine-black-box
+    gap: the Ed25519 signature now attests not just to the inputs and a
+    derived score, but to (a) the EXACT source bytes that produced it
+    (a cluster shipping patched scoring code cannot produce a digest with
+    the right `scoring_code_hash` unless it actually ran the published
+    code) and (b) the FULL per-dimension breakdown (a cluster cannot
+    publish a fabricated score without committing to a `dims[]` whose
+    `sum(contrib) -> clamp -> delta_guard` produces that same score —
+    every input to the replay is signed). SDK consumers run
+    `verify_score_computation` to re-execute the published bundle against
+    the published components and refuse certs whose replay disagrees.
+    Pre-AW-04 callers pass `b"\\x00" * 32` for either kwarg; the on-chain
+    handler treats `[0; 32]` as the legacy "no binding" sentinel.
     """
     import hashlib
 
@@ -126,6 +147,10 @@ def cert_payload_digest(
         raise ValueError(
             f"baseline_commit_nonce out of u64 range: {baseline_commit_nonce}"
         )
+    if len(scoring_code_hash) != 32:
+        raise ValueError("scoring_code_hash must be 32 bytes")
+    if len(score_components_hash) != 32:
+        raise ValueError("score_components_hash must be 32 bytes")
 
     anchor_bytes = slot_anchor.to_bytes()
     assert len(anchor_bytes) == SLOT_ANCHOR_BYTES, \
@@ -143,6 +168,8 @@ def cert_payload_digest(
         + bytes(input_commitment)                       # 32  ← AW-01
         + anchor_bytes                                  # 40  ← AW-01-EXT
         + baseline_commit_nonce.to_bytes(8, "big")      #  8  ← AW-03
+        + bytes(scoring_code_hash)                      # 32  ← AW-04
+        + bytes(score_components_hash)                  # 32  ← AW-04
     )
     return hashlib.sha256(payload).digest()
 

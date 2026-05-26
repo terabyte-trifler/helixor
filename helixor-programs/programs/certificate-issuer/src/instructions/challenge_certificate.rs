@@ -520,6 +520,7 @@ mod tests {
         let challenge_d = challenge_payload_digest(&cert, &[0u8; 32]);
         let cert_d = crate::signing::cert_payload_digest(
             &cert, 1, 0, 0, 0, &[0u8; 32], false, &[0u8; 32], 0, &[0u8; 32], 0,
+            &[0u8; 32], &[0u8; 32],
         );
         assert_ne!(challenge_d, cert_d);
     }

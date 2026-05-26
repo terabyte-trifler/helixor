@@ -51,6 +51,8 @@ function certPayloadDigest(
   slotAnchorSlot: bigint,         // AW-01-EXT — Solana slot pinned at scoring
   slotAnchorHash: Buffer,         // AW-01-EXT — block hash for that slot
   baselineCommitNonce: bigint,    // AW-03 — names the BaselineDataAccount PDA
+  scoringCodeHash: Buffer,        // AW-04 — bundle hash of the scoring kernel
+  scoreComponentsHash: Buffer,    // AW-04 — sha256(canonical components payload)
 ): Buffer {
   const epochBuf = Buffer.alloc(8);  epochBuf.writeBigUInt64BE(BigInt(epoch));
   const scoreBuf = Buffer.alloc(2);  scoreBuf.writeUInt16BE(score);
@@ -60,6 +62,12 @@ function certPayloadDigest(
   }
   if (slotAnchorHash.length !== 32) {
     throw new Error("slotAnchorHash must be 32 bytes (AW-01-EXT)");
+  }
+  if (scoringCodeHash.length !== 32) {
+    throw new Error("scoringCodeHash must be 32 bytes (AW-04)");
+  }
+  if (scoreComponentsHash.length !== 32) {
+    throw new Error("scoreComponentsHash must be 32 bytes (AW-04)");
   }
   const anchorSlotBuf = Buffer.alloc(8);
   anchorSlotBuf.writeBigUInt64BE(slotAnchorSlot);
@@ -77,6 +85,8 @@ function certPayloadDigest(
     anchorSlotBuf,                               //  8  ← AW-01-EXT
     slotAnchorHash,                              // 32  ← AW-01-EXT
     nonceBuf,                                    //  8  ← AW-03
+    scoringCodeHash,                             // 32  ← AW-04
+    scoreComponentsHash,                         // 32  ← AW-04
   ]);
   return createHash("sha256").update(payload).digest();
 }
@@ -129,6 +139,20 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
   // AW-01: a fixed test input-provenance commitment. Real commitments are
   // produced by the off-chain helixor-oracle pipeline.
   const inputCommitment = Buffer.alloc(32, 0x99);
+  // AW-04: a fixed test scoring-kernel bundle hash (non-zero — the on-chain
+  // guard rejects all-zeros). Real values come from
+  // `scoring.bundle_hash.compute_scoring_bundle_hash()`.
+  const scoringCodeHash = Buffer.alloc(32, 0xab);
+  // AW-04: a fixed test components payload (any non-empty ≤ 4 KB blob).
+  // The on-chain handler computes sha256 itself; we mirror that locally
+  // so the cert digest matches.
+  const scoreComponentsPayload = Buffer.from(
+    JSON.stringify({ v: 1, score: 916, dims: [] }),
+    "utf-8",
+  );
+  const scoreComponentsHash = createHash("sha256")
+    .update(scoreComponentsPayload)
+    .digest();
 
   // AW-01-EXT — capture a LIVE `(slot, block_hash)` from the validator
   // for each test that needs one. The on-chain `verify_slot_anchor`
@@ -163,6 +187,14 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
   const certPda = (agent: PublicKey, epoch: number) =>
     PublicKey.findProgramAddressSync(
       [enc("cert"), agent.toBuffer(), new BN(epoch).toArrayLike(Buffer, "le", 8)],
+      program.programId,
+    )[0];
+  // AW-04: write-once ScoreComponentsAccount, one per (agent, epoch). Keyed
+  // by the same epoch as the cert so the SDK verifier can derive it from
+  // the cert alone.
+  const scoreComponentsPda = (agent: PublicKey, epoch: number) =>
+    PublicKey.findProgramAddressSync(
+      [enc("score_components"), agent.toBuffer(), new BN(epoch).toArrayLike(Buffer, "le", 8)],
       program.programId,
     )[0];
 
@@ -347,6 +379,8 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
       inputCommitment,
       slotAnchor.slot, slotAnchor.hash,
       1n,                                  // AW-03: baselineCommitNonce stamped on BaselineStats
+      scoringCodeHash,                     // AW-04: scoring-kernel bundle hash
+      scoreComponentsHash,                 // AW-04: sha256(components payload)
     );
 
     // Pick three of the five cluster keys to sign.
@@ -363,9 +397,12 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
         [...inputCommitment],
         new BN(slotAnchor.slot.toString()),  // slotAnchorSlot
         [...slotAnchor.hash],                // slotAnchorHash
+        [...scoringCodeHash],                // AW-04: scoringCodeHash
+        Buffer.from(scoreComponentsPayload), // AW-04: raw components payload
       )
       .accounts({
         certificate: certPda(agentOk, epoch),
+        scoreComponents: scoreComponentsPda(agentOk, epoch),  // AW-04
         baselineStats: baselinePda(agentOk),
         issuerConfig: issuerConfigPda(),
         issuer: submitter.publicKey,
@@ -398,6 +435,8 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
       inputCommitment,
       slotAnchor.slot, slotAnchor.hash,
       1n,                                  // AW-03: baselineCommitNonce stamped on BaselineStats
+      scoringCodeHash,                     // AW-04: scoring-kernel bundle hash
+      scoreComponentsHash,                 // AW-04: sha256(components payload)
     );
 
     // Only TWO signers — below the threshold of 3.
@@ -414,9 +453,12 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
         [...inputCommitment],
         new BN(slotAnchor.slot.toString()),
         [...slotAnchor.hash],
+        [...scoringCodeHash],                // AW-04: scoringCodeHash
+        Buffer.from(scoreComponentsPayload), // AW-04: raw components payload
       )
       .accounts({
         certificate: certPda(agentBad, epoch),
+        scoreComponents: scoreComponentsPda(agentBad, epoch),  // AW-04
         baselineStats: baselinePda(agentBad),
         issuerConfig: issuerConfigPda(),
         issuer: submitter.publicKey,
@@ -448,6 +490,8 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
       inputCommitment,
       slotAnchor.slot, slotAnchor.hash,
       1n,                                  // AW-03: baselineCommitNonce stamped on BaselineStats
+      scoringCodeHash,                     // AW-04: scoring-kernel bundle hash
+      scoreComponentsHash,                 // AW-04: sha256(components payload)
     );
 
     const cluster2 = clusterKps.slice(0, 2);
@@ -472,9 +516,12 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
         [...inputCommitment],
         new BN(slotAnchor.slot.toString()),
         [...slotAnchor.hash],
+        [...scoringCodeHash],                // AW-04: scoringCodeHash
+        Buffer.from(scoreComponentsPayload), // AW-04: raw components payload
       )
       .accounts({
         certificate: certPda(agentBad, epoch),
+        scoreComponents: scoreComponentsPda(agentBad, epoch),  // AW-04
         baselineStats: baselinePda(agentBad),
         issuerConfig: issuerConfigPda(),
         issuer: submitter.publicKey,
@@ -509,6 +556,8 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
       inputCommitment,
       slotAnchor.slot, slotAnchor.hash,
       1n,                                  // AW-03: baselineCommitNonce stamped on BaselineStats
+      scoringCodeHash,                     // AW-04: scoring-kernel bundle hash
+      scoreComponentsHash,                 // AW-04: sha256(components payload)
     );
 
     // This is what the attacker tries to replay: three real cluster-key
@@ -528,6 +577,8 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
       slotAnchor.slot + 1n,                // different slot
       Buffer.alloc(32, 0x55),              // different anchor hash
       42n,                                  // AW-03: different baselineCommitNonce to drift digest further
+      Buffer.alloc(32, 0x66),              // AW-04: different scoringCodeHash to drift further
+      Buffer.alloc(32, 0x77),              // AW-04: different scoreComponentsHash to drift further
     );
     assert.notDeepEqual(
       [...historicalDigest],
@@ -547,9 +598,12 @@ describe("certificate-issuer 3-of-5 threshold signing (Day 27)", () => {
         [...inputCommitment],
         new BN(slotAnchor.slot.toString()),
         [...slotAnchor.hash],
+        [...scoringCodeHash],                // AW-04: scoringCodeHash
+        Buffer.from(scoreComponentsPayload), // AW-04: raw components payload
       )
       .accounts({
         certificate: certPda(agentReplay, epoch),
+        scoreComponents: scoreComponentsPda(agentReplay, epoch),  // AW-04
         baselineStats: baselinePda(agentReplay),
         issuerConfig: issuerConfigPda(),
         issuer: submitter.publicKey,

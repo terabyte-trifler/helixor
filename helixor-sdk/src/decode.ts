@@ -76,6 +76,21 @@ export interface DecodedHealthCertificate {
    * cert's baseline; only the hash commitment is available".
    */
   baselineCommitNonce: bigint;
+  /**
+   * AW-04: SHA-256 over the canonical scoring kernel source bytes plus
+   * the algo + weights version labels (v7+). See
+   * `oracle/scoring/bundle_hash.py::compute_scoring_bundle_hash` for the
+   * canonical form. Folded into the cert-payload digest the cluster
+   * signed, so the threshold signatures cryptographically attest to the
+   * EXACT source bytes that produced this score. A consumer running
+   * `verifyScoringCodeHash` clones the helixor repo at the published tag,
+   * recomputes the bundle hash, and refuses the cert if it disagrees with
+   * this field — closing the gap where a cluster ships patched scoring
+   * code while claiming the published algo version. On a pre-v7
+   * certificate (length 218 total, layoutVersion < 7) the bytes do not
+   * exist; the decoder returns the zero sentinel.
+   */
+  scoringCodeHash: Uint8Array; // 32 bytes
 }
 
 /** AW-01-EXT.6: human-readable names for the `challengeState` byte. */
@@ -86,13 +101,14 @@ export const CHALLENGE_STATE_REJECTED = 2;
 /**
  * Decode a HealthCertificate account.
  *
- * LAYOUT (after the 8-byte discriminator, total 210 bytes for v4/v5):
- *   agent_wallet      32   epoch              8   score              2
- *   alert_tier         1   flags              4   issued_at          8
- *   issuer            32   baseline_hash     32   immediate_red      1
- *   bump               1   layout_version     1   signer_count       1
- *   input_commitment  32   slot_anchor_slot   8   slot_anchor_hash  32
- *   challenge_state    1   _reserved         14
+ * LAYOUT (after the 8-byte discriminator, total 242 bytes for v7):
+ *   agent_wallet           32   epoch                  8   score              2
+ *   alert_tier              1   flags                  4   issued_at          8
+ *   issuer                 32   baseline_hash         32   immediate_red      1
+ *   bump                    1   layout_version         1   signer_count       1
+ *   input_commitment       32   slot_anchor_slot       8   slot_anchor_hash  32
+ *   challenge_state         1   baseline_commit_nonce  8   scoring_code_hash 32
+ *   _reserved               6
  *
  * Layout history:
  *   v1: pre-signer_count, pre-input_commitment, pre-slot_anchor; 170+8.
@@ -104,6 +120,9 @@ export const CHALLENGE_STATE_REJECTED = 2;
  *       (AW-01-EXT.6). Account size UNCHANGED at 210+8.
  *   v6: baseline_commit_nonce (8 bytes, u64 LE) consumes the next 8
  *       bytes of _reserved (AW-03). Account size UNCHANGED at 210+8.
+ *   v7: scoring_code_hash ([u8;32]) APPENDED (AW-04). The previous
+ *       _reserved was only 6 bytes, so the 32-byte hash forces a realloc:
+ *       account grows from 210+8 to 242+8.
  *
  * Decoding a SHORT (pre-v4) buffer returns the zero sentinel for the new
  * fields; the caller can detect this via `layoutVersion < 4`. A pre-v5
@@ -111,6 +130,9 @@ export const CHALLENGE_STATE_REJECTED = 2;
  * which equals `CHALLENGE_STATE_NONE` — safe (the byte was always zero).
  * A pre-v6 buffer (layoutVersion < 6) reads the 8 nonce bytes as 0 — the
  * sentinel "no DA account exists for this cert's baseline".
+ * A pre-v7 buffer (length 218, layoutVersion < 7) is shorter than v7 by
+ * 32 bytes; `scoringCodeHash` falls back to the zero sentinel — the
+ * meaning is "no scoring-bundle commitment exists for this cert".
  */
 export function decodeHealthCertificate(
   data: Buffer | Uint8Array
@@ -157,7 +179,17 @@ export function decodeHealthCertificate(
   let baselineCommitNonce: bigint = 0n;
   if (buf.length >= o + 8) {
     baselineCommitNonce = buf.readBigUInt64LE(o);
-    // o += 8; // (not used; _reserved [6] follows and is not decoded)
+    o += 8;
+  }
+
+  // AW-04 scoring_code_hash (v7+). APPENDED (NOT carved from _reserved)
+  // — pre-v7 buffers are 32 bytes shorter and have no scoring_code_hash
+  // bytes to read. Fall back to the zero sentinel; the caller can detect
+  // this via `layoutVersion < 7` and skip the scoring-bundle check.
+  let scoringCodeHash: Uint8Array = new Uint8Array(32);
+  if (buf.length >= o + 32) {
+    scoringCodeHash = buf.subarray(o, o + 32);
+    // o += 32; // (not used; _reserved [6] follows and is not decoded)
   }
 
   return {
@@ -178,6 +210,7 @@ export function decodeHealthCertificate(
     slotAnchorHash,
     challengeState,
     baselineCommitNonce,
+    scoringCodeHash,
   };
 }
 
@@ -259,6 +292,83 @@ export function decodeBaselineDataAccount(
     baselineAlgoVersion,
     committedAt,
     committer,
+    payload,
+    bump,
+    layoutVersion,
+  };
+}
+
+// =============================================================================
+// ScoreComponentsAccount (AW-04)
+// =============================================================================
+
+export interface DecodedScoreComponentsAccount {
+  /** The agent this components payload belongs to. Mirrors paired cert. */
+  agentWallet: Uint8Array; // 32 bytes
+  /** The epoch this components payload covers. Mirrors paired cert. */
+  epoch: bigint;
+  /** sha256(payload). Enforced by the on-chain handler at write time. */
+  componentsHash: Uint8Array; // 32 bytes
+  /** Unix seconds when this components account was written. */
+  computedAt: bigint;
+  /** Canonical-JSON payload bytes — `sha256(payload) === componentsHash`. */
+  payload: Uint8Array;
+  /** Canonical PDA bump. */
+  bump: number;
+  /** Account-layout version (v1 = AW-04 initial). */
+  layoutVersion: number;
+}
+
+/**
+ * Decode a `ScoreComponentsAccount` (the AW-04 on-chain components DA).
+ *
+ * LAYOUT (after the 8-byte discriminator, total 102 + N bytes):
+ *   agent_wallet            32   epoch              8
+ *   components_hash         32   computed_at        8
+ *   payload_len              4   payload            N
+ *   bump                     1   layout_version     1
+ *   _reserved               16
+ *
+ * The payload is the canonical-JSON bytes produced by the off-chain
+ * Python serializer (`oracle/score_components.py`); its SHA-256 MUST
+ * equal `componentsHash`, which the on-chain handler enforces at write
+ * time.
+ */
+export function decodeScoreComponentsAccount(
+  data: Buffer | Uint8Array
+): DecodedScoreComponentsAccount {
+  const buf = Buffer.from(data);
+  let o = DISCRIMINATOR_LEN;
+
+  if (buf.length < o + 32 + 8 + 32 + 8 + 4) {
+    throw new Error(
+      `ScoreComponentsAccount buffer too short: ${buf.length} bytes`
+    );
+  }
+
+  const agentWallet = buf.subarray(o, o + 32); o += 32;
+  const epoch = buf.readBigUInt64LE(o); o += 8;
+  const componentsHash = buf.subarray(o, o + 32); o += 32;
+  const computedAt = buf.readBigInt64LE(o); o += 8;
+
+  const payloadLen = buf.readUInt32LE(o); o += 4;
+  if (buf.length < o + payloadLen + 1 + 1 + 16) {
+    throw new Error(
+      `ScoreComponentsAccount truncated: claims payload_len=${payloadLen} ` +
+      `but only ${buf.length - o} bytes remain (need ${payloadLen + 18})`
+    );
+  }
+  const payload = buf.subarray(o, o + payloadLen); o += payloadLen;
+
+  const bump = buf.readUInt8(o); o += 1;
+  const layoutVersion = buf.readUInt8(o); o += 1;
+  // _reserved [16] follows.
+
+  return {
+    agentWallet,
+    epoch,
+    componentsHash,
+    computedAt,
     payload,
     bump,
     layoutVersion,

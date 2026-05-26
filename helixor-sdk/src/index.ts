@@ -34,14 +34,17 @@ export {
   epochToLeBytes,
   baselineDataPda,
   commitNonceToLeBytes,
+  scoreComponentsPda,
 } from "./pdas";
 export {
   decodeHealthCertificate,
   decodeEpochState,
   decodeBaselineDataAccount,
+  decodeScoreComponentsAccount,
   type DecodedHealthCertificate,
   type DecodedEpochState,
   type DecodedBaselineDataAccount,
+  type DecodedScoreComponentsAccount,
 } from "./decode";
 
 // VULN-23 consumer-side guard rails — wraps any ChainReader and refuses
@@ -110,3 +113,34 @@ export {
   type BaselineProvenanceResult,
   type ParsedBaselinePayload,
 } from "./baseline_provenance";
+
+// AW-04 scoring-provenance verification — fetch the on-chain
+// ScoreComponentsAccount, recompute sha256(payload), parse the canonical
+// JSON, and re-execute the documented scoring formula
+// (sum -> clamp -> delta-guard) to confirm it arrives at the published
+// `cert.score`. Pairs with `verifyScoringCodeHash`, which checks the
+// cert's `scoring_code_hash` against a consumer-supplied expected hash
+// derived from cloning the helixor repo at the published tag. A consumer
+// who passes AW-01 + AW-03 + AW-04 has cryptographic proof of EVERY
+// trust assumption behind a Helixor cert.
+export {
+  verifyScoreComputation,
+  verifyScoringCodeHash,
+  replayScoreFromComponents,
+  parseScoreComponentsPayload,
+  sha256ComponentsPayload,
+  ScoringProvenanceRejection,
+  CodeHashCheckResult,
+  SCORE_COMPONENTS_SCHEMA_VERSION,
+  MAX_SCORE_COMPONENTS_PAYLOAD_LEN,
+  MAX_SCORE_DELTA,
+  SCORE_MIN,
+  SCORE_MAX,
+  type ScoringProvenanceOk,
+  type ScoringProvenanceFail,
+  type ScoringProvenanceResult,
+  type ParsedScoreComponents,
+  type ScoreComponentsDim,
+  type ScoreReplay,
+  type CodeHashCheck,
+} from "./scoring_provenance";

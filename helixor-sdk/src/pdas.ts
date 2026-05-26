@@ -5,11 +5,12 @@
 // scheme is defined exactly once and cannot drift between the SDK and the
 // on-chain programs. The seeds mirror the Rust:
 //
-//   certificate-issuer  HealthCertificate  ["cert", agent, epoch_le_u64]
-//   certificate-issuer  BaselineStats      ["baseline", agent]
-//   certificate-issuer  IssuerConfig       ["issuer_config"]
-//   health-oracle       EpochState         ["epoch_state"]
-//   health-oracle       BaselineDataAcct   ["baseline_data", agent, nonce_le_u64]
+//   certificate-issuer  HealthCertificate       ["cert", agent, epoch_le_u64]
+//   certificate-issuer  BaselineStats           ["baseline", agent]
+//   certificate-issuer  IssuerConfig            ["issuer_config"]
+//   certificate-issuer  ScoreComponentsAccount  ["score_components", agent, epoch_le_u64]
+//   health-oracle       EpochState              ["epoch_state"]
+//   health-oracle       BaselineDataAcct        ["baseline_data", agent, nonce_le_u64]
 // =============================================================================
 
 import { PublicKey } from "@solana/web3.js";
@@ -83,5 +84,26 @@ export function baselineDataPda(
   return PublicKey.findProgramAddressSync(
     [enc("baseline_data"), agent.toBuffer(), commitNonceToLeBytes(commitNonce)],
     healthOracle
+  )[0];
+}
+
+/**
+ * AW-04: the per-(agent, epoch) `ScoreComponentsAccount` PDA on the
+ * certificate-issuer program. Paired one-to-one with the
+ * `HealthCertificate` for the same `(agent, epoch)`. Seeds match the
+ * Rust constant `ScoreComponentsAccount::SEED_PREFIX = b"score_components"`.
+ *
+ * The account is write-once: the cluster cannot overwrite or amend the
+ * canonical-JSON breakdown after issuance, so once the PDA exists the
+ * payload bytes (and their on-chain sha256 binding) are permanent.
+ */
+export function scoreComponentsPda(
+  certificateIssuer: PublicKey,
+  agent: PublicKey,
+  epoch: number | bigint
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [enc("score_components"), agent.toBuffer(), epochToLeBytes(epoch)],
+    certificateIssuer
   )[0];
 }

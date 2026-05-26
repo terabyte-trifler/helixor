@@ -192,6 +192,46 @@ file.
       hash byte-for-byte from the fetched payload. A DeFi consumer
       can detect a substituted baseline without trusting either the
       cluster OR a separate DA service.
+- [ ] **AW-04 scoring-provenance sweep clean** —
+      `python3 audit/scoring_provenance_check.py --json audit/reports/aw04_scoring_provenance.json`
+      reports **0 HARD findings**. The sweep enforces that every
+      production cluster-signing / certificate-issuing callsite
+      binds BOTH the AW-04 `scoring_code_hash` and the AW-04
+      `score_components_hash` so the cert-payload digest names a
+      SPECIFIC scoring kernel version AND a SPECIFIC fetchable
+      `ScoreComponentsAccount` PDA on chain. A regression that
+      drops either binding would silently emit certs that bind to
+      "no code" / "no components" — defeating AW-04 without any
+      type error, since both kwargs default to 32 zero bytes for
+      legacy compatibility. Specifically:
+        1. `oracle.cluster.cert_signing.cert_payload_digest` —
+           every production call passes BOTH the
+           `scoring_code_hash=` and `score_components_hash=`
+           kwargs (default-zero is reserved for legacy/test paths
+           and is gated out of the production scan roots).
+        2. TS `certPayloadDigest(...)` — every callsite includes
+           BOTH the `scoringCodeHash` and `scoreComponentsHash`
+           tokens in its argument region (either as named bindings
+           or as explicit annotation comments) so a refactor that
+           drops the 64-byte tail cannot pass review silently.
+        3. TS `scoreComponentsPda(certIssuer, agent, <epoch>)` —
+           every callsite passes an epoch-bearing variable
+           (substring `epoch`); a constant or literal there would
+           mean the caller is deriving the components PDA against
+           a hard-coded epoch rather than the cert's own
+           `cert.epoch`.
+      The on-chain `ScoreComponentsAccount` is at `layout_version
+      = 1` with seeds `["score_components", agent_wallet,
+      epoch_le]`; the program computes `sha256(payload)` at init
+      time (the chain NEVER trusts a caller-supplied hash), and
+      `HealthCertificate` (v7) carries `scoring_code_hash` whose
+      32 bytes are folded into `cert_payload_digest` after the
+      AW-03 nonce, with `score_components_hash` folded immediately
+      after as another 32 bytes. `verifyScoreComputation` in
+      `@helixor/sdk` re-derives BOTH the hash AND the headline
+      score from the fetched payload. A DeFi consumer can detect a
+      silent kernel swap OR an arithmetically inconsistent score
+      without trusting either the cluster OR a separate DA service.
 - [ ] `audit/entrypoint_guard_audit.py` clean — every entrypoint (cluster
       node, read API) calls `enforce_network_guard`
 - [ ] `cargo clippy --workspace -- -D warnings` clean on rust toolchain
@@ -444,6 +484,33 @@ the entry gate.
       certs) or (b) a regression that the audit sweep above should
       have caught (re-run the sweep). Runbook:
       `launch/runbooks/baseline_provenance.md`.
+- [ ] **AW-04 scoring data-availability bound on the first live cert.**
+      Decode the first mainnet cert via the SDK and verify
+      `cert.layoutVersion === 7` AND `cert.scoringCodeHash !==
+      zeroes` AND that
+      `scoreComponentsPda(certificateIssuer, agent, cert.epoch)`
+      resolves to an on-chain account whose
+      `sha256(payload) === cert.scoreComponentsHash`. One
+      integration partner MUST run
+      `verifyScoreComputation(connection, certificateIssuer, cert)`
+      against the first cert and report `ok: true`; a
+      `HashMismatch` or `ScoreReplayMismatch` rejection here blocks
+      promotion. The SAME partner MUST also run
+      `verifyScoringCodeHash(cert, EXPECTED_SCORING_CODE_HASH)` —
+      where `EXPECTED_SCORING_CODE_HASH` is the audited bundle
+      hash from `audit/reports/aw04_scoring_provenance.json` — and
+      report `result: Ok`. A `PreV7Cert` or zero
+      `scoring_code_hash` on the first mainnet cert would mean the
+      cert was issued before the AW-04 plumbing landed — that
+      must NEVER happen on mainnet. The cluster's
+      `cert_payload_digest` folds the 32-byte BE
+      `scoring_code_hash` AND the 32-byte BE
+      `score_components_hash` into the signed digest, so a zero
+      either field on a v7 cert is by construction either (a) a
+      pre-AW-04 deploy (investigate before issuing more certs) or
+      (b) a regression that the audit sweep above should have
+      caught (re-run the sweep). Runbook:
+      `launch/runbooks/score_provenance.md`.
 - [ ] **The first epoch on mainnet completes** end-to-end, on-chain
       cert visible via explorer
 
@@ -513,6 +580,30 @@ the entry gate.
       derivation; (b) a chain reorg landed a stale baseline-data
       account version — re-fetch at finalized commitment. If neither
       applies, follow `launch/runbooks/baseline_provenance.md`.
+- [ ] **Daily review of AW-04 scoring-provenance events.** Every
+      `CertificateIssued` event in steady state MUST be paired with
+      a `ScoreComponentsAccount` PDA at
+      `scoreComponentsPda(certificateIssuer, agent, epoch)` whose
+      `components_hash` field equals `cert.scoreComponentsHash`
+      (the chain enforces this at init time via `sha256(payload)`
+      computed on chain). The daily job re-runs
+      `verifyScoreComputation(connection, certificateIssuer, cert)`
+      across the prior day's certs and reports any non-`ok`
+      result. A `HashMismatch` or `ScoreReplayMismatch` finding is
+      a P0 — the former is by-construction impossible (the chain
+      computes the hash), and the latter means the cluster signed
+      a cert whose headline score disagrees with the sum of its
+      own dim contribs (kernel swap or fabricated components).
+      The job also pulls `cert.scoringCodeHash` for every cert and
+      cross-references against the deployed kernel's published
+      bundle hash; any drift NOT preceded by a release announcement
+      is a P0 deploy-discipline regression. The two ways a
+      `HashMismatch` CAN happen in practice: (a) the partner is
+      fetching the wrong PDA — confirm
+      `scoreComponentsPda(certIssuer, agent, cert.epoch)`
+      derivation; (b) a chain reorg landed a stale components
+      account version — re-fetch at finalized commitment. If
+      neither applies, follow `launch/runbooks/score_provenance.md`.
 - [ ] **Weekly external-RPC ledger re-verification.** A scheduled job
       decodes the previous day's certs and runs
       `verifyAgainstSolanaLedger` against an RPC NOT in the cluster's

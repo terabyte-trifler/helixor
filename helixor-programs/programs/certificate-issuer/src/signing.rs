@@ -72,6 +72,28 @@
 // could rotate the agent's baseline mid-attack and still emit a cert with a
 // stale hash that no longer points at a fetchable DA account — folding it in
 // makes that drift cryptographically detectable.
+//
+// AW-04 — SCORING ENGINE PROVENANCE
+// ---------------------------------
+// The trailing 32-byte `scoring_code_hash` is the SHA-256 over the
+// canonical scoring kernel source bytes plus the algo + weights version
+// labels (see `helixor-oracle/scoring/bundle_hash.py`). The trailing
+// 32-byte `score_components_hash` is the SHA-256 over the canonical-JSON
+// per-dimension breakdown the cluster published in the paired
+// `ScoreComponentsAccount`. Folding BOTH into the digest closes the
+// black-box-scoring gap: the Ed25519 signature now attests to (a) the
+// EXACT source bytes that produced this score (a cluster shipping
+// patched scoring code while claiming the published algo version cannot
+// produce a digest whose `scoring_code_hash` matches what the audit
+// gate independently computes from the published source tree), AND
+// (b) the FULL per-dimension breakdown (a cluster cannot publish a
+// fabricated score without committing to a `dims[]` whose
+// `sum(contrib) -> clamp -> delta_guard` produces that same score —
+// every input to the off-chain replay is in the signed digest). SDK
+// consumers run `verifyScoreComputation` to re-execute the published
+// bundle against the published components and refuse certs whose
+// replay disagrees with the cert's stored score. The legacy values
+// `[0u8; 32]` are the pre-AW-04 sentinels.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -111,6 +133,18 @@ use crate::state::IssuerConfig;
 /// can fetch the exact on-chain `BaselineDataAccount` and re-derive
 /// `sha256(payload) == baseline_hash`. The legacy value `0` is the
 /// pre-AW-03 sentinel (no DA account is reachable for this cert).
+///
+/// AW-04: `scoring_code_hash` is the SHA-256 over the canonical scoring
+/// kernel source bytes + algo/weights version labels (see
+/// `helixor-oracle/scoring/bundle_hash.py`). `score_components_hash`
+/// is the SHA-256 over the canonical-JSON per-dimension breakdown the
+/// cluster wrote into the paired `ScoreComponentsAccount`. Folding both
+/// into the digest cryptographically attests to the exact source bytes
+/// AND the full per-dimension breakdown — a cluster that fabricates a
+/// score, or runs patched scoring code, is caught by an SDK consumer's
+/// `verifyScoreComputation` because the replay disagrees with the
+/// signed score. The legacy value `[0; 32]` for either kwarg is the
+/// pre-AW-04 sentinel (no scoring-provenance binding).
 pub fn cert_payload_digest(
     agent_wallet:          &Pubkey,
     epoch:                 u64,
@@ -123,6 +157,8 @@ pub fn cert_payload_digest(
     slot_anchor_slot:      u64,
     slot_anchor_hash:      &[u8; 32],
     baseline_commit_nonce: u64,
+    scoring_code_hash:     &[u8; 32],
+    score_components_hash: &[u8; 32],
 ) -> [u8; 32] {
     // The byte layout is FIXED and PUBLIC — every signer and verifier must
     // produce these exact bytes. No floats, no Vec, no length-varying
@@ -140,6 +176,8 @@ pub fn cert_payload_digest(
         &slot_anchor_slot.to_be_bytes(),        //  8 bytes ← AW-01-EXT
         slot_anchor_hash,                       // 32 bytes ← AW-01-EXT
         &baseline_commit_nonce.to_be_bytes(),   //  8 bytes ← AW-03
+        scoring_code_hash,                      // 32 bytes ← AW-04
+        score_components_hash,                  // 32 bytes ← AW-04
     ]);
     h.to_bytes()
 }

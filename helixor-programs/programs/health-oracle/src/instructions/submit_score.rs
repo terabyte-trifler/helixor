@@ -84,6 +84,13 @@ pub struct SubmitScore<'info> {
     #[account(mut)]
     pub certificate: UncheckedAccount<'info>,
 
+    /// AW-04: the ScoreComponentsAccount PDA the CPI will CREATE on the
+    /// certificate-issuer program with seeds ["score_components", agent,
+    /// epoch]. Validated by the callee's own `init` + seed constraints.
+    /// CHECK: see `certificate` above — owned by the callee program.
+    #[account(mut)]
+    pub score_components: UncheckedAccount<'info>,
+
     /// The agent's BaselineStats on the certificate-issuer program.
     pub baseline_stats: Account<'info, BaselineStats>,
 
@@ -114,22 +121,29 @@ pub struct SubmitScore<'info> {
 }
 
 pub fn handler(
-    ctx:              Context<SubmitScore>,
-    epoch:            u64,
-    score:            u16,
-    alert_tier:       u8,
-    flags:            u32,
-    immediate_red:    bool,
+    ctx:                      Context<SubmitScore>,
+    epoch:                    u64,
+    score:                    u16,
+    alert_tier:               u8,
+    flags:                    u32,
+    immediate_red:            bool,
     // AW-01: cluster-majority input-provenance commitment. Passes through
     // verbatim into the certificate-issuer CPI; the cert-issuer enforces
     // the non-zero gate.
-    input_commitment: [u8; 32],
+    input_commitment:         [u8; 32],
     // AW-01-EXT: Solana slot-anchor `(slot, block_hash)` the cluster
     // pinned at scoring time. Forwarded to the CPI; the cert-issuer
     // verifies the pair against the SlotHashes sysvar and rejects a
     // zero anchor.
-    slot_anchor_slot: u64,
-    slot_anchor_hash: [u8; 32],
+    slot_anchor_slot:         u64,
+    slot_anchor_hash:         [u8; 32],
+    // AW-04: scoring-kernel bundle hash + raw canonical components
+    // payload. Forwarded to the CPI; the cert-issuer hashes the payload
+    // on chain (NEVER trusts a caller-supplied digest), folds both
+    // hashes into the cert digest, and writes the payload bytes into
+    // the paired ScoreComponentsAccount.
+    scoring_code_hash:        [u8; 32],
+    score_components_payload: Vec<u8>,
 ) -> Result<()> {
     // ── 2. precondition checks ──────────────────────────────────────────────
     require!(
@@ -151,6 +165,7 @@ pub fn handler(
     let cpi_accounts = IssueCertificateAccounts {
         baseline_stats:      ctx.accounts.baseline_stats.to_account_info(),
         certificate:         ctx.accounts.certificate.to_account_info(),
+        score_components:    ctx.accounts.score_components.to_account_info(),
         issuer_config:       ctx.accounts.issuer_config.to_account_info(),
         issuer:              ctx.accounts.oracle.to_account_info(),
         instructions_sysvar: ctx.accounts.instructions_sysvar.to_account_info(),
@@ -169,6 +184,8 @@ pub fn handler(
         input_commitment,          // AW-01: pass through verbatim
         slot_anchor_slot,          // AW-01-EXT: forwarded to sysvar check
         slot_anchor_hash,
+        scoring_code_hash,         // AW-04: scoring-kernel bundle hash
+        score_components_payload,  // AW-04: raw canonical components payload
     )?;
 
     // ── emit the oracle-side event ──────────────────────────────────────────

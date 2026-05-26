@@ -33,8 +33,14 @@
 //   challenge_state          1   (u8    — AW-01-EXT.6: None / Upheld / Rejected)
 //   --- AW-03 (carved from _reserved, layout-compatible) ----
 //   baseline_commit_nonce    8   (u64 — links to AgentRegistration.commit_nonce)
-//   _reserved                6   (zeroed cushion; was 14 pre-AW-03)
-//   TOTAL (without discriminator): 210 bytes (UNCHANGED)
+//   --- AW-04 (appended, requires realloc) ----
+//   scoring_code_hash       32   ([u8;32] — sha256 of the scoring kernel
+//                                  source bytes + algo/weights version
+//                                  labels; see scoring/bundle_hash.py)
+//   _reserved                6   (zeroed cushion; unchanged from v6)
+//   TOTAL (without discriminator): 242 bytes (was 210 pre-AW-04;
+//                                  +32 bytes is an explicit growth from
+//                                  appending scoring_code_hash)
 //
 // AW-01: `input_commitment` is the 32-byte SHA-256 cluster-majority commitment
 // over the canonical input transactions + windows the cluster scored. It is
@@ -182,8 +188,24 @@ pub struct HealthCertificate {
     /// sentinel meaning "pre-AW-03 — no DA account exists for this cert's
     /// baseline").
     pub baseline_commit_nonce: u64,
+    /// AW-04: SHA-256 over the canonical scoring kernel source bytes
+    /// (composite.py, weights.py, _gaming.py, determinism.py,
+    /// detection/types.py) PLUS the algo + weights version labels. See
+    /// `scoring/bundle_hash.py::compute_scoring_bundle_hash`. Folded into
+    /// the cert-payload digest the cluster signed, so the threshold
+    /// signatures cryptographically attest to the EXACT source bytes that
+    /// produced this score. A consumer running `verify_score_computation`
+    /// clones the helixor repo at the published tag, recomputes the
+    /// bundle hash, and refuses the cert if it disagrees with this field
+    /// — closing the gap where a cluster ships patched scoring code
+    /// while claiming the published algo version. Appended (NOT carved
+    /// from `_reserved`); cert account size grew 210 -> 242 at v7.
+    /// Legacy v6 certs predate this field entirely.
+    pub scoring_code_hash: [u8; 32],
     /// Zero-padded reserve for small future fields without a realloc.
-    /// Was 14 bytes pre-AW-03; 8 bytes are now `baseline_commit_nonce`.
+    /// Was 14 bytes pre-AW-03; 8 bytes are AW-03's baseline_commit_nonce;
+    /// AW-04's scoring_code_hash was APPENDED (not carved from reserve)
+    /// so this stays at 6 bytes.
     pub _reserved:      [u8; 6],
 }
 
@@ -201,7 +223,13 @@ impl HealthCertificate {
     /// Total account size UNCHANGED at 210 — the byte was reserved.
     /// v6: AW-03 — added baseline_commit_nonce (8 bytes, from _reserved).
     /// Total account size UNCHANGED at 210 — the 8 bytes were reserved.
-    pub const CURRENT_LAYOUT_VERSION: u8 = 6;
+    /// v7: AW-04 — APPENDED scoring_code_hash ([u8; 32]). The previous
+    /// _reserved was only 6 bytes, so the 32-byte hash forces a 210 -> 242
+    /// account-size growth (an explicit realloc decision; the alternative
+    /// of stashing it in OracleConfig would force every consumer into a
+    /// cross-account read just to verify provenance and would lose the
+    /// per-cert pinning if the config rotates after issuance).
+    pub const CURRENT_LAYOUT_VERSION: u8 = 7;
 
     /// The highest valid composite score. Mirrors the off-chain 0..1000 range.
     pub const MAX_SCORE: u16 = 1000;
@@ -213,10 +241,11 @@ impl HealthCertificate {
     /// + 32 slot_anchor_hash                                =  32  (AW-01-EXT)
     /// +  1 challenge_state                                 =   1  (AW-01-EXT.6)
     /// +  8 baseline_commit_nonce                           =   8  (AW-03)
-    /// +  6 reserved                                        =   6  (was 14 pre-AW-03)
-    ///   = 210 (unchanged)
+    /// + 32 scoring_code_hash                               =  32  (AW-04, appended)
+    /// +  6 reserved                                        =   6  (unchanged)
+    ///    = 242 (was 210 pre-AW-04)
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
-        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1 + 32 + 8 + 32 + 1 + 8 + 6;
+        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1 + 32 + 8 + 32 + 1 + 8 + 32 + 6;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;

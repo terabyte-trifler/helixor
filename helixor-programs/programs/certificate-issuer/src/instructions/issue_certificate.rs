@@ -22,13 +22,14 @@
 // =============================================================================
 
 use anchor_lang::prelude::*;
-use solana_program::sysvar::slot_hashes;
+use solana_program::{hash::hashv, sysvar::slot_hashes};
 
 use crate::errors::CertificateError;
 use crate::events::CertificateIssued;
 use crate::slot_anchor::{verify_slot_anchor, ZERO_SLOT_ANCHOR_HASH};
 use crate::state::{
     AlertTier, BaselineStats, HealthCertificate, IssuerConfig,
+    ScoreComponentsAccount, MAX_SCORE_COMPONENTS_PAYLOAD_LEN,
 };
 
 // Re-export to satisfy the `address = solana_program::sysvar::slot_hashes::ID`
@@ -46,7 +47,18 @@ pub const GREEN_THRESHOLD:  u16 = 700;
 pub const YELLOW_THRESHOLD: u16 = 400;
 
 #[derive(Accounts)]
-#[instruction(epoch: u64)]
+#[instruction(
+    epoch:                      u64,
+    score:                      u16,
+    alert_tier:                 u8,
+    flags:                      u32,
+    immediate_red:              bool,
+    input_commitment:           [u8; 32],
+    slot_anchor_slot:           u64,
+    slot_anchor_hash:           [u8; 32],
+    scoring_code_hash:          [u8; 32],
+    score_components_payload:   Vec<u8>,
+)]
 pub struct IssueCertificate<'info> {
     /// The agent's baseline record. Must exist (record_baseline first).
     /// Declared first because the certificate PDA's seeds reference
@@ -75,6 +87,26 @@ pub struct IssueCertificate<'info> {
         bump,
     )]
     pub certificate: Account<'info, HealthCertificate>,
+
+    /// AW-04: the paired ScoreComponentsAccount PDA for this (agent, epoch).
+    /// Created alongside the cert; `init` makes the components account
+    /// write-once just like the cert. The on-chain `sha256(payload) ==
+    /// components_hash` check + the cluster-signed digest binding (via
+    /// `cert_payload_digest`) jointly guarantee that the published
+    /// per-dimension breakdown cannot drift from what the threshold
+    /// signatures attest to.
+    #[account(
+        init,
+        payer = issuer,
+        space = ScoreComponentsAccount::space_for(score_components_payload.len()),
+        seeds = [
+            ScoreComponentsAccount::SEED_PREFIX,
+            baseline_stats.agent_wallet.as_ref(),
+            &epoch.to_le_bytes(),
+        ],
+        bump,
+    )]
+    pub score_components: Account<'info, ScoreComponentsAccount>,
 
     /// IssuerConfig — supplies the cluster's signing keys + threshold.
     /// The cluster signatures are what authorise the write; the signer
@@ -113,27 +145,46 @@ pub struct IssueCertificate<'info> {
 }
 
 pub fn handler(
-    ctx:              Context<IssueCertificate>,
-    epoch:            u64,
-    score:            u16,
-    alert_tier:       u8,
-    flags:            u32,
-    immediate_red:    bool,
+    ctx:                      Context<IssueCertificate>,
+    epoch:                    u64,
+    score:                    u16,
+    alert_tier:               u8,
+    flags:                    u32,
+    immediate_red:            bool,
     // AW-01: the 32-byte cluster-majority commitment over the canonical
     // input transactions + windows. The cluster only signs a cert if a
     // quorum agreed on this commitment; folding it into the digest binds
     // the threshold signatures to the INPUTS. Refused as zero — a
     // zero commitment would let a misconfigured submitter skip the
     // input-provenance binding.
-    input_commitment: [u8; 32],
+    input_commitment:         [u8; 32],
     // AW-01-EXT: the Solana `(slot, block_hash)` the cluster pinned at
     // scoring time. Folded into the cert-payload digest AND verified
     // against the SlotHashes sysvar — Solana's own ledger is the third
     // independent source of truth beyond the cluster's RPC fleet.
     // Refused as zero hash, refused if not present in the sysvar window,
     // refused if hash mismatches what Solana itself recorded.
-    slot_anchor_slot: u64,
-    slot_anchor_hash: [u8; 32],
+    slot_anchor_slot:         u64,
+    slot_anchor_hash:         [u8; 32],
+    // AW-04: the 32-byte SHA-256 over the canonical scoring kernel source
+    // bytes + algo/weights version labels (see
+    // `helixor-oracle/scoring/bundle_hash.py::compute_scoring_bundle_hash`).
+    // Folded into the cert-payload digest AND stamped on the cert so any
+    // consumer can clone helixor at the published tag, recompute the
+    // bundle hash, and refuse the cert if they disagree. Refused as zero
+    // — the legacy sentinel is for pre-AW-04 callers only and
+    // post-deployment writes must always supply the real hash.
+    scoring_code_hash:        [u8; 32],
+    // AW-04: the canonical-JSON payload bytes produced by
+    // `oracle/score_components.py::serialize_score_components`. The on-
+    // chain handler computes `sha256(payload)` here and (a) writes the
+    // bytes into the paired ScoreComponentsAccount, (b) folds the hash
+    // into the cert digest so the threshold signatures attest to it,
+    // (c) refuses the write if the hash drifts from what the cluster
+    // signed. Refused as empty / oversize for the same reason as
+    // BaselineDataAccount: drift from the canonical form is a bug
+    // that must surface, not be silently truncated.
+    score_components_payload: Vec<u8>,
 ) -> Result<()> {
     // ── VULN-16: refuse a CPI from anything but the canonical health-oracle ─
     // BEFORE we touch the inputs, before we hit the threshold-sig check,
@@ -191,6 +242,33 @@ pub fn handler(
         &slot_anchor_hash,
     )?;
 
+    // ── AW-04: scoring-engine provenance + components binding ───────────────
+    // Refuse zero `scoring_code_hash` (no scoring-kernel provenance).
+    // Refuse empty/oversize payload. Compute `score_components_hash` on
+    // chain (NEVER trust a caller-supplied hash; the chain is the
+    // ground-truth verifier) and use it in the digest below so the
+    // threshold signatures attest to the on-chain bytes — drift between
+    // off-chain payload and on-chain payload is impossible by
+    // construction.
+    require!(
+        scoring_code_hash != [0u8; 32],
+        CertificateError::MissingScoringCodeHash,
+    );
+    require!(
+        !score_components_payload.is_empty(),
+        CertificateError::ScoreComponentsPayloadEmpty,
+    );
+    require!(
+        score_components_payload.len() <= MAX_SCORE_COMPONENTS_PAYLOAD_LEN,
+        CertificateError::ScoreComponentsPayloadTooLarge,
+    );
+    let score_components_hash: [u8; 32] =
+        hashv(&[&score_components_payload]).to_bytes();
+    require!(
+        score_components_hash != [0u8; 32],
+        CertificateError::MissingScoreComponentsHash,
+    );
+
     // ── Verify the (score, alert) pair is consistent ────────────────────────
     // A certificate carries both the numeric score and the categorical
     // tier; storing an inconsistent pair would be a malformed attestation.
@@ -223,6 +301,8 @@ pub fn handler(
         slot_anchor_slot,         // AW-01-EXT: binds the Solana slot anchor
         &slot_anchor_hash,
         baseline_commit_nonce,    // AW-03: binds the baseline rotation
+        &scoring_code_hash,       // AW-04: binds the scoring-kernel source bytes
+        &score_components_hash,   // AW-04: binds the per-dim breakdown
     );
     let valid_signers = crate::signing::verify_threshold_signatures(
         &digest,
@@ -253,6 +333,26 @@ pub fn handler(
     // can derive the BaselineDataAccount PDA without re-reading
     // BaselineStats (whose nonce may have rotated forward after issuance).
     cert.baseline_commit_nonce = baseline_commit_nonce;
+    // AW-04: stamp the scoring-kernel source-bytes hash onto the cert. The
+    // hash is folded into the digest above so the threshold signatures
+    // attest to it; storing it on the cert lets any consumer verify
+    // provenance with a single account read (no cross-account fetch of
+    // a config or a registry — old certs remain verifiable even if a
+    // future deploy rotates a config).
+    cert.scoring_code_hash     = scoring_code_hash;
+
+    // AW-04: populate the paired ScoreComponentsAccount. Write-once at
+    // init; the on-chain `sha256(payload) == components_hash` invariant
+    // is the chain's ground-truth check that the published bytes match
+    // the cluster-signed digest.
+    let components = &mut ctx.accounts.score_components;
+    components.agent_wallet    = ctx.accounts.baseline_stats.agent_wallet;
+    components.epoch           = epoch;
+    components.components_hash = score_components_hash;
+    components.computed_at     = clock.unix_timestamp;
+    components.payload         = score_components_payload;
+    components.bump            = ctx.bumps.score_components;
+    components.layout_version  = ScoreComponentsAccount::CURRENT_LAYOUT_VERSION;
 
     emit!(CertificateIssued {
         agent_wallet:  cert.agent_wallet,

@@ -114,19 +114,27 @@ pub mod certificate_issuer {
     /// Solana's own ledger becomes a third independent source of truth
     /// beyond the cluster's RPC fleet. A zero anchor is rejected.
     pub fn issue_certificate(
-        ctx:              Context<IssueCertificate>,
-        epoch:            u64,
-        score:            u16,
-        alert_tier:       u8,
-        flags:            u32,
-        immediate_red:    bool,
-        input_commitment: [u8; 32],
-        slot_anchor_slot: u64,
-        slot_anchor_hash: [u8; 32],
+        ctx:                      Context<IssueCertificate>,
+        epoch:                    u64,
+        score:                    u16,
+        alert_tier:               u8,
+        flags:                    u32,
+        immediate_red:            bool,
+        input_commitment:         [u8; 32],
+        slot_anchor_slot:         u64,
+        slot_anchor_hash:         [u8; 32],
+        // AW-04: scoring-kernel source-bytes hash + canonical per-dimension
+        // breakdown bytes. The handler computes `sha256(payload)` on chain,
+        // writes it into the paired ScoreComponentsAccount, folds both
+        // hashes into the cert digest the cluster signed, and refuses any
+        // zero / empty / oversized AW-04 input.
+        scoring_code_hash:        [u8; 32],
+        score_components_payload: Vec<u8>,
     ) -> Result<()> {
         instructions::issue_certificate::handler(
             ctx, epoch, score, alert_tier, flags, immediate_red,
             input_commitment, slot_anchor_slot, slot_anchor_hash,
+            scoring_code_hash, score_components_payload,
         )
     }
 

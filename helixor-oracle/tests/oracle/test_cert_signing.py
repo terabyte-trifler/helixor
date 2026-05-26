@@ -153,6 +153,109 @@ class TestCertPayloadDigest:
                 SLOT_ANCHOR, baseline_commit_nonce=1 << 64,
             )
 
+    # --- AW-04: scoring-bundle + components hash folded into the digest ---
+
+    def test_digest_changes_with_scoring_code_hash(self):
+        # AW-04: different scoring-bundle hashes name different scoring
+        # kernels. Folding it into the digest means a cluster running
+        # patched scoring code cannot produce a digest with the
+        # published bundle's hash unless it actually ran that bundle.
+        a = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, baseline_commit_nonce=7,
+            scoring_code_hash=b"\xaa" * 32,
+        )
+        b = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, baseline_commit_nonce=7,
+            scoring_code_hash=b"\xbb" * 32,
+        )
+        assert a != b
+
+    def test_digest_changes_with_score_components_hash(self):
+        # AW-04: different per-dimension breakdowns produce different
+        # canonical-JSON bytes, and therefore different SHA-256 hashes.
+        # The cluster cannot publish a fabricated score without committing
+        # to a `dims[]` whose replay arithmetic produces that score.
+        a = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, baseline_commit_nonce=7,
+            scoring_code_hash=b"\xaa" * 32,
+            score_components_hash=b"\x11" * 32,
+        )
+        b = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, baseline_commit_nonce=7,
+            scoring_code_hash=b"\xaa" * 32,
+            score_components_hash=b"\x22" * 32,
+        )
+        assert a != b
+
+    def test_digest_legacy_default_aw04_hashes_are_zero(self):
+        # Pre-AW-04 callers omit both kwargs and the digest matches an
+        # explicit zero pair — guarantees byte-identical digests across
+        # the legacy/AW-04 boundary.
+        default = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR,
+        )
+        explicit_zero = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR,
+            scoring_code_hash=b"\x00" * 32,
+            score_components_hash=b"\x00" * 32,
+        )
+        assert default == explicit_zero
+
+    def test_digest_rejects_short_scoring_code_hash(self):
+        with pytest.raises(ValueError, match="scoring_code_hash"):
+            cert_payload_digest(
+                AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+                SLOT_ANCHOR,
+                scoring_code_hash=b"\xaa" * 31,
+            )
+
+    def test_digest_rejects_short_score_components_hash(self):
+        with pytest.raises(ValueError, match="score_components_hash"):
+            cert_payload_digest(
+                AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+                SLOT_ANCHOR,
+                score_components_hash=b"\xaa" * 31,
+            )
+
+    def test_aw04_hashes_fold_after_aw03_nonce(self):
+        # The byte-layout contract: AW-04 bytes are appended AFTER the
+        # AW-03 baseline_commit_nonce, in the documented order
+        # (scoring_code_hash, then score_components_hash). Build the
+        # digest two ways and verify the manual layout matches.
+        import hashlib
+
+        sc_hash = b"\xc0" * 32
+        comp_hash = b"\xd0" * 32
+
+        produced = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, baseline_commit_nonce=7,
+            scoring_code_hash=sc_hash,
+            score_components_hash=comp_hash,
+        )
+
+        manual = (
+            AGENT_PK
+            + (1).to_bytes(8, "big")
+            + (851).to_bytes(2, "big")
+            + (2).to_bytes(1, "big")
+            + (8).to_bytes(4, "big")
+            + BASELINE_HASH
+            + b"\x01"  # immediate_red
+            + INPUT_COMMITMENT
+            + SLOT_ANCHOR.to_bytes()
+            + (7).to_bytes(8, "big")
+            + sc_hash
+            + comp_hash
+        )
+        assert produced == hashlib.sha256(manual).digest()
+
     def test_digest_changes_with_immediate_red(self):
         a = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         b = cert_payload_digest(AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, False, INPUT_COMMITMENT, SLOT_ANCHOR)
