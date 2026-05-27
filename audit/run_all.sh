@@ -180,6 +180,27 @@ run "DP-1 data-protection gate" python3 audit/data_protection_check.py \
     --json audit/reports/data_protection.json
 
 
+# ── 1m+++. SEC-1 securities-posture gate ────────────────────────────────────
+# DeFi protocols use cert scores to gate capital allocation. If an oracle
+# operator's compensation couples to consumer-side outcomes (performance
+# fee, token grant tracking TVL, revenue share), Howey prong 4 ("derived
+# solely from efforts of others") starts to align with the cluster's
+# output. SEC-1 (oracle/securities_compliance.py +
+# OperatorAttestation.compensation_model + .conflicts_disclosed) makes
+# the operator's posture mechanically verifiable: a closed-enum allowlist
+# (today: FLAT_FEE_PER_CERT_FROM_TREASURY only) plus sig-bound
+# self-dealing disclosures. Both new fields fold into
+# attestation_canonical_bytes so the existing OFAC-1 Ed25519 sig binding
+# extends to cover them — lying about compensation or hiding a conflict
+# costs the same key compromise the rest of the protocol assumes the
+# adversary cannot perform. This gate enforces the substrate stays
+# present, the enum / allowlist agree, the allowlist matches the
+# governance pin, OperatorAttestation carries both fields, and
+# attestation_canonical_bytes still binds them.
+run "SEC-1 securities-posture gate" python3 audit/securities_compliance_check.py \
+    --json audit/reports/securities_compliance.json
+
+
 # ── 1n. Protocol Death Spiral audit gate ────────────────────────────────────
 # Architectural fix for catastrophic Scenario A from the audit: attacker
 # compromises 2 oracle nodes, runs VULN-03 slow drift for 30 epochs, all

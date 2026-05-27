@@ -173,6 +173,35 @@ class OperatorAttestation:
     `jurisdiction`   ISO-3166 alpha-2 country code (`"US"`, `"DE"`,
                      `"SG"`). Two-letter code so the gate can apply
                      uniform validation.
+    `compensation_model`  SEC-1 HARDENING: closed-enum string drawn
+                     from `oracle.securities_compliance.
+                     ALLOWED_COMPENSATION_MODELS`. Today the only
+                     allowed value is
+                     `"FLAT_FEE_PER_CERT_FROM_TREASURY"` — fixed per-
+                     cert fee paid out of the treasury, NOT a
+                     performance fee, NOT a token allocation that
+                     tracks TVL, NOT a revenue share. Default empty
+                     string means the attestation has not been
+                     extended for SEC-1; the boot gate refuses it.
+                     The diversity / signature gates ignore this
+                     field, so diversity-only or sig-only tests can
+                     omit it. Folded into
+                     `attestation_canonical_bytes` so the OFAC-1 sig
+                     binding extends to cover it — lying about
+                     compensation costs the same key compromise the
+                     rest of the protocol already assumes the
+                     adversary cannot perform.
+    `conflicts_disclosed`  SEC-1 HARDENING: tuple of
+                     `ConflictDisclosure(rated_wallet,
+                     relationship_type)` — financial relationships
+                     between the operator and rated agent_wallets.
+                     The cluster does NOT refuse to rate disclosed
+                     wallets (legal posture for self-dealing is the
+                     operator's, not the protocol's) but the
+                     disclosure is sig-bound so it cannot be hidden
+                     or retroactively edited. Default empty tuple
+                     means "no disclosed conflicts". Folded into
+                     `attestation_canonical_bytes`.
     `signature`      OFAC-1 HARDENING: hex-encoded 64-byte Ed25519
                      signature over `attestation_canonical_bytes(self)`
                      produced by the SAME private key whose public
@@ -183,19 +212,22 @@ class OperatorAttestation:
                      The diversity gate ignores this field, so
                      diversity-only tests can omit it. The sig binds
                      the operator's declaration of org / jurisdiction
-                     to the same key they sign certs with — lying
-                     about jurisdiction without re-signing fails the
-                     gate; re-signing requires possession of the key
-                     and therefore the lie costs the same key
-                     compromise the rest of the protocol already
-                     assumes the adversary cannot perform.
+                     / compensation / conflicts to the same key they
+                     sign certs with — lying about any of those
+                     without re-signing fails the gate; re-signing
+                     requires possession of the key and therefore
+                     the lie costs the same key compromise the rest
+                     of the protocol already assumes the adversary
+                     cannot perform.
     """
-    node_id:          str
-    pubkey:           str
-    operator_org:     str
-    operator_contact: str
-    jurisdiction:     str
-    signature:        str = ""
+    node_id:             str
+    pubkey:              str
+    operator_org:        str
+    operator_contact:    str
+    jurisdiction:        str
+    compensation_model:  str = ""
+    conflicts_disclosed: tuple = ()
+    signature:           str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -412,6 +444,7 @@ def attestation_canonical_bytes(att: OperatorAttestation) -> bytes:
 
         ATTESTATION_DOMAIN_TAG
         |node_id|pubkey|operator_org|operator_contact|jurisdiction
+        |compensation_model|<canonical conflicts string>
 
     Joined with the ASCII `|` byte. UTF-8 encoded. Deterministic — two
     callers given the same attestation produce byte-identical output.
@@ -419,13 +452,26 @@ def attestation_canonical_bytes(att: OperatorAttestation) -> bytes:
     `signature` is NOT included (you cannot sign over your own
     signature). Every OTHER declared field IS included, so a lie about
     any of them invalidates the sig.
+
+    SEC-1 NOTE: the trailing two fields (compensation_model + the
+    canonical conflicts string) are always present, even if empty —
+    omitting them on legacy attestations would let an adversary
+    silently strip a sig-binding boundary by downgrading.
     """
+    # SEC-1: import lazily to avoid a hard cycle. The conflicts list
+    # is rendered via the canonical helper in `securities_compliance`
+    # so the canonical bytes (signed by the operator) and the audit
+    # gate (inspecting the same conflicts later) agree byte-for-byte.
+    from oracle.securities_compliance import serialize_conflicts
+
     pieces = (
         att.node_id,
         att.pubkey,
         att.operator_org,
         att.operator_contact,
         att.jurisdiction,
+        att.compensation_model,
+        serialize_conflicts(att.conflicts_disclosed),
     )
     body = "|".join(pieces).encode("utf-8")
     return ATTESTATION_DOMAIN_TAG + b"|" + body
