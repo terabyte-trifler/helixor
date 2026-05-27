@@ -1,0 +1,13 @@
+{
+  "checked": [
+    "ILS-1 baseline-rotation cadence + co-attestation (VULN-06 on-chain anchor)",
+    "ILS-2 producer-corroboration + record-freshness (VULN-07 indexer anchor)",
+    "ILS-3 cumulative score-drift ceiling (VULN-03 cluster anchor)"
+  ],
+  "findings": [],
+  "summary": {
+    "checks": 3,
+    "hard_findings": 0,
+    "soft_findings": 0
+  }
+}

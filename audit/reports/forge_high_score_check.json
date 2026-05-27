@@ -1,0 +1,14 @@
+{
+  "checked": [
+    "FHS-1 cluster-key rotation cadence",
+    "FHS-2 per-signer provenance attestation",
+    "FHS-3 cluster-key rotation overlap",
+    "VULN-01 signing.rs threshold verifier anchor"
+  ],
+  "findings": [],
+  "summary": {
+    "checks": 4,
+    "hard_findings": 0,
+    "soft_findings": 0
+  }
+}

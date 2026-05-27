@@ -1,0 +1,14 @@
+{
+  "checked": [
+    "HCR-1 rpc-provider diversity",
+    "HCR-2 region diversity",
+    "HCR-3 state isolation",
+    "HCR-4 operator diversity"
+  ],
+  "findings": [],
+  "summary": {
+    "checks": 4,
+    "hard_findings": 0,
+    "soft_findings": 0
+  }
+}

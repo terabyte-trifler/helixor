@@ -1,0 +1,13 @@
+{
+  "checked": [
+    "NSS-1 cluster cloud-provider diversity",
+    "NSS-2 mainnet HSM-only signing enforcement",
+    "NSS-3 cluster-side agent-age floor for GREEN"
+  ],
+  "findings": [],
+  "summary": {
+    "checks": 3,
+    "hard_findings": 0,
+    "soft_findings": 0
+  }
+}

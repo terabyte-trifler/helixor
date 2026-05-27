@@ -1,6 +1,6 @@
 {
   "hard_count": 0,
-  "soft_count": 29,
+  "soft_count": 60,
   "findings": [
     {
       "category": "unchecked-arithmetic",
@@ -16,6 +16,46 @@
       "file": "helixor-programs/programs/health-oracle/src/errors.rs",
       "line": 113,
       "text": "verify cross-instruction data\")]",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/health-oracle/src/errors.rs",
+      "line": 124,
+      "text": "payload (the off-chain serializer dropped its body)\")]",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/health-oracle/src/errors.rs",
+      "line": 127,
+      "text": "the canonical-payload contract has drifted; tighten the serializer \\",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/health-oracle/src/errors.rs",
+      "line": 128,
+      "text": "and re-commit, the on-chain DA account must stay rent-bounded\")]",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/health-oracle/src/errors.rs",
+      "line": 131,
+      "text": "the on-chain DA invariant (AW-03) refuses to bind a hash to bytes \\",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/health-oracle/src/errors.rs",
+      "line": 132,
+      "text": "that do not produce it; check the off-chain canonical serializer \\",
       "note": "confirm checked_*/saturating_* or allow with `// audit:`"
     },
     {
@@ -46,7 +86,7 @@
       "category": "unchecked-arithmetic",
       "severity": "SOFT",
       "file": "helixor-programs/programs/health-oracle/src/instructions/submit_score.rs",
-      "line": 169,
+      "line": 184,
       "text": "input_commitment,          // AW-01: pass through verbatim",
       "note": "confirm checked_*/saturating_* or allow with `// audit:`"
     },
@@ -54,8 +94,24 @@
       "category": "unchecked-arithmetic",
       "severity": "SOFT",
       "file": "helixor-programs/programs/health-oracle/src/instructions/submit_score.rs",
-      "line": 170,
+      "line": 185,
       "text": "slot_anchor_slot,          // AW-01-EXT: forwarded to sysvar check",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/health-oracle/src/instructions/submit_score.rs",
+      "line": 187,
+      "text": "scoring_code_hash,         // AW-04: scoring-kernel bundle hash",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/health-oracle/src/instructions/submit_score.rs",
+      "line": 188,
+      "text": "score_components_payload,  // AW-04: raw canonical components payload",
       "note": "confirm checked_*/saturating_* or allow with `// audit:`"
     },
     {
@@ -133,6 +189,118 @@
     {
       "category": "unchecked-arithmetic",
       "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 127,
+      "text": "at on health-oracle (AW-03); pass it through so the cert can locate \\",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 128,
+      "text": "the on-chain DA account\")]",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 131,
+      "text": "recorded nonce \u2014 baseline-data nonces are appendable only and \\",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 132,
+      "text": "monotonic; a same/lower nonce would mask a stale DA account\")]",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 137,
+      "text": "canonical scoring-bundle hash before issuing a cert (AW-04); a \\",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 138,
+      "text": "zero hash indicates the off-chain submitter skipped the scoring-\\",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 142,
+      "text": "paired ScoreComponentsAccount with the per-dimension breakdown \\",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 143,
+      "text": "(AW-04); a zero hash indicates the off-chain submitter skipped \\",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 144,
+      "text": "the score-components binding\")]",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 150,
+      "text": "the off-chain serializer drifted from the canonical form\")]",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 153,
+      "text": "on-chain bytes and the cluster-signed hash disagree; refusing \\",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 154,
+      "text": "to write the components account (AW-04 invariant)\")]",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 159,
+      "text": "PDA against an empty manifest hash (DBP-2)\")]",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/errors.rs",
+      "line": 169,
+      "text": "either the partner_wallet (self-revoke) or the issuer_config \\",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
       "file": "helixor-programs/programs/certificate-issuer/src/instructions/initialize_config.rs",
       "line": 141,
       "text": "CPI allow-list {}, challenge cluster {}\",",
@@ -142,7 +310,7 @@
       "category": "unchecked-arithmetic",
       "severity": "SOFT",
       "file": "helixor-programs/programs/certificate-issuer/src/instructions/issue_certificate.rs",
-      "line": 214,
+      "line": 300,
       "text": "&input_commitment,        // AW-01: binds the cluster's input view",
       "note": "confirm checked_*/saturating_* or allow with `// audit:`"
     },
@@ -150,7 +318,7 @@
       "category": "unchecked-arithmetic",
       "severity": "SOFT",
       "file": "helixor-programs/programs/certificate-issuer/src/instructions/issue_certificate.rs",
-      "line": 215,
+      "line": 301,
       "text": "slot_anchor_slot,         // AW-01-EXT: binds the Solana slot anchor",
       "note": "confirm checked_*/saturating_* or allow with `// audit:`"
     },
@@ -158,7 +326,31 @@
       "category": "unchecked-arithmetic",
       "severity": "SOFT",
       "file": "helixor-programs/programs/certificate-issuer/src/instructions/issue_certificate.rs",
-      "line": 240,
+      "line": 303,
+      "text": "baseline_commit_nonce,    // AW-03: binds the baseline rotation",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/instructions/issue_certificate.rs",
+      "line": 304,
+      "text": "&scoring_code_hash,       // AW-04: binds the scoring-kernel source bytes",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/instructions/issue_certificate.rs",
+      "line": 305,
+      "text": "&score_components_hash,   // AW-04: binds the per-dim breakdown",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/instructions/issue_certificate.rs",
+      "line": 329,
       "text": "cert.input_commitment  = input_commitment;       // AW-01",
       "note": "confirm checked_*/saturating_* or allow with `// audit:`"
     },
@@ -166,7 +358,7 @@
       "category": "unchecked-arithmetic",
       "severity": "SOFT",
       "file": "helixor-programs/programs/certificate-issuer/src/instructions/issue_certificate.rs",
-      "line": 241,
+      "line": 330,
       "text": "cert.slot_anchor_slot  = slot_anchor_slot;       // AW-01-EXT",
       "note": "confirm checked_*/saturating_* or allow with `// audit:`"
     },
@@ -174,7 +366,7 @@
       "category": "unchecked-arithmetic",
       "severity": "SOFT",
       "file": "helixor-programs/programs/certificate-issuer/src/instructions/issue_certificate.rs",
-      "line": 242,
+      "line": 331,
       "text": "cert.slot_anchor_hash  = slot_anchor_hash;       // AW-01-EXT",
       "note": "confirm checked_*/saturating_* or allow with `// audit:`"
     },
@@ -182,16 +374,32 @@
       "category": "unchecked-arithmetic",
       "severity": "SOFT",
       "file": "helixor-programs/programs/certificate-issuer/src/signing.rs",
-      "line": 117,
-      "text": "input_commitment,                    // 32 bytes \u2190 AW-01",
+      "line": 175,
+      "text": "input_commitment,                       // 32 bytes \u2190 AW-01",
       "note": "confirm checked_*/saturating_* or allow with `// audit:`"
     },
     {
       "category": "unchecked-arithmetic",
       "severity": "SOFT",
       "file": "helixor-programs/programs/certificate-issuer/src/signing.rs",
-      "line": 119,
-      "text": "slot_anchor_hash,                    // 32 bytes \u2190 AW-01-EXT",
+      "line": 177,
+      "text": "slot_anchor_hash,                       // 32 bytes \u2190 AW-01-EXT",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/signing.rs",
+      "line": 179,
+      "text": "scoring_code_hash,                      // 32 bytes \u2190 AW-04",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/certificate-issuer/src/signing.rs",
+      "line": 180,
+      "text": "score_components_hash,                  // 32 bytes \u2190 AW-04",
       "note": "confirm checked_*/saturating_* or allow with `// audit:`"
     },
     {
@@ -200,6 +408,46 @@
       "file": "helixor-programs/programs/certificate-issuer/src/slot_anchor.rs",
       "line": 119,
       "text": "let off = LEN_PREFIX_BYTES + i * ENTRY_BYTES;",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/slash-authority/src/errors.rs",
+      "line": 116,
+      "text": "set \u2014 no-op rotation rejected\")]",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/slash-authority/src/errors.rs",
+      "line": 122,
+      "text": "propose/attest/enact ceremony\")]",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/slash-authority/src/instructions/propose_authority_rotation.rs",
+      "line": 147,
+      "text": "pre-attestations={}\",",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/slash-authority/src/instructions/update_authorities.rs",
+      "line": 56,
+      "text": "propose_authority_rotation + attest_authority_rotation + \\",
+      "note": "confirm checked_*/saturating_* or allow with `// audit:`"
+    },
+    {
+      "category": "unchecked-arithmetic",
+      "severity": "SOFT",
+      "file": "helixor-programs/programs/slash-authority/src/instructions/update_authorities.rs",
+      "line": 57,
+      "text": "enact_authority_rotation (48h timelock, 2-of-3 role keys must \\",
       "note": "confirm checked_*/saturating_* or allow with `// audit:`"
     },
     {

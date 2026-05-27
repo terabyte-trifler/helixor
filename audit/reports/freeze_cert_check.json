@@ -1,0 +1,13 @@
+{
+  "checked": [
+    "FRP-1 cluster participation floor (VULN-05 commit-reveal anchor)",
+    "FRP-2 epoch-advance liveness floor (VULN-02 on-chain anchor)",
+    "FRP-3 cert-reissue cadence floor (TA-6 on-chain anchor)"
+  ],
+  "findings": [],
+  "summary": {
+    "checks": 3,
+    "hard_findings": 0,
+    "soft_findings": 0
+  }
+}
