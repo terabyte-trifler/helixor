@@ -45,11 +45,13 @@ from solders.pubkey import Pubkey
 
 from oracle.aml_compliance import (
     ALLOWED_AML_ATTESTATIONS,
+    AML_KYC_DISCLAIMER,
     AmlComplianceError,
     AmlComplianceReport,
     AmlProgramAttestation,
     KycFieldRefusedError,
     _KYC_FORBIDDEN_FIELDS,
+    aml_kyc_disclaimer_text,
     assert_no_kyc_fields,
     collect_aml_attestations,
     verify_aml_posture,
@@ -400,3 +402,45 @@ def test_existing_data_categories_pass_kyc_guard():
     for member in DataCategory:
         # Should not raise.
         assert_no_kyc_fields(member.value)
+
+
+# ----------------------------------------------------------------------------
+# AML_KYC_DISCLAIMER — content + helper
+# ----------------------------------------------------------------------------
+
+def test_aml_kyc_disclaimer_is_non_empty():
+    assert AML_KYC_DISCLAIMER
+    assert len(AML_KYC_DISCLAIMER) > 0
+
+
+def test_aml_kyc_disclaimer_carries_required_carve_outs():
+    """The audit-mandated concrete carve-outs MUST appear."""
+    assert "NOT a KYC control" in AML_KYC_DISCLAIMER
+    assert "NOT an AML screen" in AML_KYC_DISCLAIMER
+    assert "Travel Rule" in AML_KYC_DISCLAIMER
+    assert "sanctions screening" in AML_KYC_DISCLAIMER
+
+
+def test_aml_kyc_disclaimer_frames_as_technical_trust_signal():
+    assert "technical trust signal" in AML_KYC_DISCLAIMER
+
+
+def test_aml_kyc_disclaimer_disclaims_identity_collection():
+    """The cluster's load-bearing AML posture is that it does NOT
+    collect customer identity information. The disclaimer must say
+    this explicitly."""
+    assert "does not collect customer identity information" in AML_KYC_DISCLAIMER
+
+
+def test_aml_kyc_disclaimer_tells_consumer_they_must_run_own_program():
+    assert "MUST run their own KYC/AML program" in AML_KYC_DISCLAIMER
+
+
+def test_aml_kyc_disclaimer_text_returns_constant_unchanged():
+    assert aml_kyc_disclaimer_text() == AML_KYC_DISCLAIMER
+
+
+def test_aml_kyc_disclaimer_text_is_referentially_stable():
+    """Two calls return the same string — the helper is a constant
+    getter, not a builder."""
+    assert aml_kyc_disclaimer_text() == aml_kyc_disclaimer_text()

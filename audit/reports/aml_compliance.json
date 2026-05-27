@@ -6,11 +6,14 @@
     "oracle.aml_compliance:allowlist-pinned",
     "oracle.operator_manifest:OperatorAttestation-aml1-field",
     "oracle.operator_manifest:attestation_canonical_bytes-binds-aml1",
-    "oracle.data_protection_policy:DataCategory-kyc-clean"
+    "oracle.data_protection_policy:DataCategory-kyc-clean",
+    "helixor-sdk/src/safe_reader.ts",
+    "oracle.aml_compliance:disclaimer-matches-sdk",
+    "launch/integrations:reader-aml-disclaimer"
   ],
   "findings": [],
   "summary": {
-    "checks": 7,
+    "checks": 10,
     "hard_findings": 0,
     "soft_findings": 0
   }

@@ -133,6 +133,54 @@ export function disclaimerText(): string {
 
 
 // =============================================================================
+// AML-1 — KYC/AML disclaimer
+// =============================================================================
+//
+// Large-scale AI agent lending enabled by Helixor certs may pull
+// downstream DeFi protocols into MSB / VASP / reporting-entity
+// territory, and an adversarial regulatory complaint against the
+// cluster itself is a process-tax attack the protocol must defuse.
+// The cluster does not custody value, transmit funds, exchange
+// assets, or collect customer identity information — but consumers
+// must NOT mistake a cert score for a KYC control or sanctions
+// screen.
+//
+// This string is mirrored BYTE-FOR-BYTE from
+// `helixor-oracle/oracle/aml_compliance.py` (AML_KYC_DISCLAIMER).
+// `audit/aml_compliance_check.py` verifies the two strings agree
+// — drift here means the SDK and the Python substrate disagree on
+// the AML carve-out posture, which is a legal posture risk before
+// it is an engineering bug.
+
+/**
+ * The canonical AML-1 KYC/AML disclaimer.
+ *
+ * Every consumer integration MUST surface this text at the boundary
+ * where a score is returned (alongside `ADVISORY_DISCLAIMER`). The
+ * integration manifest gate (`audit/consumer_integration_check.py`
+ * + the AML-1 audit gate) verifies the marker is present in the
+ * reader source on disk.
+ */
+export const AML_KYC_DISCLAIMER: string =
+  "Helixor cert scores are technical trust signals computed from " +
+  "observable on-chain behaviour. They are NOT a KYC control, " +
+  "NOT an AML screen, and NOT a substitute for the consumer's " +
+  "own customer due-diligence, sanctions screening, or Travel " +
+  "Rule obligations under applicable law. The Helixor cluster " +
+  "does not collect customer identity information; consumers " +
+  "MUST run their own KYC/AML program for any transaction they " +
+  "originate or terminate based on a cert score.";
+
+/**
+ * Helper for callsites that prefer a function over a constant. Returns
+ * `AML_KYC_DISCLAIMER` unchanged.
+ */
+export function amlKycDisclaimerText(): string {
+  return AML_KYC_DISCLAIMER;
+}
+
+
+// =============================================================================
 // Result types
 // =============================================================================
 

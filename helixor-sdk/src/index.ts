@@ -75,6 +75,12 @@ export {
 // score is returned so the cluster's posture stays as a technical trust
 // signal rather than implicit investment advice. The audit gate verifies
 // the marker is present in every published integration reader.
+//
+// AML-1 — AML_KYC_DISCLAIMER + amlKycDisclaimerText are surfaced
+// alongside the SEC-1 disclaimer for the same reason: every
+// integration must render the not-a-KYC-control / not-an-AML-screen
+// posture so a downstream lending protocol cannot misuse the score
+// as a substitute for its own customer due-diligence.
 export {
   SafeCertReader,
   RejectReason,
@@ -84,6 +90,8 @@ export {
   MIN_HISTORY_REQUIRED,
   ADVISORY_DISCLAIMER,
   disclaimerText,
+  AML_KYC_DISCLAIMER,
+  amlKycDisclaimerText,
   type ChainReader,
   type SafeCertReaderOptions,
   type SafeScoreOk,

@@ -35,6 +35,10 @@ import {
   // returned score. Mirrored byte-for-byte from
   // helixor-oracle/oracle/securities_compliance.py.
   ADVISORY_DISCLAIMER,
+  // AML-1 — the canonical KYC/AML disclaimer surfaced alongside the
+  // SEC-1 disclaimer. Mirrored byte-for-byte from
+  // helixor-oracle/oracle/aml_compliance.py.
+  AML_KYC_DISCLAIMER,
   // AW-01-EXT — slot-anchor ledger re-verification.
   verifyAgainstSolanaLedger,
   LedgerRejection,
@@ -102,6 +106,17 @@ export type SafeOperationOk = {
    * posture as a technical trust signal.
    */
   advisoryDisclaimer: string;
+  /**
+   * AML-1 — the canonical KYC/AML disclaimer rendered alongside the
+   * returned score. Mirrored from
+   * `helixor-oracle/oracle/aml_compliance.py`. Consumer-side UIs / API
+   * responses MUST surface this text to the end-user so a downstream
+   * lending protocol cannot misuse the score as a substitute for its
+   * own customer due-diligence. The audit gate
+   * (`audit/aml_compliance_check.py`) verifies this field is populated
+   * from the SDK constant.
+   */
+  amlKycDisclaimer: string;
 };
 
 export type SafeOperationRejected = {
@@ -235,6 +250,10 @@ export class SafePartnerReader {
       // returned score so the consumer's UI / API response carries the
       // not-investment-advice posture verbatim.
       advisoryDisclaimer: ADVISORY_DISCLAIMER,
+      // AML-1 — surface the KYC/AML carve-out so the consumer cannot
+      // treat the score as a substitute for their own KYC / sanctions
+      // screening / Travel Rule obligations.
+      amlKycDisclaimer: AML_KYC_DISCLAIMER,
     };
   }
 

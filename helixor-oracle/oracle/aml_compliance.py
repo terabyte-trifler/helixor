@@ -186,6 +186,46 @@ ALLOWED_AML_ATTESTATIONS: frozenset[str] = frozenset(
 )
 
 
+#: AML-1 AML/KYC DISCLAIMER — the canonical string every consumer-
+#: facing surface that returns a cert score must render alongside
+#: the numeric output (and alongside the SEC-1 `ADVISORY_DISCLAIMER`).
+#: Mirrored byte-for-byte in `helixor-sdk/src/safe_reader.ts` (the
+#: `AML_KYC_DISCLAIMER` export) and verified by
+#: `audit/aml_compliance_check.py` so a refactor that quietly edits
+#: the SDK string drifts from this source-of-truth and lights the
+#: gate red.
+#:
+#: The text is the union of the concrete carve-outs the audit
+#: requires: not a KYC control, not an AML screen, not a substitute
+#: for the consumer's own due-diligence / sanctions / Travel Rule
+#: obligations, and an explicit "the cluster does not collect
+#: customer identity information" so a regulator reading the
+#: disclaimer sees the AML carve-out posture upfront.
+AML_KYC_DISCLAIMER: str = (
+    "Helixor cert scores are technical trust signals computed from "
+    "observable on-chain behaviour. They are NOT a KYC control, "
+    "NOT an AML screen, and NOT a substitute for the consumer's "
+    "own customer due-diligence, sanctions screening, or Travel "
+    "Rule obligations under applicable law. The Helixor cluster "
+    "does not collect customer identity information; consumers "
+    "MUST run their own KYC/AML program for any transaction they "
+    "originate or terminate based on a cert score."
+)
+
+
+def aml_kyc_disclaimer_text() -> str:
+    """
+    Return the canonical AML-1 KYC/AML disclaimer.
+
+    Helper for callsites that want to render the disclaimer
+    alongside a returned score. Returns the same string as
+    `AML_KYC_DISCLAIMER` — the function exists so a caller can
+    import a helper rather than a module-level constant when that
+    pattern fits the surrounding code better.
+    """
+    return AML_KYC_DISCLAIMER
+
+
 # =============================================================================
 # _KYC_FORBIDDEN_FIELDS — forward-looking guard against KYC drift
 # =============================================================================
@@ -402,10 +442,12 @@ def collect_aml_attestations(
 
 __all__ = [
     "ALLOWED_AML_ATTESTATIONS",
+    "AML_KYC_DISCLAIMER",
     "AmlComplianceError",
     "AmlComplianceReport",
     "AmlProgramAttestation",
     "KycFieldRefusedError",
+    "aml_kyc_disclaimer_text",
     "assert_no_kyc_fields",
     "collect_aml_attestations",
     "verify_aml_posture",

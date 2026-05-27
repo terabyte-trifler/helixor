@@ -21,7 +21,8 @@ WHAT IT VERIFIES
 1. The `aml_compliance` module exists at the expected path.
 2. The module exports the audit-pinned public surface
    (`AmlProgramAttestation`, `ALLOWED_AML_ATTESTATIONS`,
-   `verify_aml_posture`, `assert_no_kyc_fields`, etc.).
+   `AML_KYC_DISCLAIMER`, `verify_aml_posture`,
+   `assert_no_kyc_fields`, etc.).
 3. `ALLOWED_AML_ATTESTATIONS` contains exactly the values declared
    in `AmlProgramAttestation` (no drift between enum and allowlist).
 4. The AML allowlist still contains exactly the governance-pinned
@@ -37,6 +38,14 @@ WHAT IT VERIFIES
 7. The DataCategory enum (from `oracle.data_protection_policy`) is
    free of KYC-shaped substrings — `assert_no_kyc_fields` returns
    clean on every existing category value.
+8. The SDK's `safe_reader.ts` carries an `AML_KYC_DISCLAIMER`
+   constant whose string content matches the Python substrate
+   byte-for-byte. Drift here means SDK consumers receive
+   different disclosure text than the public AML notice claims.
+9. Every published integration reader under
+   `launch/integrations/*/reader.ts` imports and references
+   `AML_KYC_DISCLAIMER` — a reader that returns a score without
+   surfacing the disclaimer violates the public AML posture.
 
 REPORTING
 ---------
@@ -145,10 +154,12 @@ def _check_oracle_public_surface(report: Report) -> None:
     report.checked.append("oracle.aml_compliance:exports")
     required = {
         "ALLOWED_AML_ATTESTATIONS",
+        "AML_KYC_DISCLAIMER",
         "AmlComplianceError",
         "AmlComplianceReport",
         "AmlProgramAttestation",
         "KycFieldRefusedError",
+        "aml_kyc_disclaimer_text",
         "assert_no_kyc_fields",
         "collect_aml_attestations",
         "verify_aml_posture",
@@ -337,6 +348,213 @@ def _check_kyc_forbidden_fields_against_data_categories(report: Report) -> None:
 
 
 # =============================================================================
+# SDK + integration reader checks — the public-facing surface
+# =============================================================================
+
+_TS_SDK_PATH = REPO_ROOT / "helixor-sdk" / "src" / "safe_reader.ts"
+_INTEGRATIONS_DIR = REPO_ROOT / "launch" / "integrations"
+
+
+def _extract_ts_string_constant(ts_text: str, marker: str) -> str | None:
+    """
+    Parse a string constant out of the SDK source given its
+    declaration marker (e.g. `"export const AML_KYC_DISCLAIMER: string ="`).
+
+    The constant is a multi-line string concatenation AND the
+    disclaimer body itself contains a `;` (terminator char), so we
+    track string-literal state. Walk from the marker through the TS
+    source one character at a time:
+
+      * outside any string: accept `+`, whitespace, comments;
+        terminate on the first `;`.
+      * inside a string ("..."): collect every char, handle
+        backslash escapes; on the closing `"` flip back to
+        outside-string state.
+
+    Returns None if the constant is missing or unparseable.
+    """
+    idx = ts_text.find(marker)
+    if idx == -1:
+        return None
+    cursor = idx + len(marker)
+    n = len(ts_text)
+
+    segments: list[str] = []
+    in_string = False
+    in_line_comment = False
+    in_block_comment = False
+    buf: list[str] = []
+
+    while cursor < n:
+        c = ts_text[cursor]
+
+        if in_line_comment:
+            if c == "\n":
+                in_line_comment = False
+            cursor += 1
+            continue
+        if in_block_comment:
+            if c == "*" and cursor + 1 < n and ts_text[cursor + 1] == "/":
+                in_block_comment = False
+                cursor += 2
+                continue
+            cursor += 1
+            continue
+
+        if in_string:
+            if c == "\\" and cursor + 1 < n:
+                nxt = ts_text[cursor + 1]
+                buf.append({"n": "\n", "t": "\t", "\\": "\\",
+                            '"': '"', "'": "'"}.get(nxt, nxt))
+                cursor += 2
+                continue
+            if c == '"':
+                segments.append("".join(buf))
+                buf = []
+                in_string = False
+                cursor += 1
+                continue
+            buf.append(c)
+            cursor += 1
+            continue
+
+        # outside-string state
+        if c == ";":
+            return "".join(segments) if segments else None
+        if c == '"':
+            in_string = True
+            cursor += 1
+            continue
+        if c == "/" and cursor + 1 < n:
+            nxt = ts_text[cursor + 1]
+            if nxt == "/":
+                in_line_comment = True
+                cursor += 2
+                continue
+            if nxt == "*":
+                in_block_comment = True
+                cursor += 2
+                continue
+        # Whitespace, `+`, etc. are all skip-able.
+        cursor += 1
+
+    return None
+
+
+def _check_sdk_aml_disclaimer_matches(report: Report) -> None:
+    """The SDK constant must match the Python source-of-truth
+    byte-for-byte."""
+    report.checked.append(str(_TS_SDK_PATH.relative_to(REPO_ROOT)))
+    if not _TS_SDK_PATH.is_file():
+        report.findings.append(Finding(
+            severity="HARD",
+            rule="AML-1.sdk-safe-reader-present",
+            detail=(
+                f"missing {_TS_SDK_PATH.relative_to(REPO_ROOT)} — the "
+                f"SDK AML_KYC_DISCLAIMER source-of-truth lives here"
+            ),
+        ))
+        return
+
+    import importlib
+    import sys as _sys
+    oracle_root = REPO_ROOT / "helixor-oracle"
+    if str(oracle_root) not in _sys.path:
+        _sys.path.insert(0, str(oracle_root))
+    try:
+        aml_module = importlib.import_module("oracle.aml_compliance")
+    except Exception as exc:
+        report.findings.append(Finding(
+            severity="HARD",
+            rule="AML-1.disclaimer-substrate-importable",
+            detail=f"oracle.aml_compliance not importable: {exc!r}",
+        ))
+        return
+    python_disclaimer: str = getattr(aml_module, "AML_KYC_DISCLAIMER", "")
+    if not python_disclaimer:
+        report.findings.append(Finding(
+            severity="HARD",
+            rule="AML-1.python-disclaimer-non-empty",
+            detail=(
+                "AML_KYC_DISCLAIMER in oracle.aml_compliance is empty "
+                "— the cross-reference cannot proceed"
+            ),
+        ))
+        return
+
+    ts_text = _TS_SDK_PATH.read_text()
+    if "AML_KYC_DISCLAIMER" not in ts_text:
+        report.findings.append(Finding(
+            severity="HARD",
+            rule="AML-1.sdk-aml-disclaimer-marker",
+            detail=(
+                f"{_TS_SDK_PATH.relative_to(REPO_ROOT)} does not export "
+                f"AML_KYC_DISCLAIMER — every consumer-facing surface "
+                f"that returns a score must render the AML disclaimer"
+            ),
+        ))
+        return
+
+    ts_disclaimer = _extract_ts_string_constant(
+        ts_text, "export const AML_KYC_DISCLAIMER: string ="
+    )
+    if ts_disclaimer is None:
+        report.findings.append(Finding(
+            severity="HARD",
+            rule="AML-1.sdk-aml-disclaimer-parseable",
+            detail=(
+                "could not parse AML_KYC_DISCLAIMER body from "
+                f"{_TS_SDK_PATH.relative_to(REPO_ROOT)} — the constant "
+                "must be a double-quoted string concatenation"
+            ),
+        ))
+        return
+
+    report.checked.append("oracle.aml_compliance:disclaimer-matches-sdk")
+    if ts_disclaimer != python_disclaimer:
+        report.findings.append(Finding(
+            severity="HARD",
+            rule="AML-1.disclaimer-byte-identity",
+            detail=(
+                f"AML_KYC_DISCLAIMER differs between Python "
+                f"({len(python_disclaimer)} chars) and SDK "
+                f"({len(ts_disclaimer)} chars). The two must match "
+                f"byte-for-byte — drift means consumers receive "
+                f"different disclosure text than the public notice "
+                f"claims. python={python_disclaimer!r} "
+                f"ts={ts_disclaimer!r}"
+            ),
+        ))
+
+
+def _check_integration_readers_surface_aml_disclaimer(report: Report) -> None:
+    """Every reader.ts under launch/integrations must reference
+    AML_KYC_DISCLAIMER. A reader that returns a score without
+    surfacing the disclaimer violates the public AML posture."""
+    report.checked.append(
+        str(_INTEGRATIONS_DIR.relative_to(REPO_ROOT)) + ":reader-aml-disclaimer"
+    )
+    if not _INTEGRATIONS_DIR.is_dir():
+        return
+    readers = list(_INTEGRATIONS_DIR.glob("*/reader.ts"))
+    if not readers:
+        return
+    for reader_path in sorted(readers):
+        text = reader_path.read_text()
+        if "AML_KYC_DISCLAIMER" not in text:
+            report.findings.append(Finding(
+                severity="HARD",
+                rule="AML-1.integration-reader-surfaces-disclaimer",
+                detail=(
+                    f"{reader_path.relative_to(REPO_ROOT)} does not "
+                    f"reference AML_KYC_DISCLAIMER — every published "
+                    f"reference reader must surface the AML-1 "
+                    f"disclaimer alongside the returned score"
+                ),
+            ))
+
+
+# =============================================================================
 # Entry point
 # =============================================================================
 
@@ -354,6 +572,8 @@ def main() -> int:
     _check_attestation_carries_aml1_field(report)
     _check_canonical_bytes_binds_aml1_field(report)
     _check_kyc_forbidden_fields_against_data_categories(report)
+    _check_sdk_aml_disclaimer_matches(report)
+    _check_integration_readers_surface_aml_disclaimer(report)
 
     text = report.to_json()
     if args.json == "-" or args.json == "":
