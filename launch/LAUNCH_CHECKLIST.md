@@ -952,6 +952,58 @@ file.
       confirms they can recite the seven steps, find the linked handlers
       in <5 minutes, AND name the four sub-runbooks (subpoena, no-action,
       examination, cross-border) verbatim.
+- [ ] **AML-1 KYC/AML posture + complaint-response runbook reviewed by
+      lead.** The 8-step incident response in
+      `launch/runbooks/aml_complaint_response.md` composes the existing
+      primitives — classify-and-engage-counsel at intake, then records
+      production for regulator / FIU inquiries (operator-local books +
+      `collect_aml_attestations(manifest)` + the existing DSAR / OFAC-1
+      audit logs), substrate-grounded posture statements for
+      interpretive requests, operator-only response for FATF mutual-
+      evaluation interviews (the protocol does NOT attend), forward-
+      only handling for cross-border inquiries (mirrors the OFAC-1 §3 /
+      SEC-1 §5 anti-silent-delist posture), an explicit adversarial /
+      boilerplate-complaint path (the process-tax DoS vector the
+      AML-1 risk model calls out — substrate-citation reply, no
+      protocol action, complaint dies at intake), a canonical-JSON
+      AML-1 audit log at `/var/log/helixor/aml/<ticket>.<op>.json`,
+      and an AML-1 gate re-run as the post-inquiry drift check. The
+      substrate `helixor-oracle/oracle/aml_compliance.py` declares
+      the closed-enum `AmlProgramAttestation` (today
+      `{NO_AML_PROGRAM_REQUIRED_FOR_HELIXOR_ACTIVITY,
+      EXTERNAL_AML_PROGRAM_DECLARED}`), the `_KYC_FORBIDDEN_FIELDS` +
+      `assert_no_kyc_fields(name)` defensive guard against KYC-shaped
+      DP-1 `DataCategory` drift (`KycFieldRefusedError` at substrate
+      construction time), and the canonical `AML_KYC_DISCLAIMER` —
+      the AML-1 field is folded into `attestation_canonical_bytes` so
+      the OFAC-1 Ed25519 sig binding extends to cover it (lying about
+      AML posture costs the same key compromise the rest of the
+      protocol already assumes the adversary cannot perform). The
+      public notice `launch/legal/aml_kyc_notice.md` declares the
+      not-a-VASP / not-a-CASP / not-an-MSB / no-Travel-Rule posture
+      across US BSA/FinCEN / EU 5AMLD/6AMLD/MiCA / India PMLA / UK
+      MLR 2017 / SG PSA 2019 / FATF R.15/R.16 regimes, references the
+      substrate by file:line, and discloses every operator's AML
+      attestation up front. The audit gate
+      `audit/aml_compliance_check.py` verifies the substrate stays
+      present, the enum / allowlist agree, the allowlist matches the
+      governance pin (today:
+      `{NO_AML_PROGRAM_REQUIRED_FOR_HELIXOR_ACTIVITY,
+      EXTERNAL_AML_PROGRAM_DECLARED}`), `OperatorAttestation` carries
+      the AML-1 field, `attestation_canonical_bytes` still binds it,
+      the DP-1 `DataCategory` allowlist stays KYC-clean against the
+      forbidden-field set, the SDK's `AML_KYC_DISCLAIMER` matches the
+      Python source-of-truth byte-for-byte, and every
+      `launch/integrations/*/reader.ts` references the marker — a
+      drift in any of those trips the gate HARD. AML-1 DECLINES
+      cluster-side KYC ingestion (would invert the cluster's
+      not-covered-activity posture and create a high-value PII
+      honeypot) and DECLINES registering Helixor as a VASP / MSB /
+      CASP (registration is a per-operator legal posture, not a
+      protocol feature). On-call confirms they can recite the eight
+      steps, find the linked handlers in <5 minutes, AND name the five
+      sub-runbooks (inquiry/production, posture, evaluation,
+      cross-border, adversarial-complaint) verbatim.
 - [ ] Monitoring stack (Prometheus + Alertmanager) live and tested in
       dev — every alert in `launch/monitoring/alerts.yml` fired
       manually at least once
