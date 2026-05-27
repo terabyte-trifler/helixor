@@ -69,6 +69,12 @@ export {
 
 // VULN-23 consumer-side guard rails — wraps any ChainReader and refuses
 // stale or velocity-pumped certs before a DeFi protocol acts on them.
+//
+// SEC-1 — ADVISORY_DISCLAIMER + disclaimerText are also re-exported here:
+// every consumer integration surfaces this text at the boundary where a
+// score is returned so the cluster's posture stays as a technical trust
+// signal rather than implicit investment advice. The audit gate verifies
+// the marker is present in every published integration reader.
 export {
   SafeCertReader,
   RejectReason,
@@ -76,6 +82,8 @@ export {
   MAX_SCORE_VELOCITY,
   VELOCITY_WINDOW_EPOCHS,
   MIN_HISTORY_REQUIRED,
+  ADVISORY_DISCLAIMER,
+  disclaimerText,
   type ChainReader,
   type SafeCertReaderOptions,
   type SafeScoreOk,

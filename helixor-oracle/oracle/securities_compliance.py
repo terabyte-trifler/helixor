@@ -142,6 +142,42 @@ ALLOWED_COMPENSATION_MODELS: frozenset[str] = frozenset(
 )
 
 
+#: SEC-1 ADVISORY DISCLAIMER — the canonical string every consumer-
+#: facing surface that returns a cert score must render alongside the
+#: numeric output. Mirrored byte-for-byte in
+#: `helixor-sdk/src/safe_reader.ts` (the `ADVISORY_DISCLAIMER` export)
+#: and verified by `audit/securities_compliance_check.py` so a
+#: refactor that quietly edits the SDK string drifts from this
+#: source-of-truth and lights the gate red.
+#:
+#: The text is the union of the three concrete carve-outs the audit
+#: requires: not investment advice, not a security rating, not a
+#: registered investment adviser. The phrasing is intentionally plain
+#: and short — long legalese in API output gets ignored; a single
+#: sentence at the boundary is what an end-user actually reads.
+ADVISORY_DISCLAIMER: str = (
+    "Helixor cert scores are technical trust signals computed from "
+    "observable on-chain behaviour. They are NOT investment advice, "
+    "NOT a security rating, and NOT issued by a registered "
+    "investment adviser. Consumers MUST NOT treat a Helixor cert "
+    "score as a recommendation to buy, sell, or hold any asset; the "
+    "decision to act on the score is the consumer's alone."
+)
+
+
+def disclaimer_text() -> str:
+    """
+    Return the canonical SEC-1 advisory disclaimer.
+
+    Helper for callsites that want to render the disclaimer alongside
+    a returned score. Returns the same string as `ADVISORY_DISCLAIMER`
+    — the function exists so a caller can import a helper rather than
+    a module-level constant when that pattern fits the surrounding
+    code better.
+    """
+    return ADVISORY_DISCLAIMER
+
+
 # =============================================================================
 # Errors
 # =============================================================================
@@ -373,12 +409,14 @@ def collect_disclosed_conflicts(
 
 
 __all__ = [
+    "ADVISORY_DISCLAIMER",
     "ALLOWED_COMPENSATION_MODELS",
     "CompensationModel",
     "ConflictDisclosure",
     "SecuritiesComplianceError",
     "SecuritiesComplianceReport",
     "collect_disclosed_conflicts",
+    "disclaimer_text",
     "serialize_conflicts",
     "verify_compensation_independence",
 ]

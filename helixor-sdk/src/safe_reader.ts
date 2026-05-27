@@ -90,6 +90,49 @@ export const MIN_HISTORY_REQUIRED = 2;
 
 
 // =============================================================================
+// SEC-1 — not-investment-advice advisory disclaimer
+// =============================================================================
+//
+// DeFi protocols consume cert scores to size loans. To keep the
+// cluster's posture as a *technical trust signal* (and not as an
+// implicit recommendation under IA Act §202(a)(11) / SEBI's IA regs /
+// MiCA Title V), every consumer-facing surface that returns a score
+// must render this disclaimer alongside the numeric output.
+//
+// This string is mirrored BYTE-FOR-BYTE from
+// `helixor-oracle/oracle/securities_compliance.py` (ADVISORY_DISCLAIMER).
+// `audit/securities_compliance_check.py` verifies the two strings
+// agree — drift here means the SDK and the Python substrate
+// disagree on the public-facing disclosure, which is a legal posture
+// risk before it is an engineering bug.
+
+/**
+ * The canonical SEC-1 advisory disclaimer.
+ *
+ * Every consumer integration MUST surface this text at the boundary
+ * where a score is returned (in API responses, logs that a user might
+ * see, or any UI that renders a Helixor cert). The integration manifest
+ * gate (`audit/consumer_integration_check.py` + the SEC-1 audit gate)
+ * verifies the marker is present in the reader source on disk.
+ */
+export const ADVISORY_DISCLAIMER: string =
+  "Helixor cert scores are technical trust signals computed from " +
+  "observable on-chain behaviour. They are NOT investment advice, " +
+  "NOT a security rating, and NOT issued by a registered " +
+  "investment adviser. Consumers MUST NOT treat a Helixor cert " +
+  "score as a recommendation to buy, sell, or hold any asset; the " +
+  "decision to act on the score is the consumer's alone.";
+
+/**
+ * Helper for callsites that prefer a function over a constant. Returns
+ * `ADVISORY_DISCLAIMER` unchanged.
+ */
+export function disclaimerText(): string {
+  return ADVISORY_DISCLAIMER;
+}
+
+
+// =============================================================================
 // Result types
 // =============================================================================
 

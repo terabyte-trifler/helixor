@@ -50,12 +50,14 @@ from oracle.operator_manifest import (
     verify_attestation_signature,
 )
 from oracle.securities_compliance import (
+    ADVISORY_DISCLAIMER,
     ALLOWED_COMPENSATION_MODELS,
     CompensationModel,
     ConflictDisclosure,
     SecuritiesComplianceError,
     SecuritiesComplianceReport,
     collect_disclosed_conflicts,
+    disclaimer_text,
     serialize_conflicts,
     verify_compensation_independence,
 )
@@ -454,3 +456,41 @@ def test_collect_disclosed_conflicts_empty_for_clean_manifest():
     atts = [_signed_att(f"n-{i}") for i in range(3)]
     manifest = build_manifest(atts, threshold=2)
     assert collect_disclosed_conflicts(manifest) == ()
+
+
+# ----------------------------------------------------------------------------
+# ADVISORY_DISCLAIMER — content + helper
+# ----------------------------------------------------------------------------
+
+def test_advisory_disclaimer_is_non_empty():
+    assert ADVISORY_DISCLAIMER
+    assert len(ADVISORY_DISCLAIMER) > 0
+
+
+def test_advisory_disclaimer_carries_required_carve_outs():
+    """The audit-mandated three concrete carve-outs MUST appear."""
+    assert "NOT investment advice" in ADVISORY_DISCLAIMER
+    assert "NOT a security rating" in ADVISORY_DISCLAIMER
+    assert "NOT issued by a registered" in ADVISORY_DISCLAIMER
+    assert "investment adviser" in ADVISORY_DISCLAIMER
+
+
+def test_advisory_disclaimer_frames_as_technical_trust_signal():
+    assert "technical trust signal" in ADVISORY_DISCLAIMER
+
+
+def test_advisory_disclaimer_tells_consumer_decision_is_theirs():
+    """The cluster output is NOT a recommendation — the consumer's
+    decision posture must be unambiguous."""
+    assert "consumer's alone" in ADVISORY_DISCLAIMER
+    assert "MUST NOT" in ADVISORY_DISCLAIMER
+
+
+def test_disclaimer_text_returns_constant_unchanged():
+    assert disclaimer_text() == ADVISORY_DISCLAIMER
+
+
+def test_disclaimer_text_is_referentially_stable():
+    """Two calls return the same string — the helper is a constant
+    getter, not a builder."""
+    assert disclaimer_text() == disclaimer_text()

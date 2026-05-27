@@ -31,6 +31,10 @@ import {
   type SafeScoreResult,
   CERT_MAX_AGE_SECONDS,
   MAX_SCORE_VELOCITY,
+  // SEC-1 — the canonical advisory disclaimer surfaced alongside every
+  // returned score. Mirrored byte-for-byte from
+  // helixor-oracle/oracle/securities_compliance.py.
+  ADVISORY_DISCLAIMER,
   // AW-01-EXT — slot-anchor ledger re-verification.
   verifyAgainstSolanaLedger,
   LedgerRejection,
@@ -88,6 +92,16 @@ export type SafeOperationOk = {
   epoch: number;
   issuedAt: number;
   certAgeSeconds: number;
+  /**
+   * SEC-1 — the canonical advisory disclaimer rendered alongside the
+   * returned score. Mirrored from
+   * `helixor-oracle/oracle/securities_compliance.py`. Consumer-side UIs /
+   * API responses MUST surface this text to the end-user. The audit gate
+   * (`audit/securities_compliance_check.py`) verifies this field is
+   * populated from the SDK constant — drift here breaks the cluster's
+   * posture as a technical trust signal.
+   */
+  advisoryDisclaimer: string;
 };
 
 export type SafeOperationRejected = {
@@ -217,6 +231,10 @@ export class SafePartnerReader {
       epoch: safe.epoch,
       issuedAt: safe.issuedAt,
       certAgeSeconds: certAge,
+      // SEC-1 — surface the canonical disclaimer alongside every
+      // returned score so the consumer's UI / API response carries the
+      // not-investment-advice posture verbatim.
+      advisoryDisclaimer: ADVISORY_DISCLAIMER,
     };
   }
 
