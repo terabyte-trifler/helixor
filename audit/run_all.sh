@@ -201,6 +201,32 @@ run "SEC-1 securities-posture gate" python3 audit/securities_compliance_check.py
     --json audit/reports/securities_compliance.json
 
 
+# ── 1m++++. AML-1 KYC/AML posture gate ──────────────────────────────────────
+# Large-scale AI agent lending enabled by Helixor certs may trigger AML
+# compliance requirements for downstream DeFi protocols, creating a
+# regulatory attack surface that adversaries can exploit via complaint
+# (FinCEN / FCA / SEBI / FATF). The risk is NOT that the cluster is an
+# MSB / VASP — it has no custody, no transmission, no exchange — but
+# that without a clean, sig-bound posture statement the complaint
+# becomes a process tax. AML-1 (oracle/aml_compliance.py +
+# OperatorAttestation.aml_program_attestation) makes the operator's
+# AML posture mechanically verifiable: a closed-enum allowlist
+# ({NO_AML_PROGRAM_REQUIRED_FOR_HELIXOR_ACTIVITY,
+# EXTERNAL_AML_PROGRAM_DECLARED}) sig-bound via
+# attestation_canonical_bytes so the existing OFAC-1 Ed25519 binding
+# extends to cover it — lying about AML posture costs the same key
+# compromise the rest of the protocol assumes the adversary cannot
+# perform. The module also exports a _KYC_FORBIDDEN_FIELDS guard so
+# DP-1 cannot accidentally introduce a KYC-shaped DataCategory and
+# silently invert the carve-out. This gate enforces the substrate
+# stays present, the enum / allowlist agree, the allowlist matches the
+# governance pin, OperatorAttestation carries the new field,
+# attestation_canonical_bytes still binds it, and every existing
+# DataCategory passes assert_no_kyc_fields.
+run "AML-1 KYC/AML posture gate" python3 audit/aml_compliance_check.py \
+    --json audit/reports/aml_compliance.json
+
+
 # ── 1n. Protocol Death Spiral audit gate ────────────────────────────────────
 # Architectural fix for catastrophic Scenario A from the audit: attacker
 # compromises 2 oracle nodes, runs VULN-03 slow drift for 30 epochs, all

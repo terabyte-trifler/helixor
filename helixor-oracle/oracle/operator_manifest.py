@@ -202,6 +202,28 @@ class OperatorAttestation:
                      or retroactively edited. Default empty tuple
                      means "no disclosed conflicts". Folded into
                      `attestation_canonical_bytes`.
+    `aml_program_attestation`  AML-1 HARDENING: closed-enum string
+                     drawn from `oracle.aml_compliance.
+                     ALLOWED_AML_ATTESTATIONS`. The operator
+                     declares whether their Helixor cluster
+                     activity triggers BSA / PMLA / 5AMLD / MLR-
+                     2017 / PSA / similar reporting-entity
+                     registration. Today the allowed values are
+                     `"NO_AML_PROGRAM_REQUIRED_FOR_HELIXOR_ACTIVITY"`
+                     (default operator posture: observing public
+                     on-chain data, no custody / transmission /
+                     exchange) and `"EXTERNAL_AML_PROGRAM_DECLARED"`
+                     (operator runs an AML program for an unrelated
+                     business — disclosure only). Default empty
+                     string means the attestation has not been
+                     AML-1-extended; the boot gate refuses it. The
+                     diversity / signature gates ignore this field,
+                     so diversity-only or sig-only tests can omit
+                     it. Folded into `attestation_canonical_bytes`
+                     so the OFAC-1 sig binding extends to cover it
+                     — lying about AML posture costs the same key
+                     compromise the rest of the protocol already
+                     assumes the adversary cannot perform.
     `signature`      OFAC-1 HARDENING: hex-encoded 64-byte Ed25519
                      signature over `attestation_canonical_bytes(self)`
                      produced by the SAME private key whose public
@@ -212,22 +234,23 @@ class OperatorAttestation:
                      The diversity gate ignores this field, so
                      diversity-only tests can omit it. The sig binds
                      the operator's declaration of org / jurisdiction
-                     / compensation / conflicts to the same key they
-                     sign certs with — lying about any of those
-                     without re-signing fails the gate; re-signing
-                     requires possession of the key and therefore
-                     the lie costs the same key compromise the rest
-                     of the protocol already assumes the adversary
-                     cannot perform.
+                     / compensation / conflicts / AML posture to the
+                     same key they sign certs with — lying about any
+                     of those without re-signing fails the gate;
+                     re-signing requires possession of the key and
+                     therefore the lie costs the same key compromise
+                     the rest of the protocol already assumes the
+                     adversary cannot perform.
     """
-    node_id:             str
-    pubkey:              str
-    operator_org:        str
-    operator_contact:    str
-    jurisdiction:        str
-    compensation_model:  str = ""
-    conflicts_disclosed: tuple = ()
-    signature:           str = ""
+    node_id:                  str
+    pubkey:                   str
+    operator_org:             str
+    operator_contact:         str
+    jurisdiction:             str
+    compensation_model:       str = ""
+    conflicts_disclosed:      tuple = ()
+    aml_program_attestation:  str = ""
+    signature:                str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -445,6 +468,7 @@ def attestation_canonical_bytes(att: OperatorAttestation) -> bytes:
         ATTESTATION_DOMAIN_TAG
         |node_id|pubkey|operator_org|operator_contact|jurisdiction
         |compensation_model|<canonical conflicts string>
+        |aml_program_attestation
 
     Joined with the ASCII `|` byte. UTF-8 encoded. Deterministic — two
     callers given the same attestation produce byte-identical output.
@@ -453,10 +477,11 @@ def attestation_canonical_bytes(att: OperatorAttestation) -> bytes:
     signature). Every OTHER declared field IS included, so a lie about
     any of them invalidates the sig.
 
-    SEC-1 NOTE: the trailing two fields (compensation_model + the
-    canonical conflicts string) are always present, even if empty —
-    omitting them on legacy attestations would let an adversary
-    silently strip a sig-binding boundary by downgrading.
+    SEC-1 / AML-1 NOTE: the trailing three fields (compensation_model
+    + the canonical conflicts string + aml_program_attestation) are
+    always present, even if empty — omitting them on legacy
+    attestations would let an adversary silently strip a sig-binding
+    boundary by downgrading.
     """
     # SEC-1: import lazily to avoid a hard cycle. The conflicts list
     # is rendered via the canonical helper in `securities_compliance`
@@ -472,6 +497,7 @@ def attestation_canonical_bytes(att: OperatorAttestation) -> bytes:
         att.jurisdiction,
         att.compensation_model,
         serialize_conflicts(att.conflicts_disclosed),
+        att.aml_program_attestation,
     )
     body = "|".join(pieces).encode("utf-8")
     return ATTESTATION_DOMAIN_TAG + b"|" + body
