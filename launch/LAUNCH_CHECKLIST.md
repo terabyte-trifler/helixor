@@ -911,6 +911,47 @@ file.
       On-call confirms they can recite the six steps, find the linked
       handlers in <5 minutes, AND name the four on-chain carve-out
       categories verbatim.
+- [ ] **SEC-1 securities-posture compliance + regulator-inquiry runbook
+      reviewed by lead.** The 7-step incident response in
+      `launch/runbooks/securities_inquiry_response.md` composes the
+      existing primitives — classify-and-engage-counsel at intake, then
+      records production for subpoenas / CIDs (operator-local books +
+      `collect_disclosed_conflicts(manifest)` + the existing DSAR /
+      OFAC-1 audit logs), substrate-grounded posture statements for
+      no-action / interpretive requests, operator-only response for
+      examinations (the protocol does NOT attend), forward-only handling
+      for cross-border inquiries (mirrors the OFAC-1 §3 anti-silent-
+      delist posture), a canonical-JSON SEC-1 audit log at
+      `/var/log/helixor/securities/<ticket>.<op>.json`, and a SEC-1 gate
+      re-run as the post-inquiry drift check. The substrate
+      `helixor-oracle/oracle/securities_compliance.py` declares the
+      closed-enum `CompensationModel` (today only
+      `FLAT_FEE_PER_CERT_FROM_TREASURY`), the `ConflictDisclosure`
+      shape, and the canonical `ADVISORY_DISCLAIMER` — every field
+      folded into `attestation_canonical_bytes` so the OFAC-1 Ed25519
+      sig binding extends to cover them (lying about compensation or
+      hiding a conflict costs the same key compromise the rest of the
+      protocol already assumes the adversary cannot perform). The
+      public notice `launch/legal/securities_notice.md` declares the
+      not-investment-advice / not-rating / not-IA posture across US /
+      EU/EEA / India / UK / SG regimes, references the substrate by
+      file:line, and discloses every operator's compensation model +
+      conflicts up front. The audit gate
+      `audit/securities_compliance_check.py` verifies the substrate
+      stays present, the enum / allowlist agree, the allowlist matches
+      the governance pin (today: `{FLAT_FEE_PER_CERT_FROM_TREASURY}`),
+      `OperatorAttestation` carries both SEC-1 fields,
+      `attestation_canonical_bytes` still binds them, the SDK's
+      `ADVISORY_DISCLAIMER` matches the Python source-of-truth byte-
+      for-byte, and every `launch/integrations/*/reader.ts` references
+      the marker — a drift in any of those trips the gate HARD. SEC-1
+      DECLINES on-chain accredited-investor gating (would create a
+      high-value authority key, break the permissionless invariant) and
+      DECLINES registering Helixor as an investment adviser (registration
+      is a per-operator legal posture, not a protocol feature). On-call
+      confirms they can recite the seven steps, find the linked handlers
+      in <5 minutes, AND name the four sub-runbooks (subpoena, no-action,
+      examination, cross-border) verbatim.
 - [ ] Monitoring stack (Prometheus + Alertmanager) live and tested in
       dev — every alert in `launch/monitoring/alerts.yml` fired
       manually at least once

@@ -5,11 +5,14 @@
     "oracle.securities_compliance:enum-allowlist-consistent",
     "oracle.securities_compliance:allowlist-pinned",
     "oracle.operator_manifest:OperatorAttestation-sec1-fields",
-    "oracle.operator_manifest:attestation_canonical_bytes-binds-sec1"
+    "oracle.operator_manifest:attestation_canonical_bytes-binds-sec1",
+    "helixor-sdk/src/safe_reader.ts",
+    "oracle.securities_compliance:disclaimer-matches-sdk",
+    "launch/integrations:reader-disclaimer"
   ],
   "findings": [],
   "summary": {
-    "checks": 6,
+    "checks": 9,
     "hard_findings": 0,
     "soft_findings": 0
   }
