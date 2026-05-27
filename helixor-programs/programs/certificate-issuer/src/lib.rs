@@ -37,7 +37,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("Cert1xor11111111111111111111111111111111111");
+declare_id!("4bsGcUKUmvE7JHXEUFwnDYc9ejh4zfpuTuugz1ghMQW7");
 
 #[program]
 pub mod certificate_issuer {

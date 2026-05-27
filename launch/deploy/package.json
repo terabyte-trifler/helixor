@@ -1,0 +1,13 @@
+{
+  "name": "helixor-launch-deploy",
+  "private": true,
+  "version": "0.0.1",
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.32.0",
+    "@solana/web3.js": "^1.95.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}

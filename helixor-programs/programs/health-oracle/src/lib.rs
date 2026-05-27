@@ -24,7 +24,7 @@ pub mod state;
 use instructions::*;
 
 // Replace with the actual deployed program ID when merging into the real repo.
-declare_id!("Hex1xor111111111111111111111111111111111111");
+declare_id!("EKK2Aj4C9GW8yt4rE2DmYN9A69LFmazGZgfWsFGwuaRN");
 
 #[program]
 pub mod health_oracle {

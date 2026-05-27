@@ -6,14 +6,14 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-health_oracle      = "Hex1xor111111111111111111111111111111111111"
-certificate_issuer = "Cert1xor11111111111111111111111111111111111"
-slash_authority    = "S1ash1xor1111111111111111111111111111111111"
+health_oracle      = "EKK2Aj4C9GW8yt4rE2DmYN9A69LFmazGZgfWsFGwuaRN"
+certificate_issuer = "4bsGcUKUmvE7JHXEUFwnDYc9ejh4zfpuTuugz1ghMQW7"
+slash_authority    = "8hicwiqhYw68MF4pK8ngoDCH875iXHj8xeLCgbsFYq1r"
 
 [programs.devnet]
-health_oracle      = "Hex1xor111111111111111111111111111111111111"
-certificate_issuer = "Cert1xor11111111111111111111111111111111111"
-slash_authority    = "S1ash1xor1111111111111111111111111111111111"
+health_oracle      = "EKK2Aj4C9GW8yt4rE2DmYN9A69LFmazGZgfWsFGwuaRN"
+certificate_issuer = "4bsGcUKUmvE7JHXEUFwnDYc9ejh4zfpuTuugz1ghMQW7"
+slash_authority    = "8hicwiqhYw68MF4pK8ngoDCH875iXHj8xeLCgbsFYq1r"
 
 [registry]
 url = "https://api.apr.dev"

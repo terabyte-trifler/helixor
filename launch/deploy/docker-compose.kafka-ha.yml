@@ -54,6 +54,7 @@ version: "3.9"
 
 x-kafka-common: &kafka-common
   image: confluentinc/cp-kafka:7.6.0
+  platform: linux/amd64
   restart: unless-stopped
   # SPOF-#5 — every broker carries the same SASL_SSL settings; the HA
   # overlay does NOT loosen authentication. VULN-17's wire authentication
@@ -78,6 +79,7 @@ x-kafka-common: &kafka-common
     KAFKA_AUTHORIZER_CLASS_NAME: org.apache.kafka.metadata.authorizer.StandardAuthorizer
     KAFKA_SUPER_USERS: "User:${KAFKA_SASL_USERNAME:?KAFKA_SASL_USERNAME must be set}"
     CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qg"
+    KAFKA_OPTS: "-Dkafka.metadata.acl.load.timeout.ms=600000"
     # ── SPOF-#5: HA replication ─────────────────────────────────────────────
     # Three replicas of every partition; producers with acks=all see a
     # successful write iff at least two replicas have it.
@@ -99,9 +101,10 @@ x-kafka-common: &kafka-common
     test: ["CMD-SHELL",
            "kafka-broker-api-versions --bootstrap-server localhost:9092 \
             --command-config /etc/kafka/secrets/client.properties || exit 1"]
-    interval: 10s
-    timeout:  5s
-    retries:  5
+    interval: 30s
+    timeout:  30s
+    retries:  10
+    start_period: 90s
   mem_limit: 4g
   cpus: "2.0"
 
@@ -166,6 +169,7 @@ services:
   # drift cannot silently downgrade durability.
   kafka-init:
     image: confluentinc/cp-kafka:7.6.0
+    platform: linux/amd64
     depends_on:
       kafka-1: { condition: service_healthy }
       kafka-2: { condition: service_healthy }

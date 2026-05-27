@@ -138,7 +138,8 @@ async function initOracleConfig(
 ): Promise<void> {
     const idl = require("../../helixor-programs/target/idl/health_oracle.json");
     const programId = new PublicKey(programs["health-oracle"].program_id);
-    const program = new Program(idl, programId, provider);
+    idl.address = programId.toBase58();
+    const program = new Program(idl, provider);
 
     const [pda] = PublicKey.findProgramAddressSync(
         [enc("oracle_config")], programId,
@@ -173,7 +174,8 @@ async function initIssuerConfig(
 ): Promise<void> {
     const idl = require("../../helixor-programs/target/idl/certificate_issuer.json");
     const programId = new PublicKey(programs["certificate-issuer"].program_id);
-    const program = new Program(idl, programId, provider);
+    idl.address = programId.toBase58();
+    const program = new Program(idl, provider);
 
     const [pda] = PublicKey.findProgramAddressSync(
         [enc("issuer_config")], programId,
@@ -189,6 +191,8 @@ async function initIssuerConfig(
             clusterKeys,
             threshold,
             healthOracleProgramId,                      // VULN-16 CPI allow-list
+            [],                                         // AW-01-EXT.6: challenge attesters disabled on localnet
+            0,
         )
         .accounts({
             issuerConfig:  pda,
@@ -213,7 +217,8 @@ async function initSlashConfig(
 ): Promise<void> {
     const idl = require("../../helixor-programs/target/idl/slash_authority.json");
     const programId = new PublicKey(programs["slash-authority"].program_id);
-    const program = new Program(idl, programId, provider);
+    idl.address = programId.toBase58();
+    const program = new Program(idl, provider);
 
     const [pda] = PublicKey.findProgramAddressSync(
         [enc("slash_config")], programId,

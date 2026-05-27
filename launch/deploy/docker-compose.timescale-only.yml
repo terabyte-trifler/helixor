@@ -1,0 +1,122 @@
+version: "3.9"
+
+x-timescale-common: &timescale-common
+  image: timescale/timescaledb:2.14.2-pg16
+  restart: unless-stopped
+  environment: &timescale-common-env
+    POSTGRES_DB:       helixor
+    POSTGRES_USER:     helixor_indexer
+    POSTGRES_PASSWORD: "${TIMESCALE_PASSWORD:?TIMESCALE_PASSWORD must be set}"
+    TIMESCALEDB_TELEMETRY: "off"
+    POSTGRES_REPLICATION_USER:     "helixor_replicator"
+    POSTGRES_REPLICATION_PASSWORD: "${TIMESCALE_REPLICATION_PASSWORD:?TIMESCALE_REPLICATION_PASSWORD must be set}"
+  mem_limit: 4g
+  cpus: "2.0"
+
+services:
+  timescale-primary:
+    <<: *timescale-common
+    environment:
+      <<: *timescale-common-env
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=replica"
+      - "-c"
+      - "max_wal_senders=8"
+      - "-c"
+      - "max_replication_slots=8"
+      - "-c"
+      - "hot_standby=on"
+      - "-c"
+      - "archive_mode=on"
+      - "-c"
+      - "archive_command=test ! -f /wal_archive/%f && cp %p /wal_archive/%f"
+      - "-c"
+      - "wal_keep_size=2GB"
+      - "-c"
+      - "synchronous_commit=on"
+    volumes:
+      - tsdb_primary_data:/var/lib/postgresql/data
+      - wal_archive:/wal_archive
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helixor_indexer -d helixor"]
+      interval: 10s
+      timeout:  5s
+      retries:  10
+    ports:
+      - "127.0.0.1:15432:5432"
+
+  timescale-standby:
+    image: timescale/timescaledb:2.14.2-pg16
+    restart: unless-stopped
+    depends_on:
+      timescale-primary: { condition: service_healthy }
+    environment:
+      PGUSER:                "helixor_replicator"
+      PGPASSWORD:            "${TIMESCALE_REPLICATION_PASSWORD:?TIMESCALE_REPLICATION_PASSWORD must be set}"
+      POSTGRES_PASSWORD:     "${TIMESCALE_PASSWORD:?TIMESCALE_PASSWORD must be set}"
+      TIMESCALEDB_TELEMETRY: "off"
+    entrypoint:
+      - "bash"
+      - "-c"
+      - |
+        set -euo pipefail
+        DATA=/var/lib/postgresql/data
+        if [[ ! -f "$$DATA/PG_VERSION" ]]; then
+          echo "standby: pg_basebackup from timescale-primary"
+          rm -rf "$$DATA"/*
+          pg_basebackup -h timescale-primary -p 5432 \
+                        -U helixor_replicator \
+                        -D "$$DATA" -Fp -Xs -P -R
+          chmod 700 "$$DATA"
+        fi
+        exec docker-entrypoint.sh postgres \
+             -c hot_standby=on \
+             -c primary_conninfo='host=timescale-primary port=5432 user=helixor_replicator password='$$PGPASSWORD
+    volumes:
+      - tsdb_standby_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helixor_replicator -d helixor"]
+      interval: 10s
+      timeout:  5s
+      retries:  10
+    ports:
+      - "127.0.0.1:15433:5432"
+    mem_limit: 4g
+    cpus: "2.0"
+
+  wal-archive:
+    image: timescale/timescaledb:2.14.2-pg16
+    restart: unless-stopped
+    depends_on:
+      timescale-primary: { condition: service_healthy }
+    environment:
+      PGPASSWORD: "${TIMESCALE_REPLICATION_PASSWORD:?TIMESCALE_REPLICATION_PASSWORD must be set}"
+    entrypoint:
+      - "bash"
+      - "-c"
+      - |
+        set -euo pipefail
+        until pg_isready -h timescale-primary -U helixor_replicator; do
+          sleep 2
+        done
+        pg_receivewal -h timescale-primary -p 5432 \
+                      -U helixor_replicator \
+                      -D /wal_archive \
+                      --slot=helixor_archive \
+                      --create-slot --if-not-exists || true
+        exec pg_receivewal -h timescale-primary -p 5432 \
+                           -U helixor_replicator \
+                           -D /wal_archive \
+                           --slot=helixor_archive
+    volumes:
+      - wal_archive:/wal_archive
+    mem_limit: 512m
+
+volumes:
+  tsdb_primary_data:
+  tsdb_standby_data:
+  wal_archive:

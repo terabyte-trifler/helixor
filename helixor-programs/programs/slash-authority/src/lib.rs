@@ -37,7 +37,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("S1ash1xor1111111111111111111111111111111111");
+declare_id!("8hicwiqhYw68MF4pK8ngoDCH875iXHj8xeLCgbsFYq1r");
 
 #[program]
 pub mod slash_authority {
