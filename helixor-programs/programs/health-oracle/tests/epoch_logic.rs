@@ -270,3 +270,45 @@ fn aw02_digest_is_deterministic_for_same_inputs() {
     let b = advance_payload_digest(123, 124, 1_777_000_000);
     assert_eq!(a, b);
 }
+
+// =============================================================================
+// C-01: submit_score vs advance_epoch boundary-race witness
+// =============================================================================
+//
+// The audit raised C-01 as a putative race between submit_score (reads
+// EpochState.current_epoch) and advance_epoch (writes it). The verification
+// chain that closes C-01 to fail-closed is:
+//
+//   (a) Solana's runtime serialises writers against readers on the same
+//       account, so advance_epoch and submit_score CANNOT interleave on
+//       EpochState — ordering is total within any slot.
+//   (b) submit_score enforces `epoch == epoch_state.current_epoch`, so a
+//       caller cannot smuggle a stale `epoch` past the on-chain counter.
+//   (c) cert_payload_digest folds `epoch` into the bytes the cluster
+//       signs over (see certificate-issuer/tests/threshold_logic.rs
+//       `digest_changes_with_epoch`). If a caller mutates `epoch` to
+//       match a post-tick counter, the rebuilt digest no longer matches
+//       any cluster sig → ed25519 verification fails → the CPI reverts
+//       atomically with submit_score.
+//
+// Steps (a) and (b) are Solana/handler invariants tested at runtime; this
+// test pins step (c)'s health-oracle-side witness: the advance digest
+// itself separates per-tick so even attestations cannot be carried across
+// the boundary the race would have exploited.
+#[test]
+fn c01_advance_digest_separates_pre_and_post_tick_attestations() {
+    // Pre-tick state: cluster believes current_epoch = N, target = N+1,
+    // last advance happened at T0.
+    let pre_tick = advance_payload_digest(5, 6, 1_700_000_000);
+
+    // Post-tick state, in the same slot the race posits: current_epoch
+    // has moved to N+1, target to N+2, last_advanced_at to the tick time.
+    let post_tick = advance_payload_digest(6, 7, 1_700_086_400);
+
+    // The two digests MUST differ. If they collided, a sig for one tick
+    // would carry across to the next — the exact replay vector C-01
+    // would have created if epoch were not bound. Pinning this
+    // separation prevents a future refactor from accidentally
+    // weakening the advance-side binding.
+    assert_ne!(pre_tick, post_tick);
+}

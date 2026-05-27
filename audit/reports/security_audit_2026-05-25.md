@@ -100,3 +100,57 @@ Remaining dependency note:
 ## Local Secret Note
 
 `helixor-e2e/.env` exists locally but is ignored by `helixor-e2e/.gitignore` and is not tracked.
+
+## Adversarial-Audit Findings — Verified-Invalid
+
+### C-01: `advance_epoch` ↔ `submit_score` epoch-boundary race
+
+The Top-50 adversarial review listed C-01 (Critical) — the conjecture that an
+operator submitting a score at the epoch boundary could interleave with an
+`advance_epoch` tick and write the score into a stale or pruned epoch
+bucket. After tracing the actual code path the finding is **VERIFIED INVALID
+— the protocol fails closed in every ordering.**
+
+Verification chain:
+
+- **Account-locking serialises the race.** `advance_epoch` declares
+  `epoch_state` `mut` (write-lock); `submit_score` declares it read-only
+  (read-lock). Solana's runtime conflicts write-lock against read-lock on
+  the same account, so the two instructions cannot execute in parallel
+  within a slot — ordering is total.
+- **The on-chain counter check rejects stale epochs.**
+  `submit_score::handler` enforces
+  `require!(epoch == epoch_state.current_epoch, EpochMismatch)`. If
+  `advance_epoch` lands first, `current_epoch = N+1` and any caller
+  passing `epoch = N` reverts.
+- **The cluster-signed digest is bound to `epoch`.**
+  `cert_payload_digest` in `certificate-issuer/src/signing.rs` folds
+  `epoch` into the bytes the cluster signs over. If a caller mutates the
+  `epoch` parameter to match the post-tick counter, the digest rebuilt
+  inside `issue_certificate` no longer matches any cluster signature →
+  the Ed25519 precompile check fails → the CPI reverts → the entire
+  `submit_score` transaction reverts atomically.
+
+The cross-program failure is therefore atomic and observable; no half-state,
+no silent corruption, no forged cert is producible by this race. The worst
+case is liveness churn (the cluster must re-sign for the new epoch), and
+even that requires the racer to be a cluster member with `advance_epoch`
+authority — i.e. a self-DoS, not an external attack.
+
+Defence-in-depth pins added:
+
+- `helixor-programs/programs/health-oracle/tests/epoch_logic.rs::c01_advance_digest_separates_pre_and_post_tick_attestations`
+  asserts the advance digest differs across the exact pre-tick / post-tick
+  pair the race posits. A future refactor that weakened the per-tick
+  binding would fail this test.
+- Existing pins relied on for the close-out:
+  `certificate-issuer/tests/threshold_logic.rs::digest_changes_with_epoch`
+  (cert-side epoch binding) and
+  `health-oracle/tests/epoch_logic.rs::aw02_digest_changes_for_different_current_epochs`
+  /
+  `aw02_digest_changes_for_different_target_epochs` (advance-side per-tick
+  binding).
+
+No production-code change is required. Per the project guidance
+("don't add validation for scenarios that can't happen"), the on-chain
+checks already covering the impossibility have not been duplicated.
