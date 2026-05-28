@@ -37,10 +37,19 @@ pub const APPEAL_COOLDOWN_SECONDS: i64 = 24 * 3_600;
 #[derive(Accounts)]
 pub struct AppealSlash<'info> {
     /// The agent's escrow vault — its last_appeal_at is updated here.
+    ///
+    /// H-02: a terminal Compromise settlement deactivates the vault
+    /// (`settle_slash` sets `vault.active = false`). A vault can carry
+    /// multiple slash records, so a Pending sibling could otherwise be
+    /// appealed on an already-deactivated vault, drifting the
+    /// state-machine (an inactive vault carrying "Appealed" records that
+    /// contradict its zeroed lamport status). The same constraint that
+    /// guards `execute_slash` belongs here.
     #[account(
         mut,
         seeds = [EscrowVault::SEED_PREFIX, escrow_vault.agent_wallet.as_ref()],
         bump  = escrow_vault.bump,
+        constraint = escrow_vault.active @ SlashError::VaultInactive,
     )]
     pub escrow_vault: Account<'info, EscrowVault>,
 

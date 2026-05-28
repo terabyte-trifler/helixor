@@ -60,10 +60,18 @@ use crate::state::{EscrowVault, SlashConfig, SlashRecord, SlashStatus};
 #[derive(Accounts)]
 pub struct ResolveAppeal<'info> {
     /// The agent's escrow vault.
+    ///
+    /// H-02: a terminal Compromise settlement on a sibling slash
+    /// deactivates the vault (`settle_slash` sets `vault.active = false`).
+    /// Without this constraint, an Appealed sibling could otherwise be
+    /// resolved on an already-inactive vault, leaving the audit trail
+    /// carrying "Overturned" records that contradict the vault's zeroed
+    /// lamport state. Matches the guard on `execute_slash`.
     #[account(
         mut,
         seeds = [EscrowVault::SEED_PREFIX, escrow_vault.agent_wallet.as_ref()],
         bump  = escrow_vault.bump,
+        constraint = escrow_vault.active @ SlashError::VaultInactive,
     )]
     pub escrow_vault: Account<'info, EscrowVault>,
 
