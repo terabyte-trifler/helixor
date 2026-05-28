@@ -111,8 +111,9 @@ pub fn handler(ctx: Context<ResolveAppeal>, uphold: bool) -> Result<()> {
     let clock = Clock::get()?;
 
     // ── Refuse while paused ─────────────────────────────────────────────────
+    // H-04: time-aware check — an expired pause does not block resolution.
     require!(
-        !ctx.accounts.slash_config.paused,
+        !ctx.accounts.slash_config.is_paused_now(clock.unix_timestamp),
         SlashError::SettlementsPaused,
     );
 

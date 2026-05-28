@@ -93,8 +93,11 @@ pub fn handler(
     evidence_hash: [u8; 32],
 ) -> Result<()> {
     // -- Refuse while the pause kill-switch is active -----------------------
+    // H-04: read the time-aware pause state so an EXPIRED pause does not
+    // continue to block settlement after its auto-expiry window has run.
+    let now = Clock::get()?.unix_timestamp;
     require!(
-        !ctx.accounts.slash_config.paused,
+        !ctx.accounts.slash_config.is_paused_now(now),
         SlashError::SettlementsPaused,
     );
 
@@ -123,7 +126,6 @@ pub fn handler(
     // The lamports stay physically in the vault account. We merely move the
     // bookkeeping figure from `staked_lamports` (free) to
     // `encumbered_lamports` (held, pending settlement). No transfer, no burn.
-    let clock = Clock::get()?;
     let vault = &mut ctx.accounts.escrow_vault;
     vault.staked_lamports     = stake_after;
     vault.encumbered_lamports = vault.encumbered_lamports
@@ -145,13 +147,13 @@ pub fn handler(
     record.evidence_hash    = evidence_hash;
     record.stake_before     = stake_before;
     record.stake_after      = stake_after;
-    record.executed_at      = clock.unix_timestamp;
+    record.executed_at      = now;
     record.executor         = ctx.accounts.slash_executor.key();
     record.bump             = ctx.bumps.slash_record;
     record.layout_version   = SlashRecord::CURRENT_LAYOUT_VERSION;
     // Day-21 lifecycle: the slash starts PENDING with an open appeal window.
     record.status           = SlashStatus::Pending.as_u8();
-    record.appeal_deadline  = clock.unix_timestamp
+    record.appeal_deadline  = now
         .checked_add(APPEAL_WINDOW_SECONDS)
         .ok_or(SlashError::MathOverflow)?;
     record.appeal_hash      = [0u8; 32];
@@ -180,7 +182,7 @@ pub fn handler(
         stake_after,
         terminal:         tier.is_terminal(),
         executor:         ctx.accounts.slash_executor.key(),
-        executed_at:      clock.unix_timestamp,
+        executed_at:      now,
     });
 
     msg!(

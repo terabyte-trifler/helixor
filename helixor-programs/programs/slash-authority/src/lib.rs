@@ -140,11 +140,17 @@ pub mod slash_authority {
         instructions::cancel_authority_rotation::handler(ctx)
     }
 
-    /// VULN-04: the pause kill switch — freeze execute_slash,
-    /// resolve_appeal and settle_slash. Pause_authority gated; cannot
-    /// move funds.
-    pub fn pause_settlements(ctx: Context<PauseSettlements>) -> Result<()> {
-        instructions::pause_settlements::pause_handler(ctx)
+    /// VULN-04 + H-04: the pause kill switch — freeze execute_slash,
+    /// resolve_appeal and settle_slash for `duration_seconds`
+    /// (1..=MAX_PAUSE_SECONDS, hard-capped at 7 days). Pause_authority
+    /// gated; cannot move funds. The pause auto-expires; an indefinite
+    /// freeze requires the pause_authority to re-pause every cycle,
+    /// which is observable on chain.
+    pub fn pause_settlements(
+        ctx:              Context<PauseSettlements>,
+        duration_seconds: i64,
+    ) -> Result<()> {
+        instructions::pause_settlements::pause_handler(ctx, duration_seconds)
     }
 
     /// VULN-04: unpause the slash pipeline.

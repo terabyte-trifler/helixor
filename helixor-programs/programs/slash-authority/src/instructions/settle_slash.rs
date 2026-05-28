@@ -176,8 +176,9 @@ pub fn handler(ctx: Context<SettleSlash>) -> Result<()> {
     });
 
     // ── Refuse while paused (VULN-04 kill switch) ───────────────────────────
+    // H-04: time-aware check — an expired pause does not block settlement.
     require!(
-        !ctx.accounts.slash_config.paused,
+        !ctx.accounts.slash_config.is_paused_now(now),
         SlashError::SettlementsPaused,
     );
 

@@ -76,6 +76,9 @@ pub enum SlashError {
     SettlementTimelockNotElapsed = 6063,
     #[msg("settlement timelock is shorter than the protocol minimum (72h)")]
     SettlementTimelockTooShort = 6064,
+    #[msg("H-04: pause duration must be > 0 and <= MAX_PAUSE_SECONDS (7 days) — \
+           indefinite pauses are not permitted, the pause_authority must re-pause")]
+    PauseDurationInvalid = 6065,
 
     // ── VULN-08: settle_slash timing gates ──────────────────────────────────
     #[msg("minimum execute to settle gap (48h) has not elapsed — defence in \

@@ -39,6 +39,20 @@
 // signer / multisig. Phase 4 wiring of the oracle threshold authority
 // must arrive before any real SOL is staked.
 //
+// H-04 — BOUNDED PAUSE WITH HARD CAP
+// -----------------------------------
+// The Day-VULN-04 pause was a boolean: a compromised `pause_authority`
+// key could freeze the slash pipeline INDEFINITELY (a DoS, not a theft —
+// funds are held, not stolen). H-04 caps it: `pause_handler` takes a
+// `duration_seconds` argument bounded by MAX_PAUSE_SECONDS (7 days) and
+// writes `paused_until = now + duration_seconds`. The "is currently
+// paused" check that gates execute / resolve / settle reads BOTH
+// `paused` and `paused_until` — an expired pause behaves identically
+// to an unpaused config without requiring an unpause tx. A malicious
+// pause_authority must re-issue the pause every 7 days, leaving an
+// observable on-chain trail and time for SPOF-#2 authority rotation
+// to replace the compromised key.
+//
 // LAYOUT (after the 8-byte Anchor discriminator):
 //   admin                       32   (Pubkey — may update this config)
 //   slash_executor              32   (Pubkey — execute_slash + settle_slash)
@@ -46,11 +60,14 @@
 //   pause_authority             32   (Pubkey — pause/unpause)
 //   treasury                    32   (Pubkey — receives non-burn slashes)
 //   settlement_timelock_seconds  8   (i64    — post-uphold delay, >=72h)
-//   paused                       1   (bool   — kill switch)
-//   paused_at                    8   (i64    — unix seconds of pause)
+//   paused                       1   (bool   — kill-switch flag)
+//   paused_at                    8   (i64    — unix seconds of pause start)
+//   paused_until                 8   (i64    — H-04: unix seconds the pause
+//                                              auto-expires; 0 if not paused)
 //   bump                         1   (u8)
 //   layout_version               1   (u8    — for future migrations)
-//   _reserved                   30   (zeroed cushion)
+//   _reserved                   22   (zeroed cushion — reduced by 8 to fit
+//                                     paused_until at zero net growth)
 //   TOTAL (without discriminator): 209 bytes
 // =============================================================================
 
@@ -64,8 +81,18 @@ use solana_program::pubkey;
 pub const MIN_SETTLEMENT_TIMELOCK_SECONDS: i64 = 72 * 3_600;
 
 /// The current SlashConfig layout version. Bumped if the on-disk shape
-/// ever changes.
-pub const SLASH_CONFIG_LAYOUT_VERSION: u8 = 2;
+/// ever changes. v3 adds H-04's `paused_until` field (reclaimed from the
+/// _reserved cushion — net zero size growth).
+pub const SLASH_CONFIG_LAYOUT_VERSION: u8 = 3;
+
+/// H-04: the maximum duration a pause may persist without being
+/// re-issued. 7 days — long enough for a real incident response, short
+/// enough that a compromised pause_authority key must re-pause
+/// repeatedly (each re-pause is observable on chain) instead of
+/// freezing the program indefinitely. Bounded by SPOF-#2 rotation
+/// latency: a 48h-timelock + 2-of-3 attested rotation can replace the
+/// pause_authority within the cap.
+pub const MAX_PAUSE_SECONDS: i64 = 7 * 24 * 3_600;
 
 #[account]
 #[derive(Default, Debug)]
@@ -90,24 +117,33 @@ pub struct SlashConfig {
     /// slash becoming settle-able. Enforced at init / update to be
     /// >= MIN_SETTLEMENT_TIMELOCK_SECONDS.
     pub settlement_timelock_seconds: i64,
-    /// True while slash actions are paused.
+    /// True while slash actions are paused. H-04: the EFFECTIVE pause
+    /// state is `paused && now < paused_until` — an expired pause behaves
+    /// like an unpaused config without requiring an explicit unpause tx.
+    /// Read through `is_paused_now(now)` rather than this flag directly.
     pub paused:                      bool,
     /// Unix seconds the pause was last activated. Zero if never paused.
     pub paused_at:                   i64,
+    /// H-04: Unix seconds the pause auto-expires. The pause_authority sets
+    /// this to `now + duration_seconds` (1..=MAX_PAUSE_SECONDS) at pause
+    /// time. Zero when not paused.
+    pub paused_until:                i64,
     /// Canonical PDA bump.
     pub bump:                        u8,
     /// Account-layout version.
     pub layout_version:              u8,
-    /// Zero-padded reserve for future fields.
-    pub _reserved:                   [u8; 30],
+    /// Zero-padded reserve for future fields. Shrunk from 30 to 22 to
+    /// fit H-04's `paused_until` at zero net growth.
+    pub _reserved:                   [u8; 22],
 }
 
 impl SlashConfig {
     /// Data size WITHOUT the 8-byte Anchor discriminator.
     ///   5*32 (pubkeys) + 8 (timelock) + 1 (paused) + 8 (paused_at)
-    /// + 1 (bump) + 1 (layout_version) + 30 (reserved) = 209
+    /// + 8 (paused_until — H-04) + 1 (bump) + 1 (layout_version)
+    /// + 22 (reserved) = 209
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
-        32 * 5 + 8 + 1 + 8 + 1 + 1 + 30;
+        32 * 5 + 8 + 1 + 8 + 8 + 1 + 1 + 22;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;
@@ -120,6 +156,15 @@ impl SlashConfig {
     /// This is the canonical, well-known incinerator pubkey.
     pub const INCINERATOR: Pubkey =
         pubkey!("1nc1nerator11111111111111111111111111111111");
+
+    /// H-04: the EFFECTIVE pause state at time `now`. A pause is in
+    /// effect only when the flag is set AND the auto-expiry has not
+    /// elapsed. An expired pause behaves as unpaused without requiring
+    /// an explicit unpause transaction — the cap is the whole point of
+    /// the H-04 mitigation.
+    pub fn is_paused_now(&self, now: i64) -> bool {
+        self.paused && now < self.paused_until
+    }
 }
 
 /// Validate the three role keys are all distinct and all non-default.

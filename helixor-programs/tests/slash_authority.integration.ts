@@ -300,8 +300,11 @@ describe("slash-authority dispute mechanisms (Day 21 + VULN-04)", () => {
 
   // ── VULN-04: pause kill switch ─────────────────────────────────────────────
   it("the pause_authority can pause and unpause the slash pipeline", async () => {
+    // H-04: pause now takes a bounded duration (1..=7 days). 1h is well
+    // within bounds for the integration test's "pause, then unpause"
+    // round-trip.
     await program.methods
-      .pauseSettlements()
+      .pauseSettlements(new BN(3600))
       .accounts({
         slashConfig: configPda(),
         pauseAuthority: pauseAuthorityKp.publicKey,

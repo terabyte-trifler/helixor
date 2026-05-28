@@ -79,9 +79,11 @@ pub fn handler(
     config.settlement_timelock_seconds = settlement_timelock_seconds;
     config.paused                      = false;
     config.paused_at                   = 0;
+    // H-04: bounded-pause auto-expiry timer; zero until the first pause.
+    config.paused_until                = 0;
     config.bump                        = ctx.bumps.slash_config;
     config.layout_version              = SLASH_CONFIG_LAYOUT_VERSION;
-    config._reserved                   = [0u8; 30];
+    config._reserved                   = [0u8; 22];
 
     msg!(
         "slash-authority config initialised: executor={}, resolver={}, \
