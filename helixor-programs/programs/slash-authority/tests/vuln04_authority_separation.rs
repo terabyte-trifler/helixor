@@ -144,7 +144,7 @@ fn record_with_timelock(unlock_at: i64) -> SlashRecord {
         appealed_at:          0,
         settlement_unlock_at: unlock_at,
         appeal_resolved_by:   Default::default(),
-        _reserved:            [0u8; 8],
+        treasury_at_execute:  Default::default(),
     }
 }
 
@@ -179,6 +179,7 @@ fn timelock_elapsed_after_unlock() {
 
 #[test]
 fn slash_record_layout_version_bumped() {
-    // VULN-04 changed the on-disk shape — layout version must move.
-    assert_eq!(SlashRecord::CURRENT_LAYOUT_VERSION, 2);
+    // VULN-04 moved layout to v2; H-03 adds treasury_at_execute and
+    // reclaims the 8-byte reserve — layout moves to v3.
+    assert_eq!(SlashRecord::CURRENT_LAYOUT_VERSION, 3);
 }

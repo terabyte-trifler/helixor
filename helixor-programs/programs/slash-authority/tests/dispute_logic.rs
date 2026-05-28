@@ -21,9 +21,10 @@ use slash_authority::instructions::appeal_slash::APPEAL_COOLDOWN_SECONDS;
 #[test]
 fn slash_record_grew_for_the_lifecycle_fields() {
     // Day 20: 172. Day 21 -> 196. VULN-04 adds 40 (settlement_unlock_at
-    // + appeal_resolved_by) and shrinks reserve to 8 -> 237.
-    assert_eq!(SlashRecord::SIZE_WITHOUT_DISCRIMINATOR, 237);
-    assert_eq!(SlashRecord::SPACE, 245);
+    // + appeal_resolved_by) -> 237. H-03 reclaims the 8-byte reserve and
+    // adds treasury_at_execute (Pubkey) for a net +24 -> 261.
+    assert_eq!(SlashRecord::SIZE_WITHOUT_DISCRIMINATOR, 261);
+    assert_eq!(SlashRecord::SPACE, 269);
 }
 
 #[test]
@@ -109,7 +110,7 @@ fn record_with_deadline(deadline: i64) -> SlashRecord {
         appealed_at:          0,
         settlement_unlock_at: 0,
         appeal_resolved_by:   Default::default(),
-        _reserved:            [0u8; 8],
+        treasury_at_execute:  Default::default(),
     }
 }
 

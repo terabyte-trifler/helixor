@@ -210,11 +210,16 @@ pub fn handler(ctx: Context<SettleSlash>) -> Result<()> {
     let amount = ctx.accounts.slash_record.slashed_lamports;
 
     // ── Verify the destination matches the tier ─────────────────────────────
+    // H-03: Treasury payouts pin to slash_record.treasury_at_execute (the
+    // snapshot captured at execute_slash time), NOT to the live
+    // slash_config.treasury. A post-execute treasury rotation cannot
+    // therefore redirect a Pending settlement. Burn payouts still pin
+    // to the global INCINERATOR constant (which is not mutable).
     let required_destination = tier.destination();
     let destination_key = ctx.accounts.destination.key();
     match required_destination {
         SlashDestination::Treasury => require!(
-            destination_key == ctx.accounts.slash_config.treasury,
+            destination_key == ctx.accounts.slash_record.treasury_at_execute,
             SlashError::WrongDestination,
         ),
         SlashDestination::Burn => require!(

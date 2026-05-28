@@ -160,7 +160,16 @@ pub fn handler(
     // populates them.
     record.settlement_unlock_at = 0;
     record.appeal_resolved_by   = Pubkey::default();
-    record._reserved            = [0u8; 8];
+    // H-03: snapshot the treasury key as it stands RIGHT NOW. settle_slash
+    // pins a Treasury-destination payout against this snapshot, so a
+    // subsequent treasury rotation cannot retarget this slash. Burn-tier
+    // slashes don't go to the treasury at all — we leave the snapshot
+    // zero for them; settle_slash uses the global INCINERATOR constant
+    // for those.
+    record.treasury_at_execute = match tier.destination() {
+        crate::state::SlashDestination::Treasury => ctx.accounts.slash_config.treasury,
+        crate::state::SlashDestination::Burn     => Pubkey::default(),
+    };
 
     emit!(SlashExecuted {
         agent_wallet:     vault.agent_wallet,

@@ -51,8 +51,18 @@
 //   appeal_resolved_by     32   (Pubkey — VULN-04: the appeal_resolver
 //                                that resolved this slash, for audit.
 //                                Default::default until resolved.)
-//   _reserved               8   (zeroed cushion)
-//   TOTAL (without discriminator): 237 bytes
+//   treasury_at_execute    32   (Pubkey — H-03: the slash_config.treasury
+//                                value at execute_slash time. settle_slash
+//                                pins the Treasury destination against
+//                                THIS snapshot, not against the current
+//                                slash_config.treasury. A post-execute
+//                                treasury rotation therefore cannot
+//                                redirect a Pending settlement to a key
+//                                that the rotation installed. For Burn
+//                                destinations this is set to Pubkey::default
+//                                — the incinerator check still uses the
+//                                global INCINERATOR constant.)
+//   TOTAL (without discriminator): 261 bytes
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -244,27 +254,44 @@ pub struct SlashRecord {
     /// Zeroed until resolve_appeal runs. Recorded so the audit log shows
     /// which key approved the slash, separate from `executor`.
     pub appeal_resolved_by:   Pubkey,
-    /// Zero-padded reserve — for forward compatibility.
-    pub _reserved:            [u8; 8],
+
+    // ── H-03: snapshot of slash_config.treasury at execute_slash time ───────
+    /// The `slash_config.treasury` pubkey captured the moment this slash
+    /// was executed. `settle_slash` pins a Treasury-destination payout
+    /// against THIS field, not against the live `slash_config.treasury`,
+    /// so a post-execute treasury rotation cannot redirect a Pending
+    /// settlement. For Burn destinations this stays `Pubkey::default()`
+    /// — the incinerator check still uses the global INCINERATOR
+    /// constant. Without this snapshot, an attacker who has already
+    /// defeated SPOF-#2 (2-of-3 + 48h timelock) on the admin key set
+    /// can: (a) execute a slash that sends to the legitimate treasury,
+    /// (b) rotate the treasury to an attacker key while the appeal
+    /// window runs, (c) settle to the rotated key. The snapshot
+    /// decouples destination identity from any post-execute config
+    /// mutation.
+    pub treasury_at_execute:  Pubkey,
 }
 
 impl SlashRecord {
-    pub const CURRENT_LAYOUT_VERSION: u8 = 2;
+    pub const CURRENT_LAYOUT_VERSION: u8 = 3;
 
     /// Data size WITHOUT the 8-byte Anchor discriminator.
     ///   32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1 = 140  (Day-20 core)
     /// + 1 status + 8 appeal_deadline + 32 appeal_hash + 8 appealed_at = 49
     /// + 8 settlement_unlock_at + 32 appeal_resolved_by               = 40
-    /// + 8 reserved                                                   =  8
-    ///   = 237
+    /// + 32 treasury_at_execute                          (H-03)       = 32
+    ///   = 261
     ///
-    /// Day-20 was 172, Day-21 was 196, VULN-04 grows the record to 237
-    /// for the post-uphold settlement timelock and the appeal-resolver
-    /// audit field. Pre-mainnet devnet iteration — no migration needed.
+    /// Day-20 was 172, Day-21 was 196, VULN-04 grew the record to 237,
+    /// H-03 grows it to 261 for the treasury snapshot. The previous
+    /// 8-byte zero-pad reserve is RECLAIMED by treasury_at_execute (32
+    /// bytes — the reserve is gone). Pre-mainnet devnet iteration — no
+    /// migration needed; existing 237-byte records are reset.
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
         32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1
         + 1 + 8 + 32 + 8
-        + 8 + 32 + 8;
+        + 8 + 32
+        + 32;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;
