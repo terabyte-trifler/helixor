@@ -150,4 +150,26 @@ pub enum HelixorError {
            on an agent_wallet that does not match the AgentRegistration agent — \
            the DA account PDA seed and the registration must agree")]
     BaselineDataAgentMismatch = 6084,
+
+    // ── M-04: secondary oracle-side slot anchor gate ────────────────────────
+    // The certificate-issuer already verifies the slot anchor against the
+    // SlotHashes sysvar inside its CPI. M-04 adds an INDEPENDENT secondary
+    // verification on the oracle-side `submit_score` so a future regression
+    // in the cert-issuer check (or a misconfigured CPI route) cannot let an
+    // un-anchored score reach the certificate write.
+    #[msg("M-04: slot_hashes sysvar account passed to submit_score is not \
+           the canonical SysvarS1otHashes111111111111111111111111111111 pubkey")]
+    WrongSlotHashesSysvar = 6090,
+    #[msg("M-04: slot_anchor_hash is all zeros — the off-chain submitter's \
+           'no slot anchor available' sentinel. The oracle path refuses to \
+           forward an un-anchored score to the certificate writer")]
+    MissingSlotAnchor = 6091,
+    #[msg("M-04: slot_anchor_slot is older than the ~512-entry SlotHashes \
+           window (~3.4 minutes). The cluster must re-pin a fresher anchor \
+           and resubmit the score")]
+    SlotAnchorTooOld = 6092,
+    #[msg("M-04: slot_anchor_slot is present in SlotHashes but its recorded \
+           hash differs from the supplied slot_anchor_hash — refusing to \
+           forward a forged or stale slot anchor")]
+    SlotAnchorHashMismatch = 6093,
 }

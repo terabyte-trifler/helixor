@@ -29,6 +29,7 @@ use anchor_lang::prelude::*;
 
 use crate::errors::HelixorError;
 use crate::events::ScoreSubmitted;
+use crate::slot_gate::verify_slot_anchor;
 use crate::state::{AgentRegistration, EpochState, OracleConfig};
 
 // The certificate-issuer program — pulled in as a CPI dependency. Anchor
@@ -156,6 +157,19 @@ pub fn handler(
         epoch == ctx.accounts.epoch_state.current_epoch,
         HelixorError::EpochMismatch,
     );
+
+    // ── 3a. M-04 — SECONDARY oracle-side slot-anchor verification ───────────
+    // The certificate-issuer ALSO verifies the slot anchor against the
+    // SlotHashes sysvar inside its CPI; that primary check is unchanged.
+    // The audit asked for a defence-in-depth secondary gate ON the oracle
+    // side so a regression / bypass / alternative cert-write path cannot
+    // let an un-anchored score reach the certificate. Two independent
+    // implementations of the same invariant — see slot_gate.rs.
+    verify_slot_anchor(
+        &ctx.accounts.slot_hashes_sysvar.to_account_info(),
+        slot_anchor_slot,
+        &slot_anchor_hash,
+    )?;
 
     // ── 4. CPI into certificate-issuer ──────────────────────────────────────
     // Build the typed CPI context. The oracle signer carries through — the

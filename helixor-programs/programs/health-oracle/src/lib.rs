@@ -19,6 +19,7 @@ use anchor_lang::prelude::*;
 pub mod errors;
 pub mod events;
 pub mod instructions;
+pub mod slot_gate;
 pub mod state;
 
 use instructions::*;
