@@ -33,7 +33,8 @@ fn cert_at(issued_at: i64) -> HealthCertificate {
         challenge_state:       0,
         baseline_commit_nonce: 0,
         scoring_code_hash:     [0u8; 32],
-        _reserved:             [0u8; 6],
+        issuer_config_version: 1,
+        _reserved:             [0u8; 2],
     }
 }
 

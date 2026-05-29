@@ -166,6 +166,9 @@ mod tests {
             // leave the attester cluster disabled.
             challenge_attester_keys: Vec::new(),
             challenge_threshold: 0,
+            // M-05: CPI-guard tests are orthogonal to the config-snapshot
+            // version; pin the genesis value.
+            config_version: 1,
         }
     }
 

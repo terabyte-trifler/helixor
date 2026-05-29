@@ -47,6 +47,9 @@ fn cfg_with_oracle(health_oracle_program_id: Pubkey) -> IssuerConfig {
         // challenge cluster; empty + 0 keeps it disabled.
         challenge_attester_keys:  Vec::new(),
         challenge_threshold:      0,
+        // M-05: CPI-caller tests don't exercise the digest path; pin to
+        // the genesis snapshot.
+        config_version:           1,
     }
 }
 

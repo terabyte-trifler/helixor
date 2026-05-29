@@ -135,6 +135,12 @@ pub fn handler(
     config.health_oracle_program_id = health_oracle_program_id;
     config.challenge_attester_keys  = challenge_attester_keys;
     config.challenge_threshold      = challenge_threshold;
+    // M-05: the immutability tag — every cert issued under THIS config
+    // snapshot gets this value stamped on it and folded into the digest
+    // the cluster signs. The genesis snapshot is version 1; any future
+    // `update_issuer_config` ix MUST strictly increment this field so a
+    // verifier walking historical certs can fetch the correct snapshot.
+    config.config_version           = 1;
 
     msg!(
         "certificate-issuer config initialised: {}-key cluster, threshold {}-of-{}, \

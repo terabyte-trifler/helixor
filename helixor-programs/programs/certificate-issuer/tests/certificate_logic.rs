@@ -52,17 +52,21 @@ fn baseline_stats_size_constants_are_correct() {
 fn issuer_config_size_is_correct() {
     // Day 27 extends IssuerConfig with cluster_keys + threshold.
     // VULN-16 extends it further with health_oracle_program_id.
-    // AW-01-EXT.6 extends it again with challenge_attester_keys + threshold:
+    // AW-01-EXT.6 extends it again with challenge_attester_keys + threshold.
+    // M-05 appends config_version (u32) to bind the cluster signatures to
+    // a specific IssuerConfig snapshot — every cert-write stamps the
+    // current value and folds it into the digest:
     //   8 disc + 32 authority + 32 issuer_node
     // + 4 Vec prefix + 32*5 cluster_keys reserved + 1 threshold + 1 bump
     // + 32 health_oracle_program_id
     // + 4 Vec prefix + 32*5 challenge_attester_keys reserved + 1 challenge_threshold
-    // = 435
+    // + 4 config_version                                              (M-05)
+    // = 439
     assert_eq!(
         IssuerConfig::SPACE,
-        8 + 32 + 32 + 4 + (32 * 5) + 1 + 1 + 32 + 4 + (32 * 5) + 1,
+        8 + 32 + 32 + 4 + (32 * 5) + 1 + 1 + 32 + 4 + (32 * 5) + 1 + 4,
     );
-    assert_eq!(IssuerConfig::SPACE, 435);
+    assert_eq!(IssuerConfig::SPACE, 439);
 }
 
 #[test]
@@ -73,7 +77,9 @@ fn layout_versions_are_current() {
     // v5: AW-01-EXT.6 — challenge_state (1 byte, from reserved; same size as v4).
     // v6: AW-03 — baseline_commit_nonce (8 bytes, from reserved; same size as v5).
     // v7: AW-04 — scoring_code_hash (32 bytes APPENDED; size 210 -> 242).
-    assert_eq!(HealthCertificate::CURRENT_LAYOUT_VERSION, 7);
+    // v8: M-05 — issuer_config_version (u32) CARVED from the v7 _reserved
+    //     (6 -> 2 bytes). Account size UNCHANGED at 242 — no realloc.
+    assert_eq!(HealthCertificate::CURRENT_LAYOUT_VERSION, 8);
     assert_eq!(BaselineStats::CURRENT_LAYOUT_VERSION, 1);
 }
 
@@ -183,6 +189,9 @@ fn cfg_with(cluster_keys: Vec<Pubkey>) -> IssuerConfig {
         // — leave the attester cluster empty + threshold 0.
         challenge_attester_keys:  Vec::new(),
         challenge_threshold:      0,
+        // M-05: baseline-writer tests don't exercise the digest path; pin
+        // to the genesis snapshot.
+        config_version:           1,
     }
 }
 

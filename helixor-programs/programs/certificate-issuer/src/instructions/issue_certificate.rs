@@ -291,6 +291,12 @@ pub fn handler(
     // raw 32-byte hash. Legacy stats decode this as 0 (the pre-AW-03
     // sentinel — see BaselineStats docstring); 0 still folds in deterministically.
     let baseline_commit_nonce = ctx.accounts.baseline_stats.baseline_commit_nonce;
+    // M-05: snapshot the current `IssuerConfig.config_version` and fold
+    // it into the digest. The cluster's off-chain signer reads the same
+    // value from the same on-chain account, so signatures over THIS
+    // version verify here and only here. A future config rotation that
+    // bumps `config_version` cannot retroactively re-interpret this cert.
+    let issuer_config_version = ctx.accounts.issuer_config.config_version;
 
     let digest = crate::signing::cert_payload_digest(
         &ctx.accounts.baseline_stats.agent_wallet,
@@ -303,6 +309,7 @@ pub fn handler(
         baseline_commit_nonce,    // AW-03: binds the baseline rotation
         &scoring_code_hash,       // AW-04: binds the scoring-kernel source bytes
         &score_components_hash,   // AW-04: binds the per-dim breakdown
+        issuer_config_version,    // M-05: binds the config snapshot
     );
     let valid_signers = crate::signing::verify_threshold_signatures(
         &digest,
@@ -340,6 +347,13 @@ pub fn handler(
     // a config or a registry — old certs remain verifiable even if a
     // future deploy rotates a config).
     cert.scoring_code_hash     = scoring_code_hash;
+    // M-05: stamp the config snapshot onto the cert. The version was
+    // already folded into the digest above so the cluster signatures
+    // attest to it; storing it here lets a consumer reading just the
+    // cert account look up the exact historical `IssuerConfig` snapshot
+    // (e.g. in an off-chain mirror) without re-deriving it from the
+    // current on-chain config.
+    cert.issuer_config_version = issuer_config_version;
 
     // AW-04: populate the paired ScoreComponentsAccount. Write-once at
     // init; the on-chain `sha256(payload) == components_hash` invariant

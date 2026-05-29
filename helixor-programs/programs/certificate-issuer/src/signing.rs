@@ -145,6 +145,16 @@ use crate::state::IssuerConfig;
 /// `verifyScoreComputation` because the replay disagrees with the
 /// signed score. The legacy value `[0; 32]` for either kwarg is the
 /// pre-AW-04 sentinel (no scoring-provenance binding).
+///
+/// M-05: `issuer_config_version` is the `IssuerConfig.config_version`
+/// active when the cluster signed. Folding it into the digest means a
+/// post-issuance config rotation (which MUST strictly increment
+/// `config_version`) cannot retroactively change which threshold-signature
+/// set verifies against a historical cert — the signed digest no longer
+/// matches if a verifier substitutes the current version. Legacy callers
+/// pre-M-05 supplied `0`, which is the sentinel for "issued before the
+/// immutability tag existed"; the cluster signed against 0 in those
+/// cases so verification remains deterministic.
 pub fn cert_payload_digest(
     agent_wallet:          &Pubkey,
     epoch:                 u64,
@@ -159,6 +169,7 @@ pub fn cert_payload_digest(
     baseline_commit_nonce: u64,
     scoring_code_hash:     &[u8; 32],
     score_components_hash: &[u8; 32],
+    issuer_config_version: u32,
 ) -> [u8; 32] {
     // The byte layout is FIXED and PUBLIC — every signer and verifier must
     // produce these exact bytes. No floats, no Vec, no length-varying
@@ -178,6 +189,7 @@ pub fn cert_payload_digest(
         &baseline_commit_nonce.to_be_bytes(),   //  8 bytes ← AW-03
         scoring_code_hash,                      // 32 bytes ← AW-04
         score_components_hash,                  // 32 bytes ← AW-04
+        &issuer_config_version.to_be_bytes(),   //  4 bytes ← M-05
     ]);
     h.to_bytes()
 }
@@ -403,6 +415,10 @@ mod tests {
             // leaves the challenge ix disabled (irrelevant to signing).
             challenge_attester_keys: Vec::new(),
             challenge_threshold: 0,
+            // M-05: irrelevant to tally tests — the tally walks the
+            // precompile instructions, not the config snapshot. Use the
+            // genesis value 1 so the helper matches a fresh deployment.
+            config_version: 1,
         }
     }
 

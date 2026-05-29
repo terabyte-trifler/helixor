@@ -78,6 +78,26 @@ pub struct IssuerConfig {
     /// production (prevents a single compromised attester from
     /// filing spam challenges).
     pub challenge_threshold:      u8,
+    /// M-05: the immutability tag for this config snapshot.
+    ///
+    /// Initialised to 1 by `initialize_config` and intended to be
+    /// strictly incremented by any FUTURE `update_issuer_config` /
+    /// rotation instruction that mutates `cluster_keys`, `threshold`,
+    /// `challenge_attester_keys`, or `challenge_threshold`. Every
+    /// `issue_certificate` stamps the current value onto the cert as
+    /// `HealthCertificate.issuer_config_version` AND folds it into the
+    /// canonical cert-payload digest the cluster signs — so an
+    /// off-chain verifier replaying a historical cert can determine
+    /// which `IssuerConfig` snapshot the cluster signed under (and
+    /// fetch the correct historical key set), instead of silently
+    /// (mis-)interpreting the cert against the current config.
+    ///
+    /// The cluster's off-chain `cert_signing.py` MUST include this
+    /// field in its digest input or the on-chain threshold check will
+    /// reject the signatures. Bumping `config_version` is therefore a
+    /// coordinated deploy: chain field bumps, off-chain signer reads
+    /// the new value, cluster keeps signing.
+    pub config_version:           u32,
 }
 
 impl IssuerConfig {
@@ -104,9 +124,11 @@ impl IssuerConfig {
     /// + 4  challenge_attester_keys Vec length prefix          (AW-01-EXT.6)
     /// + 32 * MAX_CHALLENGE_ATTESTER_KEYS  (reserved slots)    (AW-01-EXT.6)
     /// + 1  challenge_threshold                                (AW-01-EXT.6)
+    /// + 4  config_version                                     (M-05)
     pub const SPACE: usize =
         8 + 32 + 32 + 4 + (32 * Self::MAX_CLUSTER_KEYS) + 1 + 1 + 32
-        + 4 + (32 * Self::MAX_CHALLENGE_ATTESTER_KEYS) + 1;
+        + 4 + (32 * Self::MAX_CHALLENGE_ATTESTER_KEYS) + 1
+        + 4;
 
     /// The PDA seed.
     pub const SEED: &'static [u8] = b"issuer_config";

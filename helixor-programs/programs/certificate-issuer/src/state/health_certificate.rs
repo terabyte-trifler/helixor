@@ -202,11 +202,23 @@ pub struct HealthCertificate {
     /// from `_reserved`); cert account size grew 210 -> 242 at v7.
     /// Legacy v6 certs predate this field entirely.
     pub scoring_code_hash: [u8; 32],
+    /// M-05: the `IssuerConfig.config_version` that was active when this
+    /// certificate was issued. Stamped here so an off-chain verifier
+    /// replaying the cert knows WHICH config snapshot the cluster signed
+    /// under — a future `update_issuer_config` rotation cannot
+    /// retroactively change the interpretation of historical certs.
+    /// Folded into `cert_payload_digest`, so the threshold signatures
+    /// cryptographically attest to the snapshot too (a malicious issuer
+    /// cannot lie about which version they used). Legacy v7 certs decode
+    /// this as 0 — the pre-M-05 sentinel meaning "issued before the
+    /// immutability tag existed".
+    pub issuer_config_version: u32,
     /// Zero-padded reserve for small future fields without a realloc.
     /// Was 14 bytes pre-AW-03; 8 bytes are AW-03's baseline_commit_nonce;
     /// AW-04's scoring_code_hash was APPENDED (not carved from reserve)
-    /// so this stays at 6 bytes.
-    pub _reserved:      [u8; 6],
+    /// so this stayed at 6 bytes. M-05 carved 4 bytes for
+    /// `issuer_config_version`; 2 bytes remain.
+    pub _reserved:      [u8; 2],
 }
 
 impl HealthCertificate {
@@ -229,7 +241,12 @@ impl HealthCertificate {
     /// of stashing it in OracleConfig would force every consumer into a
     /// cross-account read just to verify provenance and would lose the
     /// per-cert pinning if the config rotates after issuance).
-    pub const CURRENT_LAYOUT_VERSION: u8 = 7;
+    /// v8: M-05 — CARVED `issuer_config_version` ([u32]) from the v7
+    /// `_reserved` (6 -> 2 bytes). Account size UNCHANGED at 242 — no
+    /// realloc. The field is folded into `cert_payload_digest` so the
+    /// cluster signatures cryptographically attest to the config
+    /// snapshot the cert was issued under.
+    pub const CURRENT_LAYOUT_VERSION: u8 = 8;
 
     /// The highest valid composite score. Mirrors the off-chain 0..1000 range.
     pub const MAX_SCORE: u16 = 1000;
@@ -242,10 +259,11 @@ impl HealthCertificate {
     /// +  1 challenge_state                                 =   1  (AW-01-EXT.6)
     /// +  8 baseline_commit_nonce                           =   8  (AW-03)
     /// + 32 scoring_code_hash                               =  32  (AW-04, appended)
-    /// +  6 reserved                                        =   6  (unchanged)
-    ///    = 242 (was 210 pre-AW-04)
+    /// +  4 issuer_config_version                           =   4  (M-05, carved)
+    /// +  2 reserved                                        =   2  (was 6 pre-M-05)
+    ///    = 242 (unchanged from v7 — M-05 carved from reserve)
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
-        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1 + 32 + 8 + 32 + 1 + 8 + 32 + 6;
+        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1 + 32 + 8 + 32 + 1 + 8 + 32 + 4 + 2;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;
