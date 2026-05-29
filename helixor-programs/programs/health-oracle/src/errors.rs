@@ -24,7 +24,8 @@ pub enum HelixorError {
     LayoutMigrationRequired = 6011,
 
     // ── Replay / monotonicity ───────────────────────────────────────────────
-    #[msg("commit_nonce must be strictly greater than the current on-chain nonce")]
+    #[msg("commit_nonce must be strictly greater than the current on-chain nonce \
+           (rollback rejected)")]
     NonMonotonicNonce = 6020,
     #[msg("baseline_hash is all zeros — refusing to commit an empty commitment")]
     ZeroHash = 6021,
@@ -35,6 +36,15 @@ pub enum HelixorError {
     OracleCommitCooldownActive = 6023,
     #[msg("baseline timestamp arithmetic overflow")]
     BaselineTimestampOverflow = 6024,
+    #[msg("M-03: commit_nonce must be EXACTLY previous + 1 (strict successor) — \
+           skips would let a compromised oracle key jump nonces and break the \
+           gap-free audit chain consumers walk to verify baseline history")]
+    NonceNotStrictSuccessor = 6025,
+    #[msg("M-03: baseline nonce space exhausted at u64::MAX — no successor \
+           exists. This is a defence-in-depth guard against a compromised \
+           oracle key that committed at u64::MAX to burn the nonce space and \
+           lock all future baseline rotations")]
+    NonceSpaceExhausted = 6026,
 
     // ── Migration ───────────────────────────────────────────────────────────
     #[msg("registration is already at the current layout version")]

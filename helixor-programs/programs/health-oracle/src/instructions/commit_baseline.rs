@@ -81,6 +81,56 @@ use crate::state::{
 
 
 // =============================================================================
+// M-03 — pure strict-successor nonce check (unit-testable without a runtime)
+// =============================================================================
+
+/// M-03: enforce that `new_nonce == stored_nonce + 1` (strict
+/// successor), NOT just `new_nonce > stored_nonce` (strict greater).
+///
+/// THE GAP
+/// -------
+/// AW-03 binds `baseline_commit_nonce` into the certificate digest, so
+/// consumers can verify which baseline rotation a cert was issued
+/// against. The original on-chain check accepted any
+/// `args.commit_nonce > reg.commit_nonce`, which left two attack
+/// surfaces:
+///
+///   - NONCE JUMPS — a compromised oracle key could rotate from
+///     nonce N straight to nonce N+1000, covertly skipping rotations
+///     and breaking the gap-free audit chain that off-chain consumers
+///     walk to confirm baseline history.
+///
+///   - NONCE BURNS — a compromised oracle key could commit at
+///     nonce u64::MAX, after which `> u64::MAX` is unsatisfiable,
+///     locking the baseline in its compromised state and freezing
+///     all future rotations (DoS).
+///
+/// Strict-successor closes both: every commit is the unique next link
+/// in a 1-2-3-... chain, with explicit overflow rejection at u64::MAX.
+///
+/// Error attribution is split for clarity:
+///   - `NonMonotonicNonce` on rollback or no-op (`new <= stored`),
+///   - `NonceSpaceExhausted` on `stored == u64::MAX`,
+///   - `NonceNotStrictSuccessor` on jumps (`new > stored + 1`).
+pub fn check_strict_successor_nonce(
+    stored_nonce: u64,
+    new_nonce:    u64,
+) -> Result<()> {
+    require!(
+        new_nonce > stored_nonce,
+        HelixorError::NonMonotonicNonce,
+    );
+    let expected = stored_nonce
+        .checked_add(1)
+        .ok_or(HelixorError::NonceSpaceExhausted)?;
+    require!(
+        new_nonce == expected,
+        HelixorError::NonceNotStrictSuccessor,
+    );
+    Ok(())
+}
+
+// =============================================================================
 // VULN-10 — pure helpers (unit-testable without a runtime)
 // =============================================================================
 
@@ -231,11 +281,13 @@ pub fn handler(ctx: Context<CommitBaseline>, args: CommitBaselineArgs) -> Result
         HelixorError::ZeroAlgoVersion
     );
 
-    // 4. Replay protection — strict monotonicity.
-    require!(
-        args.commit_nonce > reg.commit_nonce,
-        HelixorError::NonMonotonicNonce
-    );
+    // 4. M-03: strict-successor replay protection. The new nonce must be
+    //    EXACTLY reg.commit_nonce + 1 — closes both the nonce-jump (skip
+    //    rotations and break the gap-free audit chain consumers walk) and
+    //    nonce-burn (commit at u64::MAX to freeze all future rotations)
+    //    attack vectors. Pre-M-03 the check was strict-greater, which
+    //    accepted any forward leap.
+    check_strict_successor_nonce(reg.commit_nonce, args.commit_nonce)?;
 
     // 5. AW-03 — verify the canonical-payload hash binding BEFORE any
     //    state is written. The on-chain DA invariant is:
