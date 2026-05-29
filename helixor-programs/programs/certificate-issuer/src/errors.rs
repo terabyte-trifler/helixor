@@ -193,4 +193,13 @@ pub enum CertificateError {
            one key or threshold to be meaningful (and to consume a \
            config_version bump)")]
     RotationNoOpRejected = 6122,
+
+    // ── M-09: canonical PDA bind on `get_certificate` ─────────────────────────
+    #[msg("get_certificate refused — the supplied certificate account is \
+           not the canonical [\"cert\", agent_wallet, epoch_le] PDA for the \
+           certificate-issuer program. M-09 binds the CertificateRead event \
+           to the canonical address ON CHAIN so a downstream consumer that \
+           trusts only the event payload can never be fooled by a same-\
+           shaped event emitted from a non-canonical account.")]
+    CertificatePdaMismatch = 6130,
 }

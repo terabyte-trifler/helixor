@@ -20,10 +20,35 @@
 // `CertificateRead` event carrying the contents.
 //
 // It is read-only: no account is `mut`, nothing is written.
+//
+// M-09 — CANONICAL-PDA BIND ON THE EVENT
+// --------------------------------------
+// The audit flagged the pre-M-09 event as informational only: a downstream
+// indexer reading `CertificateRead { agent_wallet, epoch, score, … }` had
+// no way to PROVE the event came from the canonical
+// `["cert", agent_wallet, epoch_le]` PDA. The Anchor `seeds=` constraint
+// validates this on chain at resolution time — but a future refactor that
+// silently drops or relaxes the constraint, or a future ix that emits the
+// same event shape from a non-canonical account, would have fooled every
+// consumer at runtime.
+//
+// M-09 closes the gap with two reinforcing guards:
+//   (1) The handler explicitly recomputes the canonical PDA via
+//       `Pubkey::create_program_address(["cert", agent, epoch_le, bump])`
+//       and `require_keys_eq!`s it against the supplied account. If a
+//       future refactor breaks the `seeds=` invariant, the explicit
+//       check still fails closed with `CertificatePdaMismatch` (6130).
+//   (2) The emitted `CertificateRead` event now carries `certificate`
+//       (the canonical PDA pubkey) and `program_id`. A downstream indexer
+//       reading ONLY the event payload can independently call
+//       `find_program_address(["cert", agent_wallet, epoch_le], program_id)`
+//       and verify the result equals `certificate` — no trust in the
+//       transaction's program-id slot, no trust in cluster discipline.
 // =============================================================================
 
 use anchor_lang::prelude::*;
 
+use crate::errors::CertificateError;
 use crate::events::CertificateRead;
 use crate::state::HealthCertificate;
 
@@ -33,7 +58,9 @@ pub struct GetCertificate<'info> {
     /// The certificate PDA being read. Anchor's seed resolution proves it
     /// is exactly the ["cert", agent_wallet, epoch] account — a non-existent
     /// certificate makes the instruction fail at account resolution, which
-    /// is the correct "not found" signal.
+    /// is the correct "not found" signal. M-09's handler-side recompute is
+    /// defence in depth so a future refactor that relaxes this constraint
+    /// still fails closed.
     #[account(
         seeds = [
             HealthCertificate::SEED_PREFIX,
@@ -47,16 +74,43 @@ pub struct GetCertificate<'info> {
 
 pub fn handler(
     ctx:          Context<GetCertificate>,
-    _agent_wallet: Pubkey,
-    _epoch:       u64,
+    agent_wallet: Pubkey,
+    epoch:        u64,
 ) -> Result<()> {
     let cert = &ctx.accounts.certificate;
 
-    // Surface the certificate as a structured event. The PDA seed
-    // constraint already guarantees `cert` is the certificate for the
-    // requested (agent_wallet, epoch) — Anchor would have failed
-    // resolution otherwise — so no extra equality check is needed.
+    // ── M-09: explicit canonical-PDA recompute ─────────────────────────────
+    // Anchor's `seeds=` constraint already validates this, but recomputing
+    // here means the canonical-PDA invariant is documented in the source
+    // AND survives a refactor that accidentally drops the constraint.
+    // `create_program_address` is the deterministic form — given the same
+    // (seeds, bump, program_id) it returns the same address, so we don't
+    // pay the `find_program_address` bump search cost on a read path.
+    let canonical_pda = Pubkey::create_program_address(
+        &[
+            HealthCertificate::SEED_PREFIX,
+            agent_wallet.as_ref(),
+            &epoch.to_le_bytes(),
+            &[cert.bump],
+        ],
+        ctx.program_id,
+    )
+    .map_err(|_| error!(CertificateError::CertificatePdaMismatch))?;
+
+    require_keys_eq!(
+        canonical_pda,
+        ctx.accounts.certificate.key(),
+        CertificateError::CertificatePdaMismatch,
+    );
+
+    // Surface the certificate as a structured event. The canonical PDA and
+    // emitting program ID are pinned in-payload so an off-chain consumer
+    // can re-derive `find_program_address([SEED_PREFIX, agent_wallet,
+    // epoch_le], program_id)` and verify it equals `certificate` without
+    // trusting anything outside the event itself (M-09).
     emit!(CertificateRead {
+        certificate:   canonical_pda,
+        program_id:    *ctx.program_id,
         agent_wallet:  cert.agent_wallet,
         epoch:         cert.epoch,
         score:         cert.score,

@@ -49,8 +49,29 @@ pub struct BaselineRecorded {
 /// certificate's contents into the transaction log, so an off-chain caller
 /// that prefers a transaction-shaped read (rather than a raw account fetch)
 /// gets a structured event back.
+///
+/// M-09: the event carries `certificate` (the PDA pubkey that was read) AND
+/// `program_id` (the certificate-issuer program ID that emitted it). An
+/// off-chain consumer can therefore call
+/// `find_program_address(["cert", agent_wallet, epoch_le], program_id)`
+/// using ONLY the event payload and verify the result equals `certificate`.
+/// Before M-09 the event was informational only — a consumer that trusted
+/// `(agent_wallet, epoch, score, …)` from the log had no way to prove the
+/// data came from the canonical PDA, so any future ix that emitted a same-
+/// shaped event from a non-canonical account would have fooled the indexer.
+/// The handler ALSO recomputes the canonical PDA on chain and refuses to
+/// emit if it disagrees with the account it loaded — so the event is
+/// provably bound to the canonical address at emission time, not by
+/// convention.
 #[event]
 pub struct CertificateRead {
+    /// M-09: the canonical certificate PDA that was read. Equal to
+    /// `find_program_address(["cert", agent_wallet, epoch_le], program_id)`.
+    pub certificate:  Pubkey,
+    /// M-09: the program ID that emitted this event. Pinned in-payload so
+    /// an off-chain consumer can derive the canonical PDA without trusting
+    /// the transaction's `program_id` slot.
+    pub program_id:   Pubkey,
     pub agent_wallet: Pubkey,
     pub epoch:        u64,
     pub score:        u16,
