@@ -65,6 +65,32 @@ pub struct AppealResolved {
 }
 
 /// Emitted when a Pending slash is settled — funds finally move/burn.
+///
+/// M-11 — LAMPORT AUDIT TRAIL
+/// --------------------------
+/// settle_slash moves lamports out of the program-owned escrow vault by
+/// directly mutating `try_borrow_mut_lamports` — the canonical pattern
+/// for a program-owned source (System::transfer refuses sources whose
+/// owner is not the System Program). The pattern is safe, but it
+/// produces NO System Program "Transfer" log entry: an off-chain
+/// auditor watching System::transfer events would miss the movement
+/// entirely.
+///
+/// M-11 closes the audit-trail gap by stamping the full balance
+/// surface into THIS event:
+///   * `destination_key`              — the explicit recipient (the
+///     event's `destination` u8 alone names the LANE, not the address)
+///   * `vault_balance_before/after`   — vault lamports immediately
+///     pre/post the direct mutation
+///   * `destination_balance_before/after` — the same for the recipient
+///
+/// Anything an off-chain log scraper could derive from a System Program
+/// Transfer log is now derivable from a single SlashSettled emission,
+/// without any cross-account RPC fetch. The settle handler ALSO
+/// asserts `vault_before == vault_after + amount` and
+/// `dest_after == dest_before + amount` post-mutation; a violation
+/// trips `LamportAuditMismatch` (6090) and aborts the tx, so the
+/// event's balance fields are guaranteed-consistent at emission time.
 #[event]
 pub struct SlashSettled {
     pub agent_wallet:     Pubkey,
@@ -72,6 +98,26 @@ pub struct SlashSettled {
     pub settled_lamports: u64,
     /// SlashDestination code (0 Treasury, 1 Burn).
     pub destination:      u8,
+    /// M-11: the explicit recipient pubkey. The `destination` u8 only
+    /// names the LANE; this carries the actual address the lamports
+    /// landed at (the treasury pinned in slash_record.treasury_at_execute
+    /// for Treasury settlements, or SlashConfig::INCINERATOR for Burn).
+    /// Stamped here so an off-chain auditor doesn't have to cross-read
+    /// the SlashRecord PDA + SlashConfig to verify routing.
+    pub destination_key:               Pubkey,
+    /// M-11: vault lamports immediately BEFORE the direct mutation.
+    pub vault_balance_before:          u64,
+    /// M-11: vault lamports immediately AFTER the direct mutation.
+    /// `vault_balance_before - vault_balance_after == settled_lamports`
+    /// is enforced on chain at emit time (see settle_slash handler).
+    pub vault_balance_after:           u64,
+    /// M-11: destination lamports immediately BEFORE the direct
+    /// mutation. Useful for diff-style auditing.
+    pub destination_balance_before:    u64,
+    /// M-11: destination lamports immediately AFTER the direct
+    /// mutation. `destination_balance_after - destination_balance_before
+    /// == settled_lamports` is enforced on chain at emit time.
+    pub destination_balance_after:     u64,
     pub terminal:         bool,
     pub settled_at:       i64,
     /// VULN-08 observability: unix seconds the slash was originally

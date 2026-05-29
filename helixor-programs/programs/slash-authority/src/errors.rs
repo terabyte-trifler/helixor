@@ -139,4 +139,13 @@ pub enum SlashError {
            authority rotations) but is guarded to keep the audit invariant \
            strict-monotonic forever.")]
     SlashConfigVersionOverflow = 6089,
+
+    // ── M-11: lamport-audit invariant on direct mutation ────────────────────
+    #[msg("M-11: post-mutation lamport balances do not balance against \
+           the slashed_lamports amount. The vault was either over-debited / \
+           under-debited, or the destination over-credited / under-credited. \
+           This indicates a partial-update bug or an intervening account-info \
+           aliasing problem. Refusing to commit the tx so the audit trail \
+           never carries an inconsistent SlashSettled event.")]
+    LamportAuditMismatch = 6090,
 }

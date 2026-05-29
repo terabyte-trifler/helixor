@@ -264,8 +264,18 @@ pub fn handler(ctx: Context<SettleSlash>) -> Result<()> {
     }
 
     // ── Move the encumbered lamports OUT of the vault ───────────────────────
-    // Direct lamport mutation — the vault is program-owned. Scoped so the
-    // AccountInfo borrows release before the &mut field writes below.
+    // Direct lamport mutation — the vault is program-owned, so System::transfer
+    // refuses the source. The pattern itself is safe, but the audit
+    // (M-11) flagged that it produces NO System-program "Transfer" log:
+    // an off-chain auditor that watches `Program 11111... invoke` lines
+    // misses the movement. The fix is to capture the FULL balance
+    // surface here, enforce a post-mutation balance invariant, and
+    // stamp every piece into the SlashSettled event below so the on-
+    // chain event log carries everything System::transfer would have.
+    let vault_balance_before;
+    let vault_balance_after;
+    let destination_balance_before;
+    let destination_balance_after;
     {
         let vault_ai = ctx.accounts.escrow_vault.to_account_info();
         let dest_ai  = ctx.accounts.destination.to_account_info();
@@ -273,19 +283,50 @@ pub fn handler(ctx: Context<SettleSlash>) -> Result<()> {
         let rent = Rent::get()?;
         let rent_min = rent.minimum_balance(vault_ai.data_len());
 
-        let vault_after = vault_ai
-            .lamports()
+        vault_balance_before       = vault_ai.lamports();
+        destination_balance_before = dest_ai.lamports();
+
+        let vault_after = vault_balance_before
             .checked_sub(amount)
             .ok_or(SlashError::MathOverflow)?;
         require!(vault_after >= rent_min, SlashError::RentViolation);
 
         **vault_ai.try_borrow_mut_lamports()? = vault_after;
-        let dest_after = dest_ai
-            .lamports()
+        let dest_after = destination_balance_before
             .checked_add(amount)
             .ok_or(SlashError::MathOverflow)?;
         **dest_ai.try_borrow_mut_lamports()? = dest_after;
+
+        // Re-read the live balances post-mutation. The values SHOULD match
+        // `vault_after` / `dest_after` we just wrote — re-reading rather
+        // than reusing the locals catches any future refactor that
+        // introduces an intervening account-info aliasing problem (where
+        // a second mutable borrow of one of these accounts inside the
+        // scope above silently undoes the write).
+        vault_balance_after       = vault_ai.lamports();
+        destination_balance_after = dest_ai.lamports();
     }
+
+    // ── M-11: post-mutation lamport-audit invariant ─────────────────────────
+    // The SlashSettled event below stamps the pre/post balances on chain —
+    // making the event-emit a TRUSTED record requires asserting the
+    // balances actually balance against `amount` BEFORE we emit. If they
+    // don't, abort the tx with `LamportAuditMismatch` rather than commit
+    // an internally-inconsistent audit-trail event.
+    require!(
+        vault_balance_before
+            .checked_sub(amount)
+            .map(|expected_after| expected_after == vault_balance_after)
+            .unwrap_or(false),
+        SlashError::LamportAuditMismatch,
+    );
+    require!(
+        destination_balance_before
+            .checked_add(amount)
+            .map(|expected_after| expected_after == destination_balance_after)
+            .unwrap_or(false),
+        SlashError::LamportAuditMismatch,
+    );
 
     // ── Update vault bookkeeping ────────────────────────────────────────────
     let vault = &mut ctx.accounts.escrow_vault;
@@ -305,14 +346,41 @@ pub fn handler(ctx: Context<SettleSlash>) -> Result<()> {
     record.status = SlashStatus::Settled.as_u8();
 
     emit!(SlashSettled {
-        agent_wallet:    record.agent_wallet,
-        index:           record.index,
-        settled_lamports: amount,
-        destination:     required_destination.as_u8(),
-        terminal:        tier.is_terminal(),
-        settled_at:      now,
+        agent_wallet:               record.agent_wallet,
+        index:                      record.index,
+        settled_lamports:           amount,
+        destination:                required_destination.as_u8(),
+        // M-11: full balance audit surface, byte-for-byte derivable from
+        // what System::transfer would have logged.
+        destination_key:            destination_key,
+        vault_balance_before,
+        vault_balance_after,
+        destination_balance_before,
+        destination_balance_after,
+        terminal:                   tier.is_terminal(),
+        settled_at:                 now,
         executed_at,
     });
+
+    // M-11: stable, parseable audit-trail log modeled on the System Program's
+    // Transfer log. Off-chain log scrapers that grep "Program 11111... invoke"
+    // + "Transfer:" can grep this prefix the same way to catch
+    // slash-authority's program-owned-source movements that System::transfer
+    // CANNOT produce.
+    //
+    // Format: `slash-authority transfer: from={vault} to={dest} amount={lamports} \
+    //          vault_before={n} vault_after={n} dest_before={n} dest_after={n}`
+    msg!(
+        "slash-authority transfer: from={} to={} amount={} \
+         vault_before={} vault_after={} dest_before={} dest_after={}",
+        ctx.accounts.escrow_vault.key(),
+        destination_key,
+        amount,
+        vault_balance_before,
+        vault_balance_after,
+        destination_balance_before,
+        destination_balance_after,
+    );
 
     msg!(
         "slash settled: agent={} index={} amount={} destination={:?} terminal={}",
