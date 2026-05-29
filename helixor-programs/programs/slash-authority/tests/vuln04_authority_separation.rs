@@ -33,8 +33,10 @@ fn slash_config_layout_version_pinned() {
     // v3: H-04 added `paused_until` (bounded-pause auto-expiry).
     // v4: M-07 carved `execute_to_settle_seconds` + `settle_grace_seconds`
     //     out of the same `_reserved` cushion.
+    // v5: M-08 carves `slash_config_version` from the same cushion (the
+    //     authority-epoch counter snapshotted onto every SlashRecord).
     // Bump again on any future on-disk shape change.
-    assert_eq!(SLASH_CONFIG_LAYOUT_VERSION, 4);
+    assert_eq!(SLASH_CONFIG_LAYOUT_VERSION, 5);
 }
 
 #[test]
@@ -147,6 +149,7 @@ fn record_with_timelock(unlock_at: i64) -> SlashRecord {
         settlement_unlock_at: unlock_at,
         appeal_resolved_by:   Default::default(),
         treasury_at_execute:  Default::default(),
+        slash_config_version_at_execute: 0,
     }
 }
 
@@ -181,7 +184,8 @@ fn timelock_elapsed_after_unlock() {
 
 #[test]
 fn slash_record_layout_version_bumped() {
-    // VULN-04 moved layout to v2; H-03 adds treasury_at_execute and
-    // reclaims the 8-byte reserve — layout moves to v3.
-    assert_eq!(SlashRecord::CURRENT_LAYOUT_VERSION, 3);
+    // VULN-04 moved layout to v2; H-03 added treasury_at_execute and
+    // reclaimed the 8-byte reserve (v3); M-08 appends
+    // `slash_config_version_at_execute` (v4).
+    assert_eq!(SlashRecord::CURRENT_LAYOUT_VERSION, 4);
 }

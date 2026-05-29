@@ -49,10 +49,15 @@ fn slash_config_size_unchanged_after_m07_carve() {
 }
 
 #[test]
-fn slash_config_layout_version_is_v4() {
-    // v3 → v4 documents the M-07 carve. A refactor that touches the
-    // shape MUST bump this too.
-    assert_eq!(SLASH_CONFIG_LAYOUT_VERSION, 4);
+fn slash_config_layout_version_is_at_or_past_v4() {
+    // v3 → v4 documents the M-07 carve; v4 → v5 documents the M-08
+    // `slash_config_version` carve from the same `_reserved` cushion.
+    // The version must be MONOTONIC and at least v4 so any future
+    // refactor that touches the shape bumps it deliberately. We pin
+    // the current version here so this file fails loudly if a
+    // subsequent change forgets to bump.
+    assert!(SLASH_CONFIG_LAYOUT_VERSION >= 4);
+    assert_eq!(SLASH_CONFIG_LAYOUT_VERSION, 5);
 }
 
 // -----------------------------------------------------------------------------

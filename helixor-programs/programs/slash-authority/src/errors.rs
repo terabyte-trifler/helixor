@@ -132,4 +132,11 @@ pub enum SlashError {
     #[msg("single-admin update_authorities is removed — use the \
            propose/attest/enact ceremony")]
     SingleAdminUpdateRemoved = 6088,
+
+    // ── M-08: authority-epoch counter overflow ──────────────────────────────
+    #[msg("M-08: slash_config_version would overflow u32 — refuse to wrap. \
+           This is operationally unreachable (would require 4 billion \
+           authority rotations) but is guarded to keep the audit invariant \
+           strict-monotonic forever.")]
+    SlashConfigVersionOverflow = 6089,
 }

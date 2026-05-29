@@ -62,7 +62,18 @@
 //                                destinations this is set to Pubkey::default
 //                                — the incinerator check still uses the
 //                                global INCINERATOR constant.)
-//   TOTAL (without discriminator): 261 bytes
+//   slash_config_version_at_execute
+//                           4   (u32   — M-08: the SlashConfig authority
+//                                epoch (`slash_config_version`) at the
+//                                moment of execute_slash. Binds `executor`
+//                                to a specific authority set so a later
+//                                SPOF-#2 rotation cannot weaken the audit
+//                                link between (executor pubkey, time of
+//                                slash) and "was the executor authorised
+//                                then?". The on-chain monitor can answer
+//                                that question from this single u32 and
+//                                the AuthorityRotationEnacted log.)
+//   TOTAL (without discriminator): 265 bytes
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -270,28 +281,45 @@ pub struct SlashRecord {
     /// decouples destination identity from any post-execute config
     /// mutation.
     pub treasury_at_execute:  Pubkey,
+
+    // ── M-08: authority-epoch snapshot — executor-pubkey accountability ─────
+    /// The `slash_config.slash_config_version` at execute_slash time.
+    /// Bound to `executor` via the same write — together they pin the
+    /// answer to "WHO was the executor key, and was that key the
+    /// authoritative executor at the time?". An off-chain auditor
+    /// inspecting this record after one or more SPOF-#2 rotations no
+    /// longer needs to replay the `AuthorityRotationEnacted` event log
+    /// to confirm the executor was live at the time — they read this
+    /// field, fetch the rotation log entry that took the counter to
+    /// this version, and the executor key on that log entry must equal
+    /// `self.executor`. (Pre-M-08 records would carry the all-zero
+    /// genesis sentinel — the M-08 layout-version bump makes a v3
+    /// record's missing field unambiguous.)
+    pub slash_config_version_at_execute: u32,
 }
 
 impl SlashRecord {
-    pub const CURRENT_LAYOUT_VERSION: u8 = 3;
+    pub const CURRENT_LAYOUT_VERSION: u8 = 4;
 
     /// Data size WITHOUT the 8-byte Anchor discriminator.
     ///   32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1 = 140  (Day-20 core)
     /// + 1 status + 8 appeal_deadline + 32 appeal_hash + 8 appealed_at = 49
     /// + 8 settlement_unlock_at + 32 appeal_resolved_by               = 40
     /// + 32 treasury_at_execute                          (H-03)       = 32
-    ///   = 261
+    /// +  4 slash_config_version_at_execute              (M-08)       =  4
+    ///   = 265
     ///
     /// Day-20 was 172, Day-21 was 196, VULN-04 grew the record to 237,
-    /// H-03 grows it to 261 for the treasury snapshot. The previous
-    /// 8-byte zero-pad reserve is RECLAIMED by treasury_at_execute (32
-    /// bytes — the reserve is gone). Pre-mainnet devnet iteration — no
-    /// migration needed; existing 237-byte records are reset.
+    /// H-03 grew it to 261 for the treasury snapshot, M-08 grows it to
+    /// 265 for the authority-epoch snapshot. Pre-mainnet devnet
+    /// iteration — no migration needed; existing 261-byte records are
+    /// reset.
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
         32 + 8 + 1 + 8 + 1 + 32 + 8 + 8 + 8 + 32 + 1 + 1
         + 1 + 8 + 32 + 8
         + 8 + 32
-        + 32;
+        + 32
+        + 4;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;

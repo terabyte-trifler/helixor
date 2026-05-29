@@ -16,7 +16,8 @@ use crate::errors::SlashError;
 use crate::state::{
     validate_authority_separation, AuthoritySeparationError, SlashConfig,
     DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
-    MIN_SETTLEMENT_TIMELOCK_SECONDS, SLASH_CONFIG_LAYOUT_VERSION,
+    MIN_SETTLEMENT_TIMELOCK_SECONDS, SLASH_CONFIG_GENESIS_VERSION,
+    SLASH_CONFIG_LAYOUT_VERSION,
 };
 
 #[derive(Accounts)]
@@ -89,7 +90,12 @@ pub fn handler(
     // `update_settle_timing` post-init.
     config.execute_to_settle_seconds   = DEFAULT_EXECUTE_TO_SETTLE_SECONDS;
     config.settle_grace_seconds        = DEFAULT_SETTLE_GRACE_SECONDS;
-    config._reserved                   = [0u8; 6];
+    // M-08: authority-epoch counter — seeded to the GENESIS value so the
+    // canonical zero stays reserved as a "config not yet initialised"
+    // sentinel. Every SlashRecord written from here on stamps this
+    // version, then `enact_authority_rotation` increments it strictly +1.
+    config.slash_config_version        = SLASH_CONFIG_GENESIS_VERSION;
+    config._reserved                   = [0u8; 2];
 
     msg!(
         "slash-authority config initialised: executor={}, resolver={}, \

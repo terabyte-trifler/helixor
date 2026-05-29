@@ -103,12 +103,21 @@ pub fn handler(ctx: Context<EnactAuthorityRotation>) -> Result<()> {
     let old_pause_authority             = cfg.pause_authority;
     let old_treasury                    = cfg.treasury;
     let old_settlement_timelock_seconds = cfg.settlement_timelock_seconds;
+    // M-08: capture the old epoch BEFORE the strict +1 bump. SlashRecords
+    // written under the OLD authority set will already carry the old
+    // version; the new version is the watermark for any slash executed
+    // AFTER this rotation lands.
+    let old_slash_config_version        = cfg.slash_config_version;
+    let new_slash_config_version        = old_slash_config_version
+        .checked_add(1)
+        .ok_or(SlashError::SlashConfigVersionOverflow)?;
 
     cfg.slash_executor              = new_slash_executor;
     cfg.appeal_resolver             = new_appeal_resolver;
     cfg.pause_authority             = new_pause_authority;
     cfg.treasury                    = new_treasury;
     cfg.settlement_timelock_seconds = new_settlement_timelock_seconds;
+    cfg.slash_config_version        = new_slash_config_version;
 
     emit!(AuthorityRotationEnacted {
         enactor: ctx.accounts.enactor.key(),
@@ -122,6 +131,11 @@ pub fn handler(ctx: Context<EnactAuthorityRotation>) -> Result<()> {
         new_treasury,
         old_settlement_timelock_seconds,
         new_settlement_timelock_seconds,
+        // M-08: the version delta is the on-chain audit trail an off-chain
+        // monitor uses to mark "every SlashRecord with version N now belongs
+        // to a retired authority set, version N+1 takes over from this slot".
+        old_slash_config_version,
+        new_slash_config_version,
         attestation_count: attestation_count as u8,
         enacted_at:        now,
     });

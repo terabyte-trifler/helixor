@@ -53,6 +53,32 @@
 // observable on-chain trail and time for SPOF-#2 authority rotation
 // to replace the compromised key.
 //
+// M-08 — AUTHORITY-EPOCH SNAPSHOT TAG
+// -----------------------------------
+// The audit raised a forensic-accountability gap: every SlashRecord
+// records the executor pubkey, but NOT the authority-set context the
+// executor was acting under at the time. After SPOF-#2 rotation
+// installs a new `slash_executor`, an off-chain auditor inspecting an
+// old SlashRecord sees a pubkey that is no longer the live executor —
+// they have to walk the AuthorityRotationEnacted event log to confirm
+// the executor was authoritative at the moment they ran the slash.
+// That walk is doable but brittle: if events get reorganised, indexed
+// inconsistently, or simply outpaced by a sequence of rotations, the
+// link between (slash_record.executor, execution moment) and "this
+// key was the live executor" weakens.
+//
+// M-08 fixes this by introducing a `slash_config_version` — a u32
+// monotonic counter that:
+//   * starts at 1 at `initialize_config`,
+//   * bumps strictly +1 on every `enact_authority_rotation`,
+//   * is snapshotted onto every SlashRecord at `execute_slash` time,
+//   * is included in the `SlashExecuted` event payload.
+// The counter is small (4 bytes) — carved from the M-07 `_reserved`
+// cushion (6 → 2 bytes), zero-net-growth. A forensic auditor can now
+// answer "was this key authorised at the moment it slashed?" from one
+// number on the SlashRecord and the live `AuthorityRotationEnacted`
+// log (which carries old/new versions); no event-replay required.
+//
 // M-07 — ON-CHAIN TUNABLE SETTLE-SLASH TIMING
 // -------------------------------------------
 // The VULN-08 fix introduced two timing gates on settle_slash:
@@ -99,9 +125,13 @@
 //                                                 0 = use DEFAULT (48h))
 //   settle_grace_seconds            8   (i64    — M-07: VULN-08 grace;
 //                                                 0 = use DEFAULT (1h))
-//   _reserved                       6   (zeroed cushion — reduced by 16 to
-//                                        fit the two M-07 timing fields at
-//                                        zero net growth)
+//   slash_config_version            4   (u32    — M-08: monotonic authority
+//                                                 epoch; bumped on every
+//                                                 enact_authority_rotation,
+//                                                 snapshotted on SlashRecord)
+//   _reserved                       2   (zeroed cushion — reduced by 4 to fit
+//                                        slash_config_version at zero net
+//                                        growth)
 //   TOTAL (without discriminator): 209 bytes
 // =============================================================================
 
@@ -115,10 +145,17 @@ use solana_program::pubkey;
 pub const MIN_SETTLEMENT_TIMELOCK_SECONDS: i64 = 72 * 3_600;
 
 /// The current SlashConfig layout version. Bumped if the on-disk shape
-/// ever changes. v3 added H-04's `paused_until`; v4 (M-07) adds
-/// `execute_to_settle_seconds` + `settle_grace_seconds` — both reclaimed
-/// from the _reserved cushion, net zero size growth.
-pub const SLASH_CONFIG_LAYOUT_VERSION: u8 = 4;
+/// ever changes. v3 added H-04's `paused_until`; v4 (M-07) added
+/// `execute_to_settle_seconds` + `settle_grace_seconds`; v5 (M-08) adds
+/// `slash_config_version` — all reclaimed from the `_reserved` cushion,
+/// net zero size growth.
+pub const SLASH_CONFIG_LAYOUT_VERSION: u8 = 5;
+
+/// M-08: the value `slash_config_version` is seeded to at
+/// `initialize_config`. 1 chosen as the genesis epoch so the canonical
+/// "never been initialised" zero remains a sentinel ("config has not
+/// been written yet"). Every subsequent rotation increments by +1.
+pub const SLASH_CONFIG_GENESIS_VERSION: u32 = 1;
 
 /// H-04: the maximum duration a pause may persist without being
 /// re-issued. 7 days — long enough for a real incident response, short
@@ -205,9 +242,17 @@ pub struct SlashConfig {
     /// callable. `0` means "use the DEFAULT" (1h). Read through
     /// `effective_settle_grace_seconds()`, not directly.
     pub settle_grace_seconds:        i64,
-    /// Zero-padded reserve for future fields. Shrunk from 22 to 6 to
-    /// fit M-07's two i64 timing fields at zero net growth.
-    pub _reserved:                   [u8; 6],
+    /// M-08: the AUTHORITY EPOCH counter. Seeded to
+    /// `SLASH_CONFIG_GENESIS_VERSION` at init, incremented strictly +1
+    /// on every `enact_authority_rotation`. Snapshotted onto every
+    /// SlashRecord at `execute_slash` time so an off-chain auditor can
+    /// answer "was this executor authoritative at the moment of the
+    /// slash?" from one number rather than walking the rotation event
+    /// log. The u32 ceiling is a hard error, not a wrap.
+    pub slash_config_version:        u32,
+    /// Zero-padded reserve for future fields. Shrunk from 6 to 2 to
+    /// fit M-08's `slash_config_version` at zero net growth.
+    pub _reserved:                   [u8; 2],
 }
 
 impl SlashConfig {
@@ -216,9 +261,10 @@ impl SlashConfig {
     /// + 8 (paused_until — H-04) + 1 (bump) + 1 (layout_version)
     /// + 8 (execute_to_settle_seconds — M-07)
     /// + 8 (settle_grace_seconds — M-07)
-    /// + 6 (reserved) = 209
+    /// + 4 (slash_config_version — M-08)
+    /// + 2 (reserved) = 209
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
-        32 * 5 + 8 + 1 + 8 + 8 + 1 + 1 + 8 + 8 + 6;
+        32 * 5 + 8 + 1 + 8 + 8 + 1 + 1 + 8 + 8 + 4 + 2;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;

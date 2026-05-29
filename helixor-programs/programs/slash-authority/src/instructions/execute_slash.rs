@@ -172,6 +172,11 @@ pub fn handler(
         crate::state::SlashDestination::Treasury => ctx.accounts.slash_config.treasury,
         crate::state::SlashDestination::Burn     => Pubkey::default(),
     };
+    // M-08: snapshot the live SlashConfig authority epoch. Bound to
+    // `executor` via the same write, this is the forensic anchor that
+    // makes a post-rotation audit a single u32 lookup against the
+    // `AuthorityRotationEnacted` log instead of an event-by-event replay.
+    record.slash_config_version_at_execute = ctx.accounts.slash_config.slash_config_version;
 
     emit!(SlashExecuted {
         agent_wallet:     vault.agent_wallet,
@@ -183,6 +188,10 @@ pub fn handler(
         terminal:         tier.is_terminal(),
         executor:         ctx.accounts.slash_executor.key(),
         executed_at:      now,
+        // M-08: surface the snapshot on the event too, so the off-chain
+        // indexer doesn't need to round-trip the PDA to correlate this
+        // slash with its authority epoch.
+        slash_config_version_at_execute: ctx.accounts.slash_config.slash_config_version,
     });
 
     msg!(

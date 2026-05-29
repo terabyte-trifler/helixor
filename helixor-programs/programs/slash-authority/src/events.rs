@@ -35,6 +35,10 @@ pub struct SlashExecuted {
     /// The slash authority that executed it.
     pub executor:         Pubkey,
     pub executed_at:      i64,
+    /// M-08: the SlashConfig authority epoch this slash was executed
+    /// under. Lets an indexer link `executor` to a specific authority
+    /// set without having to walk the rotation event log.
+    pub slash_config_version_at_execute: u32,
 }
 
 // ── Day 21: dispute-mechanism events ────────────────────────────────────────
@@ -178,6 +182,12 @@ pub struct AuthorityRotationEnacted {
     pub new_treasury:                     Pubkey,
     pub old_settlement_timelock_seconds:  i64,
     pub new_settlement_timelock_seconds:  i64,
+    /// M-08: authority-epoch counter — old/new. Every SlashRecord
+    /// executed BEFORE this event carries `old_slash_config_version`;
+    /// every one executed AFTER carries `new_slash_config_version`.
+    /// That cut-line is the on-chain forensic anchor.
+    pub old_slash_config_version:         u32,
+    pub new_slash_config_version:         u32,
     pub attestation_count:                u8,
     pub enacted_at:                       i64,
 }

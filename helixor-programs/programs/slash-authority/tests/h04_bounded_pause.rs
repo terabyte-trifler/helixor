@@ -41,9 +41,10 @@ fn max_pause_is_seven_days() {
 fn layout_version_pins_h04_bump() {
     // H-04 added `paused_until` (v2 -> v3); M-07 then carved the two
     // settle-timing i64 fields from the same `_reserved` cushion
-    // (v3 -> v4). Both bumps share this single pin so any subsequent
-    // shape change must update it deliberately.
-    assert_eq!(SLASH_CONFIG_LAYOUT_VERSION, 4);
+    // (v3 -> v4); M-08 carves `slash_config_version` (v4 -> v5). All
+    // bumps share this single pin so any subsequent shape change must
+    // update it deliberately.
+    assert_eq!(SLASH_CONFIG_LAYOUT_VERSION, 5);
 }
 
 #[test]
@@ -79,7 +80,8 @@ fn cfg_paused(paused_at: i64, paused_until: i64) -> SlashConfig {
         layout_version:              SLASH_CONFIG_LAYOUT_VERSION,
         execute_to_settle_seconds:   0,
         settle_grace_seconds:        0,
-        _reserved:                   [0u8; 6],
+        slash_config_version:        0,
+        _reserved:                   [0u8; 2],
     }
 }
 
@@ -98,7 +100,8 @@ fn cfg_unpaused() -> SlashConfig {
         layout_version:              SLASH_CONFIG_LAYOUT_VERSION,
         execute_to_settle_seconds:   0,
         settle_grace_seconds:        0,
-        _reserved:                   [0u8; 6],
+        slash_config_version:        0,
+        _reserved:                   [0u8; 2],
     }
 }
 
