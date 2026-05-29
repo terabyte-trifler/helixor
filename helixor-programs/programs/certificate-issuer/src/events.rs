@@ -9,6 +9,32 @@
 use anchor_lang::prelude::*;
 
 /// Emitted when a HealthCertificate is issued for an (agent, epoch).
+///
+/// M-12 — ALERT-VECTOR TAMPER DETECTION
+/// ------------------------------------
+/// `validate_score_alert` enforces internal consistency of the (score,
+/// alert_tier, immediate_red) triplet, but does NOT produce a canonical
+/// hash artifact downstream consumers can verify against. A last-byte
+/// tamper in the serialization layer of a buggy client SDK (or a future
+/// refactor that field-shadow-writes the wrong cert slot) would leave the
+/// individual fields visibly self-consistent yet collectively wrong.
+///
+/// M-12 closes the gap by stamping `alert_vector_hash` here:
+///
+/// ```text
+/// alert_vector_hash := sha256( score_be(2)
+///                           || alert_tier(1)
+///                           || flags_be(4)
+///                           || immediate_red_byte(1) )
+/// ```
+///
+/// A consumer reads `alert_vector_hash` from the event and recomputes
+/// the same 8 canonical bytes from (score, alert_tier, flags,
+/// immediate_red) on its side; mismatch is a tamper signal. The on-chain
+/// handler additionally recomputes the hash AFTER the cert write and
+/// asserts equality with the input-args hash — a violation trips
+/// `InvalidAlertVectorBinding` (6131) and aborts the tx so the event is
+/// guaranteed-consistent at emission time.
 #[event]
 pub struct CertificateIssued {
     /// The agent the certificate attests to.
@@ -27,6 +53,14 @@ pub struct CertificateIssued {
     pub issuer:        Pubkey,
     /// Unix seconds at issuance.
     pub issued_at:     i64,
+    /// M-12: canonical SHA-256 over
+    /// `score_be || alert_tier || flags_be || immediate_red_byte`.
+    /// Computed on chain from the input args and re-verified against the
+    /// WRITTEN cert account post-write; downstream consumers recompute
+    /// it from (score, alert_tier, flags, immediate_red) to detect
+    /// serialization-layer or write-shadow tamper. See
+    /// `compute_alert_vector_hash` for the canonical byte layout.
+    pub alert_vector_hash: [u8; 32],
 }
 
 /// Emitted when a BaselineStats record is created or updated for an agent.

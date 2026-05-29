@@ -46,6 +46,51 @@ const _SLOT_HASHES_ID_REF: &solana_program::pubkey::Pubkey = &slot_hashes::ID;
 pub const GREEN_THRESHOLD:  u16 = 700;
 pub const YELLOW_THRESHOLD: u16 = 400;
 
+/// M-12 — canonical alert-vector hash.
+///
+/// `validate_score_alert` verifies the (score, alert_tier, immediate_red)
+/// triplet is internally consistent, but does not produce a single
+/// artifact a downstream consumer can use to detect serialization-layer
+/// tamper on the alert vector. M-12 stamps a SHA-256 over the canonical
+/// 8-byte representation of (score, alert_tier, flags, immediate_red)
+/// into the `CertificateIssued` event so an off-chain consumer can
+/// recompute and compare without having to reconstruct the full
+/// `cert_payload_digest` (which would require cross-account reads of
+/// baseline_stats, input_commitment, etc.).
+///
+/// CANONICAL BYTE LAYOUT (frozen; an off-chain re-implementation must
+/// produce identical bytes):
+///
+/// ```text
+/// [0..2]   score.to_be_bytes()         //  u16 big-endian
+/// [2]      alert_tier                  //  raw byte
+/// [3..7]   flags.to_be_bytes()         //  u32 big-endian
+/// [7]      immediate_red ? 1 : 0       //  raw byte
+/// ```
+///
+/// Total: exactly 8 bytes. SHA-256 of these 8 bytes is the
+/// `alert_vector_hash`. The function is pure — unit-testable without a
+/// runtime (see tests/m12_alert_vector_binding.rs).
+///
+/// WHY BIG-ENDIAN: matches `cert_payload_digest`'s encoding discipline so
+/// the on-chain hashing convention is uniform across the certificate
+/// surface — every cluster signer + verifier emits the same bytes.
+pub fn compute_alert_vector_hash(
+    score:         u16,
+    alert_tier:    u8,
+    flags:         u32,
+    immediate_red: bool,
+) -> [u8; 32] {
+    let immediate_red_byte: u8 = if immediate_red { 1 } else { 0 };
+    let h = hashv(&[
+        &score.to_be_bytes(),       // 2 bytes
+        &[alert_tier],              // 1 byte
+        &flags.to_be_bytes(),       // 4 bytes
+        &[immediate_red_byte],      // 1 byte
+    ]);
+    h.to_bytes()
+}
+
 #[derive(Accounts)]
 #[instruction(
     epoch:                      u64,
@@ -277,6 +322,21 @@ pub fn handler(
     // immediate_red is set.
     validate_score_alert(score, tier, immediate_red)?;
 
+    // ── M-12: compute the canonical alert-vector hash from the INPUTS ───────
+    // This is the hash we will (a) emit in `CertificateIssued` so off-chain
+    // consumers have a single canonical artifact for tamper detection on
+    // the alert vector, and (b) re-derive AFTER the cert write from the
+    // WRITTEN cert account fields to catch any field-shadow / write-slot
+    // bug a future refactor could introduce. The handler is the canonical
+    // producer of this hash; computing it pre-write here pins what the
+    // post-write recompute MUST match.
+    let alert_vector_hash_from_inputs = compute_alert_vector_hash(
+        score,
+        tier.as_u8(),
+        flags,
+        immediate_red,
+    );
+
     // ── DAY 27: verify the THRESHOLD SIGNATURES from the cluster ────────────
     // The cert payload (the canonical digest of agent/epoch/score/tier/
     // flags/baseline_hash/immediate_red) MUST have been signed by at least `threshold`
@@ -368,6 +428,23 @@ pub fn handler(
     components.bump            = ctx.bumps.score_components;
     components.layout_version  = ScoreComponentsAccount::CURRENT_LAYOUT_VERSION;
 
+    // ── M-12: post-write recompute the alert-vector hash from the WRITTEN
+    // cert account fields and assert it equals the input-args hash. This
+    // catches a future refactor that field-shadow-writes the wrong cert
+    // slot (e.g. swapping `cert.score = ...` with `cert.flags = ...`) so
+    // the event cannot carry an alert_vector_hash that disagrees with
+    // the on-chain stored bytes a consumer would read.
+    let alert_vector_hash_from_cert = compute_alert_vector_hash(
+        cert.score,
+        cert.alert_tier,
+        cert.flags,
+        cert.immediate_red,
+    );
+    require!(
+        alert_vector_hash_from_cert == alert_vector_hash_from_inputs,
+        CertificateError::InvalidAlertVectorBinding,
+    );
+
     emit!(CertificateIssued {
         agent_wallet:  cert.agent_wallet,
         epoch,
@@ -377,6 +454,7 @@ pub fn handler(
         immediate_red,
         issuer:        cert.issuer,
         issued_at:     cert.issued_at,
+        alert_vector_hash: alert_vector_hash_from_cert,
     });
 
     msg!(

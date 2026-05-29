@@ -202,4 +202,19 @@ pub enum CertificateError {
            trusts only the event payload can never be fooled by a same-\
            shaped event emitted from a non-canonical account.")]
     CertificatePdaMismatch = 6130,
+
+    // ── M-12: alert-vector hash binding on issue_certificate ────────────────
+    #[msg("M-12: issue_certificate refused — the alert-vector hash recomputed \
+           from the WRITTEN cert account fields (score, alert_tier, flags, \
+           immediate_red) does not equal the hash computed from the input \
+           args before the write. The on-chain handler computes \
+           sha256(score_be || alert_tier || flags_be || immediate_red_byte) \
+           twice and asserts equality post-write so a future refactor that \
+           field-shadow-writes the wrong cert slot can never emit a \
+           CertificateIssued event whose alert_vector_hash silently \
+           disagrees with the stored bytes. The off-chain consumer treats \
+           this hash as the canonical tamper-detection artifact for the \
+           alert vector and would have no defence against a same-block \
+           write-shadow bug without this gate.")]
+    InvalidAlertVectorBinding = 6131,
 }
