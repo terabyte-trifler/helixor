@@ -15,6 +15,7 @@ use anchor_lang::prelude::*;
 use crate::errors::SlashError;
 use crate::state::{
     validate_authority_separation, AuthoritySeparationError, SlashConfig,
+    DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
     MIN_SETTLEMENT_TIMELOCK_SECONDS, SLASH_CONFIG_LAYOUT_VERSION,
 };
 
@@ -83,7 +84,12 @@ pub fn handler(
     config.paused_until                = 0;
     config.bump                        = ctx.bumps.slash_config;
     config.layout_version              = SLASH_CONFIG_LAYOUT_VERSION;
-    config._reserved                   = [0u8; 22];
+    // M-07: on-chain-tunable VULN-08 timing — seed with the canonical
+    // 48h floor / 1h grace defaults. Admin may retune via
+    // `update_settle_timing` post-init.
+    config.execute_to_settle_seconds   = DEFAULT_EXECUTE_TO_SETTLE_SECONDS;
+    config.settle_grace_seconds        = DEFAULT_SETTLE_GRACE_SECONDS;
+    config._reserved                   = [0u8; 6];
 
     msg!(
         "slash-authority config initialised: executor={}, resolver={}, \

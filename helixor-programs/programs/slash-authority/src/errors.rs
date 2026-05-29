@@ -91,6 +91,10 @@ pub enum SlashError {
     #[msg("post-appeal-window grace period has not elapsed — protects an \
            appeal that landed in the same slot as the deadline")]
     AppealGraceWindowActive = 6071,
+    #[msg("M-07: settle-timing parameter out of permitted bounds — \
+           execute_to_settle_seconds must lie in [12h, 7d] and \
+           settle_grace_seconds in [5m, 24h]")]
+    SettleTimingOutOfBounds = 6072,
 
     // ── Day 21: oracle challenges ───────────────────────────────────────────
     #[msg("challenge proof hash is all zeros — a challenge must cite evidence")]

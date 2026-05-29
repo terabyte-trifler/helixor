@@ -39,11 +39,11 @@ fn max_pause_is_seven_days() {
 
 #[test]
 fn layout_version_pins_h04_bump() {
-    // H-04 added `paused_until` and is the third on-disk shape change.
-    // The same constant is asserted from the VULN-04 file too; pinning
-    // it twice is intentional — both files would need to be updated
-    // together on any subsequent layout change.
-    assert_eq!(SLASH_CONFIG_LAYOUT_VERSION, 3);
+    // H-04 added `paused_until` (v2 -> v3); M-07 then carved the two
+    // settle-timing i64 fields from the same `_reserved` cushion
+    // (v3 -> v4). Both bumps share this single pin so any subsequent
+    // shape change must update it deliberately.
+    assert_eq!(SLASH_CONFIG_LAYOUT_VERSION, 4);
 }
 
 #[test]
@@ -77,7 +77,9 @@ fn cfg_paused(paused_at: i64, paused_until: i64) -> SlashConfig {
         paused_until,
         bump:                        0,
         layout_version:              SLASH_CONFIG_LAYOUT_VERSION,
-        _reserved:                   [0u8; 22],
+        execute_to_settle_seconds:   0,
+        settle_grace_seconds:        0,
+        _reserved:                   [0u8; 6],
     }
 }
 
@@ -94,7 +96,9 @@ fn cfg_unpaused() -> SlashConfig {
         paused_until:                0,
         bump:                        0,
         layout_version:              SLASH_CONFIG_LAYOUT_VERSION,
-        _reserved:                   [0u8; 22],
+        execute_to_settle_seconds:   0,
+        settle_grace_seconds:        0,
+        _reserved:                   [0u8; 6],
     }
 }
 

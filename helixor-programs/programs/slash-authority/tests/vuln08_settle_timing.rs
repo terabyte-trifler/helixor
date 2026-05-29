@@ -21,38 +21,45 @@
 use anchor_lang::error::Error as AnchorError;
 use slash_authority::errors::SlashError;
 use slash_authority::instructions::settle_slash::{
-    check_settle_timing, MIN_EXECUTE_TO_SETTLE_SECONDS,
-    SETTLE_GRACE_PERIOD_SECONDS,
+    check_settle_timing, DEFAULT_EXECUTE_TO_SETTLE_SECONDS,
+    DEFAULT_SETTLE_GRACE_SECONDS,
 };
 
 // =============================================================================
-// The two new VULN-08 constants
+// The two VULN-08 default values (now M-07 admin-tunable)
 // =============================================================================
 
 #[test]
-fn min_execute_to_settle_is_48h() {
+fn default_execute_to_settle_is_48h() {
     // The audit requires a minimum 48h floor between execute_slash and
     // settle_slash, regardless of appeal status. Belt-and-braces under
-    // the 72h appeal window.
-    assert_eq!(MIN_EXECUTE_TO_SETTLE_SECONDS, 48 * 3_600);
+    // the 72h appeal window. M-07 made this admin-tunable but the
+    // documented DEFAULT must remain 48h — both the const and the
+    // SlashConfig fallback path depend on it.
+    assert_eq!(DEFAULT_EXECUTE_TO_SETTLE_SECONDS, 48 * 3_600);
 }
 
 #[test]
-fn settle_grace_period_is_one_hour() {
+fn default_settle_grace_is_one_hour() {
     // 1h grace after the appeal-window deadline closes — protects
     // appeals that landed in the same slot as the deadline against MEV
     // front-running by settle_slash.
-    assert_eq!(SETTLE_GRACE_PERIOD_SECONDS, 60 * 60);
+    assert_eq!(DEFAULT_SETTLE_GRACE_SECONDS, 60 * 60);
 }
 
 #[test]
-fn min_execute_to_settle_floor_does_not_block_clean_lifecycle() {
+fn default_floor_does_not_block_clean_lifecycle() {
     // SANITY: the 48h floor is intended as DEFENCE IN DEPTH only. It
     // must NEVER be the gate that blocks a clean lifecycle — the appeal
     // window (72h) + grace (1h) = 73h is the natural ceiling. 48 < 73,
     // so a clean, un-appealed slash settled at `appeal_deadline + grace`
     // is past the floor.
-    const { assert!(MIN_EXECUTE_TO_SETTLE_SECONDS < 72 * 3_600 + SETTLE_GRACE_PERIOD_SECONDS) };
+    const {
+        assert!(
+            DEFAULT_EXECUTE_TO_SETTLE_SECONDS
+                < 72 * 3_600 + DEFAULT_SETTLE_GRACE_SECONDS
+        )
+    };
 }
 
 // =============================================================================
@@ -86,16 +93,22 @@ fn floor_blocks_same_block_settlement() {
     // same block. With the floor in place, settle is rejected. (The
     // appeal-window check would also catch this, but the floor is the
     // INDEPENDENT belt-and-braces gate.)
-    let err = check_settle_timing(EXECUTED_AT, APPEAL_DEADLINE, EXECUTED_AT)
-        .expect_err("same-block settle must be rejected");
+    let err = check_settle_timing(
+        EXECUTED_AT, APPEAL_DEADLINE, EXECUTED_AT,
+        DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
+    )
+    .expect_err("same-block settle must be rejected");
     assert!(err_matches(err, SlashError::ExecuteToSettleGapTooShort));
 }
 
 #[test]
 fn floor_blocks_one_second_before_48h() {
-    let now = EXECUTED_AT + MIN_EXECUTE_TO_SETTLE_SECONDS - 1;
-    let err = check_settle_timing(EXECUTED_AT, APPEAL_DEADLINE, now)
-        .expect_err("settle 1s before 48h floor must be rejected");
+    let now = EXECUTED_AT + DEFAULT_EXECUTE_TO_SETTLE_SECONDS - 1;
+    let err = check_settle_timing(
+        EXECUTED_AT, APPEAL_DEADLINE, now,
+        DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
+    )
+    .expect_err("settle 1s before 48h floor must be rejected");
     assert!(err_matches(err, SlashError::ExecuteToSettleGapTooShort));
 }
 
@@ -105,9 +118,12 @@ fn floor_releases_at_exactly_48h_but_grace_still_blocks() {
     // appeal-window grace period still holds (we're well inside the 72h
     // appeal window). The error attribution flips from the floor to
     // grace.
-    let now = EXECUTED_AT + MIN_EXECUTE_TO_SETTLE_SECONDS;
-    let err = check_settle_timing(EXECUTED_AT, APPEAL_DEADLINE, now)
-        .expect_err("the grace gate should fire once the floor releases");
+    let now = EXECUTED_AT + DEFAULT_EXECUTE_TO_SETTLE_SECONDS;
+    let err = check_settle_timing(
+        EXECUTED_AT, APPEAL_DEADLINE, now,
+        DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
+    )
+    .expect_err("the grace gate should fire once the floor releases");
     assert!(err_matches(err, SlashError::AppealGraceWindowActive));
 }
 
@@ -120,24 +136,33 @@ fn grace_blocks_exactly_at_appeal_deadline() {
     // At t == appeal_deadline the appeal window just closed; an appeal
     // in the same block could still be landing. The 1h grace blocks
     // settle here. (Floor has been satisfied long ago at 48h.)
-    let err = check_settle_timing(EXECUTED_AT, APPEAL_DEADLINE, APPEAL_DEADLINE)
-        .expect_err("settle at appeal_deadline must be rejected by grace");
+    let err = check_settle_timing(
+        EXECUTED_AT, APPEAL_DEADLINE, APPEAL_DEADLINE,
+        DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
+    )
+    .expect_err("settle at appeal_deadline must be rejected by grace");
     assert!(err_matches(err, SlashError::AppealGraceWindowActive));
 }
 
 #[test]
 fn grace_blocks_one_second_before_grace_ends() {
-    let now = APPEAL_DEADLINE + SETTLE_GRACE_PERIOD_SECONDS - 1;
-    let err = check_settle_timing(EXECUTED_AT, APPEAL_DEADLINE, now)
-        .expect_err("settle 1s before grace ends must be rejected");
+    let now = APPEAL_DEADLINE + DEFAULT_SETTLE_GRACE_SECONDS - 1;
+    let err = check_settle_timing(
+        EXECUTED_AT, APPEAL_DEADLINE, now,
+        DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
+    )
+    .expect_err("settle 1s before grace ends must be rejected");
     assert!(err_matches(err, SlashError::AppealGraceWindowActive));
 }
 
 #[test]
 fn grace_releases_at_exactly_appeal_deadline_plus_grace() {
     // Both gates clear at t = appeal_deadline + 1h.
-    let now = APPEAL_DEADLINE + SETTLE_GRACE_PERIOD_SECONDS;
-    assert!(check_settle_timing(EXECUTED_AT, APPEAL_DEADLINE, now).is_ok());
+    let now = APPEAL_DEADLINE + DEFAULT_SETTLE_GRACE_SECONDS;
+    assert!(check_settle_timing(
+        EXECUTED_AT, APPEAL_DEADLINE, now,
+        DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
+    ).is_ok());
 }
 
 // =============================================================================
@@ -148,8 +173,11 @@ fn grace_releases_at_exactly_appeal_deadline_plus_grace() {
 fn clean_never_appealed_lifecycle_settles_at_73h() {
     // The natural settle time for an un-appealed Minor: 72h appeal + 1h
     // grace = 73h post-execute. Floor (48h) is dominated by grace here.
-    let now = EXECUTED_AT + 72 * 3_600 + SETTLE_GRACE_PERIOD_SECONDS;
-    assert!(check_settle_timing(EXECUTED_AT, APPEAL_DEADLINE, now).is_ok());
+    let now = EXECUTED_AT + 72 * 3_600 + DEFAULT_SETTLE_GRACE_SECONDS;
+    assert!(check_settle_timing(
+        EXECUTED_AT, APPEAL_DEADLINE, now,
+        DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
+    ).is_ok());
 }
 
 #[test]
@@ -165,7 +193,10 @@ fn upheld_appeal_lifecycle_settles_after_timelock() {
     //   (b) 1h grace:   satisfied at 37h post-execute (= upheld + 1h)
     // The max of (a) and (b) is 48h post-execute — both gates clear.
     let now = EXECUTED_AT + 48 * 3_600;
-    assert!(check_settle_timing(EXECUTED_AT, new_deadline, now).is_ok());
+    assert!(check_settle_timing(
+        EXECUTED_AT, new_deadline, now,
+        DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
+    ).is_ok());
 }
 
 // =============================================================================
@@ -179,8 +210,11 @@ fn floor_fires_before_grace_when_both_are_violated() {
     // Pick a (now, deadline) where BOTH gates would fail to verify the
     // attribution is deterministic.
     let now = EXECUTED_AT + 1; // both gates violated
-    let err = check_settle_timing(EXECUTED_AT, APPEAL_DEADLINE, now)
-        .expect_err("expected an error");
+    let err = check_settle_timing(
+        EXECUTED_AT, APPEAL_DEADLINE, now,
+        DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
+    )
+    .expect_err("expected an error");
     assert!(err_matches(err, SlashError::ExecuteToSettleGapTooShort));
 }
 
@@ -192,8 +226,11 @@ fn floor_fires_before_grace_when_both_are_violated() {
 fn checked_arithmetic_rejects_overflow_in_floor() {
     // i64::MAX + 48h would overflow — must surface as MathOverflow, not
     // wrap-around to a passing gate.
-    let err = check_settle_timing(i64::MAX, APPEAL_DEADLINE, i64::MAX)
-        .expect_err("overflow must error");
+    let err = check_settle_timing(
+        i64::MAX, APPEAL_DEADLINE, i64::MAX,
+        DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
+    )
+    .expect_err("overflow must error");
     assert!(err_matches(err, SlashError::MathOverflow));
 }
 
@@ -203,8 +240,11 @@ fn checked_arithmetic_rejects_overflow_in_grace() {
     // To reach the grace check we must clear the floor first, so set
     // executed_at small.
     let now = i64::MAX;
-    let err = check_settle_timing(0, i64::MAX, now)
-        .expect_err("overflow in grace must error");
+    let err = check_settle_timing(
+        0, i64::MAX, now,
+        DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
+    )
+    .expect_err("overflow in grace must error");
     assert!(err_matches(err, SlashError::MathOverflow));
 }
 

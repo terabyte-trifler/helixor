@@ -30,9 +30,11 @@ fn slash_config_layout_grew_for_role_separation() {
 
 #[test]
 fn slash_config_layout_version_pinned() {
-    // Bumped to 3 by H-04 (added `paused_until` for the bounded-pause
-    // auto-expiry). Bump again on any future on-disk shape change.
-    assert_eq!(SLASH_CONFIG_LAYOUT_VERSION, 3);
+    // v3: H-04 added `paused_until` (bounded-pause auto-expiry).
+    // v4: M-07 carved `execute_to_settle_seconds` + `settle_grace_seconds`
+    //     out of the same `_reserved` cushion.
+    // Bump again on any future on-disk shape change.
+    assert_eq!(SLASH_CONFIG_LAYOUT_VERSION, 4);
 }
 
 #[test]

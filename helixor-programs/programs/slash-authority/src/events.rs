@@ -126,6 +126,20 @@ pub struct SlashPaused {
     pub authority: Pubkey,
 }
 
+/// M-07: emitted when the admin retunes the VULN-08 settle-slash timing
+/// gates via `update_settle_timing`. Carries the before/after pair on
+/// both fields so an off-chain monitor sees the full delta in one event
+/// (rather than having to diff against a prior snapshot it may not hold).
+#[event]
+pub struct SettleTimingUpdated {
+    pub admin:                            Pubkey,
+    pub old_execute_to_settle_seconds:    i64,
+    pub new_execute_to_settle_seconds:    i64,
+    pub old_settle_grace_seconds:         i64,
+    pub new_settle_grace_seconds:         i64,
+    pub updated_at:                       i64,
+}
+
 // ── SPOF-#2 events: time-locked, 2-of-3-attested authority rotation ────────
 
 /// Emitted when a PendingAuthorityRotation is opened.

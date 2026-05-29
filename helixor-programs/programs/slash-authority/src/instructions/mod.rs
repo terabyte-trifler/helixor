@@ -11,6 +11,7 @@ pub mod propose_authority_rotation;
 pub mod resolve_appeal;
 pub mod settle_slash;
 pub mod update_authorities;
+pub mod update_settle_timing;
 
 pub use appeal_slash::*;
 pub use attest_authority_rotation::*;
@@ -25,3 +26,4 @@ pub use propose_authority_rotation::*;
 pub use resolve_appeal::*;
 pub use settle_slash::*;
 pub use update_authorities::*;
+pub use update_settle_timing::*;

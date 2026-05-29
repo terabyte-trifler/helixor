@@ -35,14 +35,14 @@
 //
 //   1. MEV front-running an appeal — a bot races settle_slash against
 //      an appeal landing in the same block as the deadline. Mitigation:
-//      SETTLE_GRACE_PERIOD_SECONDS — refuse to settle until 1h AFTER
-//      the appeal window closes, so an appeal that *almost* landed has
-//      time to actually land.
+//      a post-appeal grace period — refuse to settle until N seconds
+//      AFTER the appeal window closes, so an appeal that *almost*
+//      landed has time to actually land.
 //
 //   2. Same-block griefing — an executor whose role key is compromised
 //      executes + settles in the same tx, before any human notices.
-//      Mitigation: MIN_EXECUTE_TO_SETTLE_SECONDS — refuse to settle
-//      until 48h after execute_slash, REGARDLESS of appeal status. A
+//      Mitigation: an execute->settle FLOOR — refuse to settle until M
+//      seconds after execute_slash, REGARDLESS of appeal status. A
 //      SECOND, independent timer on top of the appeal window (which is
 //      72h, so this floor never blocks a normal flow).
 //
@@ -55,6 +55,24 @@
 // All three of these are pure-defensive additions: a clean,
 // well-spaced-out slash lifecycle passes through them with no behavioural
 // change.
+//
+// M-07 — TIMING IS ON-CHAIN-TUNABLE
+// ---------------------------------
+// The VULN-08 fix originally hard-coded the floor (M = 48h) and grace
+// (N = 1h) as `pub const`. The M-07 audit follow-up flagged that any
+// real incident demanding a different M/N would require a full program
+// redeploy. M-07 therefore:
+//   * keeps the existing 48h / 1h numbers as `DEFAULT_*`,
+//   * moves the live values onto `SlashConfig.execute_to_settle_seconds`
+//     and `SlashConfig.settle_grace_seconds`,
+//   * changes `check_settle_timing` to TAKE the timing values as args
+//     instead of reading consts — the handler now passes whatever
+//     `SlashConfig.effective_*` accessors return,
+//   * adds `update_settle_timing` as a separate admin-gated ix that
+//     validates against on-chain bounds and emits an event.
+// The transformation is layout-preserving (the two i64 fields are
+// carved from `_reserved`), so pre-M-07 accounts keep working — their
+// zeroed fields fall through to the defaults via `effective_*`.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -66,39 +84,44 @@ use crate::state::{
     SlashStatus,
 };
 
-/// VULN-08: minimum delay between execute_slash and settle_slash,
-/// regardless of appeal lifecycle. 48h. The appeal window (72h) is the
-/// primary gate; this floor is a SECOND, independent timer so even a
-/// bug that bypassed `appeal_deadline` cannot enable same-block
-/// settlement griefing.
-pub const MIN_EXECUTE_TO_SETTLE_SECONDS: i64 = 48 * 3_600;
-
-/// VULN-08: grace period after `appeal_deadline` closes, before
-/// settlement may proceed. 1h. Protects an appeal transaction that
-/// landed in the same slot as the deadline against an MEV bot racing
-/// settle_slash in the same block.
-pub const SETTLE_GRACE_PERIOD_SECONDS: i64 = 60 * 60;
+/// M-07: the DEFAULTS for the two VULN-08 timing gates. These match the
+/// original VULN-08 hard-coded values exactly — M-07 is mobility, not a
+/// re-tune. They are re-exported here so existing imports of the
+/// per-instruction const names keep working (the test surface and the
+/// `SlashConfig::effective_*` fallbacks both read from these).
+pub use crate::state::{
+    DEFAULT_EXECUTE_TO_SETTLE_SECONDS, DEFAULT_SETTLE_GRACE_SECONDS,
+};
 
 /// Pure VULN-08 timing check — extracted so it is unit-testable without
 /// a runtime. Both gates must be satisfied; the order they are checked
 /// is fixed for stable error attribution.
+///
+/// M-07: the two timing values are now PARAMETERS (read from
+/// SlashConfig at the handler boundary), not file-level consts. This is
+/// the on-chain-tunability surface. Callers MUST pass the values
+/// returned by `SlashConfig::effective_*` so pre-M-07 accounts that
+/// stored zero get the documented 48h/1h defaults instead of trivially
+/// passing the gates.
 pub fn check_settle_timing(
-    executed_at:     i64,
-    appeal_deadline: i64,
-    now:             i64,
+    executed_at:                   i64,
+    appeal_deadline:               i64,
+    now:                           i64,
+    execute_to_settle_seconds:     i64,
+    settle_grace_seconds:          i64,
 ) -> Result<()> {
-    // Gate A: the 48h execute->settle floor.
+    // Gate A: the execute->settle floor.
     let min_settle_at = executed_at
-        .checked_add(MIN_EXECUTE_TO_SETTLE_SECONDS)
+        .checked_add(execute_to_settle_seconds)
         .ok_or(SlashError::MathOverflow)?;
     require!(
         now >= min_settle_at,
         SlashError::ExecuteToSettleGapTooShort,
     );
 
-    // Gate B: the appeal-window grace period (1h after the deadline).
+    // Gate B: the appeal-window grace period.
     let earliest_settle = appeal_deadline
-        .checked_add(SETTLE_GRACE_PERIOD_SECONDS)
+        .checked_add(settle_grace_seconds)
         .ok_or(SlashError::MathOverflow)?;
     require!(
         now >= earliest_settle,
@@ -204,7 +227,18 @@ pub fn handler(ctx: Context<SettleSlash>) -> Result<()> {
 
     // VULN-08 #1 + #2: the two independent timing gates. Defence in depth
     // on top of the appeal-window + post-uphold-timelock checks above.
-    check_settle_timing(executed_at, appeal_deadline, now)?;
+    // M-07: the floor + grace values come from SlashConfig (admin-tunable),
+    // not file-level consts. `effective_*` falls back to the documented
+    // 48h / 1h defaults for any pre-M-07 account whose new i64 fields are
+    // still zero (carved from the old _reserved cushion).
+    let cfg_for_timing = &ctx.accounts.slash_config;
+    check_settle_timing(
+        executed_at,
+        appeal_deadline,
+        now,
+        cfg_for_timing.effective_execute_to_settle_seconds(),
+        cfg_for_timing.effective_settle_grace_seconds(),
+    )?;
 
     let tier = OffenseTier::from_u8(ctx.accounts.slash_record.offense_tier)
         .ok_or(SlashError::InvalidOffenseTier)?;

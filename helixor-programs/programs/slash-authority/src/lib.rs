@@ -206,6 +206,28 @@ pub mod slash_authority {
         instructions::settle_slash::handler(ctx)
     }
 
+    /// M-07: retune the VULN-08 settle_slash timing gates IN-FLIGHT.
+    ///
+    /// Pre-M-07 the 48h execute->settle floor and the 1h post-appeal-window
+    /// grace were `pub const` — tuning required a full program redeploy.
+    /// They now live on `SlashConfig`; this admin-gated ix writes them
+    /// directly. Hard on-chain bounds (12h..7d / 5m..24h) protect the
+    /// protocol from a compromised admin key — the security floor never
+    /// falls beneath what VULN-08 needed to mitigate the same-block
+    /// griefing window, and the grace never rises high enough to become
+    /// indistinguishable from a permanent settlement freeze.
+    pub fn update_settle_timing(
+        ctx:                            Context<UpdateSettleTiming>,
+        new_execute_to_settle_seconds:  i64,
+        new_settle_grace_seconds:       i64,
+    ) -> Result<()> {
+        instructions::update_settle_timing::handler(
+            ctx,
+            new_execute_to_settle_seconds,
+            new_settle_grace_seconds,
+        )
+    }
+
     /// Day-21 NEW: the watchdog mechanism. Anyone may challenge an oracle
     /// node for a bad submission. The instruction records the accusation
     /// and evidence hash; slash-authority review verifies referenced
