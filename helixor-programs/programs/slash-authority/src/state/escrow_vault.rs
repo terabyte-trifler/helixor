@@ -34,7 +34,16 @@
 //   active                   1   (bool — false after a terminal slash)
 //   bump                     1   (u8)
 //   layout_version           1   (u8)
-//   _reserved               32   (zeroed cushion)
+//   encumbered_lamports      8   (u64 — held by Pending/Appealed slashes)
+//   last_appeal_at           8   (i64 — most recent appeal; soft audit field)
+//   appeals_in_flight        1   (u8  — M-01: count of currently-Appealed
+//                                  slashes for this vault. Hard-capped at
+//                                  1 by appeal_slash; resolve_appeal
+//                                  decrements. Tighter than the 24h
+//                                  cooldown — the agent cannot stack up
+//                                  appeals to stall multiple settlements.)
+//   _reserved               15   (zeroed cushion, shrunk by 1 to fit
+//                                  appeals_in_flight at zero net growth)
 //   TOTAL (without discriminator): 99 bytes
 // =============================================================================
 
@@ -71,26 +80,46 @@ pub struct EscrowVault {
     /// settlement they leave the vault; on a successful appeal they return
     /// to `staked_lamports`. The Day-21 "funds held, not burned" model.
     pub encumbered_lamports:    u64,
-    /// Unix seconds of the agent's most recent appeal — for the appeal
-    /// cooldown. Zero until the first appeal.
+    /// Unix seconds of the agent's most recent appeal — preserved as a
+    /// soft audit field. The 24h cooldown derived from this is a soft
+    /// throttle; the HARD M-01 gate is `appeals_in_flight` below.
     pub last_appeal_at:         i64,
-    /// Zero-padded reserve — shrunk to make room for the lifecycle fields.
-    pub _reserved:              [u8; 16],
+    /// M-01: number of this vault's slashes that are currently in the
+    /// Appealed state. `appeal_slash` requires this to be 0 (hard cap of
+    /// one in-flight appeal per vault) and increments it to 1;
+    /// `resolve_appeal` decrements it back to 0 on either outcome
+    /// (uphold or overturn). This bounds the maximum number of
+    /// settlements an agent can stall in parallel at 1 — tighter than
+    /// the pre-existing 24h cooldown, which only paced filings without
+    /// limiting their cumulative effect.
+    pub appeals_in_flight:      u8,
+    /// Zero-padded reserve — shrunk by 1 byte to fit `appeals_in_flight`
+    /// at zero net account-size growth.
+    pub _reserved:              [u8; 15],
 }
 
 impl EscrowVault {
-    pub const CURRENT_LAYOUT_VERSION: u8 = 1;
+    /// Bumped to 2 by M-01 (added `appeals_in_flight` for the per-vault
+    /// concurrency cap). Bump again on any future on-disk shape change.
+    pub const CURRENT_LAYOUT_VERSION: u8 = 2;
+
+    /// M-01: hard cap on concurrent Appealed slashes per vault. One.
+    /// Tightens the per-vault appeal-cooldown rate-limit into an
+    /// absolute count limit, so an agent cannot stack up multiple
+    /// in-flight appeals to stall multiple settlements at once.
+    pub const MAX_APPEALS_IN_FLIGHT: u8 = 1;
 
     /// Data size WITHOUT the 8-byte Anchor discriminator.
     ///   32 + 8 + 8 + 8 + 8 + 1 + 1 + 1 = 67  (Day-20 core)
     /// + 8 encumbered_lamports + 8 last_appeal_at = 16
-    /// + 16 reserved                              = 16
+    /// + 1 appeals_in_flight (M-01)               = 1
+    /// + 15 reserved                              = 15
     ///   = 99
     ///
-    /// The size is UNCHANGED from Day 20 (still 99): the 16 new bytes are
-    /// spent from the former 32-byte reserve, which shrinks to 16.
+    /// The size is UNCHANGED — 1 byte was reclaimed from the former
+    /// 16-byte reserve, which shrinks to 15.
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
-        32 + 8 + 8 + 8 + 8 + 1 + 1 + 1 + 8 + 8 + 16;
+        32 + 8 + 8 + 8 + 8 + 1 + 1 + 1 + 8 + 8 + 1 + 15;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;

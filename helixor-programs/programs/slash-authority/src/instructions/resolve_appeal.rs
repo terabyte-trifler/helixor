@@ -152,6 +152,13 @@ pub fn handler(ctx: Context<ResolveAppeal>, uphold: bool) -> Result<()> {
         record.appeal_deadline      = clock.unix_timestamp;
         record.settlement_unlock_at = unlock_at;
         record.appeal_resolved_by   = resolver_key;
+
+        // M-01: release the in-flight slot — the slash is no longer
+        // Appealed, so it no longer counts against the per-vault cap.
+        let vault = &mut ctx.accounts.escrow_vault;
+        vault.appeals_in_flight = vault.appeals_in_flight
+            .checked_sub(1)
+            .ok_or(SlashError::MathOverflow)?;
     } else {
         // ── Appeal SUCCEEDS — the slash is OVERTURNED ───────────────────────
         // Release the encumbered lamports back to free stake. No lamports
@@ -163,6 +170,11 @@ pub fn handler(ctx: Context<ResolveAppeal>, uphold: bool) -> Result<()> {
             .ok_or(SlashError::MathOverflow)?;
         vault.staked_lamports = vault.staked_lamports
             .checked_add(amount)
+            .ok_or(SlashError::MathOverflow)?;
+        // M-01: release the in-flight slot — same as the uphold path,
+        // the slash is leaving the Appealed state.
+        vault.appeals_in_flight = vault.appeals_in_flight
+            .checked_sub(1)
             .ok_or(SlashError::MathOverflow)?;
 
         let record = &mut ctx.accounts.slash_record;

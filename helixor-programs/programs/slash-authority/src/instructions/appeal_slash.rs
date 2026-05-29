@@ -19,8 +19,16 @@
 //     is rejected; by then the slash is settleable.
 //   - `justification` is a non-zero hash — an appeal must cite a reason
 //     (the hash commits to off-chain appeal documentation).
-//   - the APPEAL COOLDOWN has elapsed since the agent's last appeal — an
-//     agent cannot spam appeals across its slash history.
+//   - M-01: this vault must have NO other Appealed slash in flight. The
+//     pre-existing 24h `last_appeal_at` cooldown only paced filings; it
+//     did not cap how many appeals could be open at once. An agent with
+//     N pending slashes could sequentially appeal each within the 72h
+//     appeal window (1 per cooldown cycle) and stall N settlements in
+//     parallel. The new HARD gate is `appeals_in_flight == 0`. Only one
+//     appeal per vault may be open at a time; the agent must wait for
+//     resolve_appeal on the existing appeal before filing another.
+//   - the APPEAL COOLDOWN has elapsed since the agent's last appeal —
+//     soft anti-spam, retained as defence in depth on top of M-01.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -99,8 +107,23 @@ pub fn handler(
         SlashError::AppealWindowClosed,
     );
 
+    // ── M-01: per-vault in-flight cap ───────────────────────────────────────
+    // Hard gate: at most one Appealed slash per vault at a time. This
+    // strictly bounds how many settlements a single agent can stall in
+    // parallel, regardless of how many Pending slashes exist or how the
+    // 24h cooldown spaces filings.
+    require!(
+        ctx.accounts.escrow_vault.appeals_in_flight
+            < EscrowVault::MAX_APPEALS_IN_FLIGHT,
+        SlashError::AppealAlreadyInFlight,
+    );
+
     // ── Appeal cooldown ─────────────────────────────────────────────────────
-    // An agent that has appealed before must wait out the cooldown. The
+    // Soft anti-spam: an agent that has appealed before must wait out
+    // the 24h cooldown. With M-01 in place the cap of one in-flight
+    // appeal already makes back-to-back filings impossible until the
+    // current appeal resolves; the cooldown is retained as defence in
+    // depth in case a resolver auto-resolves appeals very quickly. The
     // first-ever appeal (last_appeal_at == 0) is always allowed.
     let last = ctx.accounts.escrow_vault.last_appeal_at;
     if last != 0 {
@@ -116,7 +139,11 @@ pub fn handler(
     record.appeal_hash = justification;
     record.appealed_at = clock.unix_timestamp;
 
-    ctx.accounts.escrow_vault.last_appeal_at = clock.unix_timestamp;
+    let vault = &mut ctx.accounts.escrow_vault;
+    vault.last_appeal_at    = clock.unix_timestamp;
+    vault.appeals_in_flight = vault.appeals_in_flight
+        .checked_add(1)
+        .ok_or(SlashError::MathOverflow)?;
 
     emit!(SlashAppealed {
         agent_wallet: record.agent_wallet,

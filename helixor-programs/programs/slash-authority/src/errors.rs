@@ -64,6 +64,10 @@ pub enum SlashError {
     AppealCooldownActive = 6045,
     #[msg("the slash record does not belong to this escrow vault")]
     RecordVaultMismatch = 6046,
+    #[msg("M-01: this vault already has an Appealed slash in flight — only one \
+           appeal per vault may be open at a time. Wait for resolve_appeal \
+           on the existing appeal before filing another.")]
+    AppealAlreadyInFlight = 6047,
 
     // ── VULN-04: pause + timelock ───────────────────────────────────────────
     #[msg("slash actions are paused by the pause authority")]
