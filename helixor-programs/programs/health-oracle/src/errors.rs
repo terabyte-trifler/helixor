@@ -172,4 +172,14 @@ pub enum HelixorError {
            hash differs from the supplied slot_anchor_hash — refusing to \
            forward a forged or stale slot anchor")]
     SlotAnchorHashMismatch = 6093,
+
+    // ── M-13: anti-griefing rent escrow on submit_score ─────────────────────
+    #[msg("M-13: submit_score escrow balance is below the required \
+           MIN_SUBMIT_ESCROW_DEPOSIT_LAMPORTS floor above rent-exempt — \
+           the oracle MUST `system::transfer` at least the floor amount \
+           into the per-(agent, epoch) SubmitScoreEscrow PDA on every \
+           submission so spam griefing has a real economic cost. The \
+           floor is the signal: a runaway oracle script that ignores it \
+           burns SOL per call. Increase the deposit and resubmit.")]
+    SubmitEscrowBelowFloor = 6100,
 }

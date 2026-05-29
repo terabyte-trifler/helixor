@@ -26,11 +26,15 @@
 // =============================================================================
 
 use anchor_lang::prelude::*;
+use anchor_lang::system_program::{self, Transfer};
 
 use crate::errors::HelixorError;
-use crate::events::ScoreSubmitted;
+use crate::events::{ScoreSubmitted, SubmitScoreEscrowFunded};
 use crate::slot_gate::verify_slot_anchor;
-use crate::state::{AgentRegistration, EpochState, OracleConfig};
+use crate::state::{
+    AgentRegistration, EpochState, OracleConfig, SubmitScoreEscrow,
+    MIN_SUBMIT_ESCROW_DEPOSIT_LAMPORTS,
+};
 
 // The certificate-issuer program — pulled in as a CPI dependency. Anchor
 // generates the `cpi` module (the typed CPI builders) and re-exports the
@@ -75,6 +79,26 @@ pub struct SubmitScore<'info> {
             @ HelixorError::NotOracleAuthority,
     )]
     pub oracle: Signer<'info>,
+
+    /// M-13: the anti-griefing rent-escrow PDA for this (agent, epoch).
+    /// `init` makes it write-once for the pairing — a repeat submission
+    /// for the same (agent, epoch) fails here the same way the cert
+    /// account would. The oracle pays the rent-exempt minimum at init
+    /// and ADDITIONALLY transfers `MIN_SUBMIT_ESCROW_DEPOSIT_LAMPORTS`
+    /// from itself to this PDA inside the handler — that extra deposit
+    /// is the per-submission economic floor the audit asked for.
+    #[account(
+        init,
+        payer = oracle,
+        space = SubmitScoreEscrow::SPACE,
+        seeds = [
+            SubmitScoreEscrow::SEED_PREFIX,
+            agent_registration.agent_wallet.as_ref(),
+            &epoch.to_le_bytes(),
+        ],
+        bump,
+    )]
+    pub submit_score_escrow: Account<'info, SubmitScoreEscrow>,
 
     // ── certificate-issuer accounts (passed through to the CPI) ─────────────
     /// The certificate PDA the CPI will CREATE. Derived on the
@@ -171,6 +195,70 @@ pub fn handler(
         &slot_anchor_hash,
     )?;
 
+    // ── 3b. M-13 — fund the per-submission anti-griefing rent escrow ───────
+    // The `init` constraint above already paid the rent-exempt minimum
+    // for the SubmitScoreEscrow PDA from the oracle. M-13's signal floor
+    // is an ADDITIONAL deposit on top of rent: a system::transfer of
+    // `MIN_SUBMIT_ESCROW_DEPOSIT_LAMPORTS` from oracle to the PDA. This
+    // makes the per-submission cost three orders of magnitude above the
+    // base tx fee, so a runaway oracle script can no longer spam at
+    // ~5_000 lamports per call.
+    //
+    // No refund / drain instruction is provided in M-13 — the floor is
+    // the cost. A future M-XX may introduce a conditional refund or a
+    // challenge-driven slash; the M-13 contract is to LOCK the lamports.
+    let escrow_ai = ctx.accounts.submit_score_escrow.to_account_info();
+    let escrow_balance_before_deposit = escrow_ai.lamports();
+    let deposit_lamports = MIN_SUBMIT_ESCROW_DEPOSIT_LAMPORTS;
+    system_program::transfer(
+        CpiContext::new(
+            ctx.accounts.system_program.key(),
+            Transfer {
+                from: ctx.accounts.oracle.to_account_info(),
+                to:   escrow_ai.clone(),
+            },
+        ),
+        deposit_lamports,
+    )?;
+
+    // Defence-in-depth balance check: the live escrow balance MUST be
+    // at least the rent-exempt minimum (init guarantees) PLUS the floor.
+    // Re-read from the AccountInfo so a future refactor that mistakenly
+    // sends the transfer elsewhere fails this gate.
+    let escrow_balance_after_deposit = escrow_ai.lamports();
+    let floor_required = escrow_balance_before_deposit
+        .checked_add(deposit_lamports)
+        .ok_or(HelixorError::SubmitEscrowBelowFloor)?;
+    require!(
+        escrow_balance_after_deposit >= floor_required,
+        HelixorError::SubmitEscrowBelowFloor,
+    );
+
+    // Populate the escrow account body — the lamports themselves ARE the
+    // floor; the body is for forensic attribution (which oracle funded
+    // this escrow, when, and what (agent, epoch) it belongs to).
+    let clock_now = Clock::get()?;
+    {
+        let escrow = &mut ctx.accounts.submit_score_escrow;
+        escrow.agent_wallet       = ctx.accounts.agent_registration.agent_wallet;
+        escrow.epoch              = epoch;
+        escrow.oracle             = ctx.accounts.oracle.key();
+        escrow.deposited_at       = clock_now.unix_timestamp;
+        escrow.deposited_lamports = deposit_lamports;
+        escrow.bump               = ctx.bumps.submit_score_escrow;
+        escrow.layout_version     = SubmitScoreEscrow::CURRENT_LAYOUT_VERSION;
+    }
+
+    emit!(SubmitScoreEscrowFunded {
+        escrow:               ctx.accounts.submit_score_escrow.key(),
+        agent_wallet:         ctx.accounts.agent_registration.agent_wallet,
+        epoch,
+        oracle:               ctx.accounts.oracle.key(),
+        deposited_lamports:   deposit_lamports,
+        escrow_balance_after: escrow_balance_after_deposit,
+        funded_at:            clock_now.unix_timestamp,
+    });
+
     // ── 4. CPI into certificate-issuer ──────────────────────────────────────
     // Build the typed CPI context. The oracle signer carries through — the
     // certificate-issuer's issue_certificate verifies the issuer against
@@ -203,7 +291,10 @@ pub fn handler(
     )?;
 
     // ── emit the oracle-side event ──────────────────────────────────────────
-    let clock = Clock::get()?;
+    // Reuse `clock_now` captured during the M-13 escrow funding above —
+    // the two events should bear the same unix timestamp anyway (they are
+    // emitted from the same handler invocation), and dropping the
+    // duplicate `Clock::get()` keeps the handler tight.
     emit!(ScoreSubmitted {
         agent_wallet:  ctx.accounts.agent_registration.agent_wallet,
         epoch,
@@ -212,7 +303,7 @@ pub fn handler(
         flags,
         immediate_red,
         oracle:        ctx.accounts.oracle.key(),
-        submitted_at:  clock.unix_timestamp,
+        submitted_at:  clock_now.unix_timestamp,
     });
 
     msg!(

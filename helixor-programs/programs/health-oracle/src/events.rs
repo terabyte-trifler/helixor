@@ -141,6 +141,32 @@ pub struct ScoreSubmitted {
     pub submitted_at:  i64,
 }
 
+/// M-13: emitted on every successful `submit_score` AFTER the
+/// SubmitScoreEscrow PDA is funded above the floor. The event carries
+/// the locator (escrow pubkey) so an off-chain consumer can fetch the
+/// PDA, the deposited amount, and the post-funding balance — all the
+/// fields a forensic auditor needs to confirm the per-submission
+/// economic floor was paid without re-deriving the PDA or reading the
+/// account separately.
+#[event]
+pub struct SubmitScoreEscrowFunded {
+    /// The per-(agent, epoch) SubmitScoreEscrow PDA address.
+    pub escrow:               Pubkey,
+    pub agent_wallet:         Pubkey,
+    pub epoch:                u64,
+    /// The oracle node that funded the escrow.
+    pub oracle:               Pubkey,
+    /// Lamports transferred from oracle to escrow ABOVE the rent-exempt
+    /// minimum. Equal to the M-13 floor at minimum; may be larger if
+    /// the oracle voluntarily over-deposits.
+    pub deposited_lamports:   u64,
+    /// The total escrow balance after the transfer (= rent_exempt(SPACE)
+    /// + deposited_lamports). Off-chain auditors compare this against
+    /// the PDA's `lamports()` at any later slot to detect a drain.
+    pub escrow_balance_after: u64,
+    pub funded_at:            i64,
+}
+
 /// Emitted by get_health — surfaces an agent's current-epoch certificate.
 #[event]
 pub struct HealthRead {
