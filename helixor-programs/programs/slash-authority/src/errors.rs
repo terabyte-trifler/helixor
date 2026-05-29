@@ -148,4 +148,29 @@ pub enum SlashError {
            aliasing problem. Refusing to commit the tx so the audit trail \
            never carries an inconsistent SlashSettled event.")]
     LamportAuditMismatch = 6090,
+
+    // ── M-14: defence-in-depth System Program ID pin on open_vault ──────────
+    // The audit flagged a hypothetical "fake system_program" attack on
+    // open_vault and concluded it is NOT a real finding: Anchor's
+    // `Program<'info, System>` constraint enforces the account's pubkey
+    // against `solana_program::system_program::ID` at the deserialize gate,
+    // before the handler runs. The finding is listed as informational
+    // hardening only.
+    //
+    // M-14 still earns its keep by adding a REDUNDANT in-handler
+    // `require_keys_eq!` against the same canonical ID. The check is a
+    // tripwire for a future refactor that weakens the account type to
+    // `UncheckedAccount<'info>` or `AccountInfo<'info>` (e.g. to add a
+    // shim or wrap the program in a custom verifier) and forgets to
+    // re-add the pubkey check. The defense-in-depth layer fails the tx
+    // with this code if the System Program ID drifts, instead of letting
+    // a System-CPI transfer route through an attacker-controlled program.
+    #[msg("M-14: system_program account passed to open_vault is not the \
+           canonical 11111111111111111111111111111111 System Program ID. \
+           Anchor's `Program<'info, System>` constraint already enforces \
+           this at deserialize — this redundant in-handler check is a \
+           defence-in-depth tripwire for a future refactor that weakens \
+           the account type. Refusing to CPI into an attacker-controlled \
+           program for the staker -> vault transfer.")]
+    SystemProgramIdMismatch = 6100,
 }

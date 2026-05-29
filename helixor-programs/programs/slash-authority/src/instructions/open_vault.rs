@@ -47,6 +47,30 @@ pub fn handler(
     agent_wallet:   Pubkey,
     stake_lamports: u64,
 ) -> Result<()> {
+    // ── M-14: defence-in-depth System Program ID pin ────────────────────────
+    // The audit flagged a hypothetical "fake system_program" attack on
+    // open_vault — a caller passing a fake System Program account would
+    // route the staker -> vault transfer through attacker-controlled code.
+    // The audit concluded this is NOT a real finding: Anchor's
+    // `Program<'info, System>` constraint above ALREADY enforces the
+    // account's pubkey against `solana_program::system_program::ID` at
+    // the deserialize gate, before this handler runs. The Solana VM
+    // additionally enforces the program ID on the CPI itself.
+    //
+    // So why add this check? It is a tripwire for a future refactor.
+    // If a contributor weakens `system_program: Program<'info, System>`
+    // to `UncheckedAccount<'info>` / `AccountInfo<'info>` (e.g. to add a
+    // shim, to support a custom verifier, or to "make the test setup
+    // simpler") and forgets to re-add the pubkey check, this in-handler
+    // `require_keys_eq!` still fails the tx with M-14's dedicated
+    // SystemProgramIdMismatch code. The check is cheap, attributable,
+    // and survives independently of the `Accounts` struct surface.
+    require_keys_eq!(
+        ctx.accounts.system_program.key(),
+        anchor_lang::system_program::ID,
+        SlashError::SystemProgramIdMismatch,
+    );
+
     // ── Validate ────────────────────────────────────────────────────────────
     require!(
         stake_lamports >= EscrowVault::MIN_STAKE_LAMPORTS,
