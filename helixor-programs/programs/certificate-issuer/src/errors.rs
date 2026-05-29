@@ -177,4 +177,20 @@ pub enum CertificateError {
            self-revoke with PartnerSelfRevoke (1); admin revokes may only use \
            AdminBadFaith (2) or AdminTerminated (3)")]
     RevokeReasonSignerMismatch = 6115,
+
+    // ── M-06: cluster-key rotation with proof-of-possession ─────────────────
+    #[msg("cluster rotation refused — not all new cluster keys produced a \
+           valid Ed25519 signature over the canonical rotation digest \
+           (M-06 proof-of-possession); each new key MUST sign in the same \
+           transaction so the operator cannot install a key whose privkey \
+           they do not control")]
+    MissingRotationProofOfPossession = 6120,
+    #[msg("cluster rotation refused — config_version would overflow u32 on \
+           increment; rotate via a fresh IssuerConfig deployment instead")]
+    RotationConfigVersionOverflow = 6121,
+    #[msg("cluster rotation refused — the supplied new_cluster_keys is \
+           IDENTICAL to the current set; a rotation MUST change at least \
+           one key or threshold to be meaningful (and to consume a \
+           config_version bump)")]
+    RotationNoOpRejected = 6122,
 }

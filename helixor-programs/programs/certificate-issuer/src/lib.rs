@@ -31,6 +31,7 @@ pub mod cpi_guard;
 pub mod errors;
 pub mod events;
 pub mod instructions;
+pub mod rotation;
 pub mod signing;
 pub mod slot_anchor;
 pub mod state;
@@ -209,5 +210,28 @@ pub mod certificate_issuer {
         revoke_reason: u8,
     ) -> Result<()> {
         instructions::revoke_verified_consumer::handler(ctx, revoke_reason)
+    }
+
+    /// M-06 — Rotate the cluster signing keys with on-chain proof-of-
+    /// possession.
+    ///
+    /// The audit finding ("rotation path commits new keys without proving
+    /// knowledge of corresponding privkeys") motivates this design: every
+    /// key in `new_cluster_keys` MUST produce a valid Ed25519 precompile
+    /// signature over the canonical rotation digest in the SAME
+    /// transaction. The digest binds (program_id, old_config_version,
+    /// new_config_version, new_threshold, new_cluster_keys) so a signature
+    /// captured for one rotation cannot be lifted into another.
+    ///
+    /// The handler also strictly increments `config_version`, which M-05
+    /// bound into `cert_payload_digest` — so historical certs continue to
+    /// verify under the OLD snapshot while new certs verify under the NEW
+    /// snapshot. The two are cryptographically disjoint.
+    pub fn rotate_cluster_keys(
+        ctx:              Context<RotateClusterKeys>,
+        new_cluster_keys: Vec<Pubkey>,
+        new_threshold:    u8,
+    ) -> Result<()> {
+        instructions::rotate_cluster_keys::handler(ctx, new_cluster_keys, new_threshold)
     }
 }

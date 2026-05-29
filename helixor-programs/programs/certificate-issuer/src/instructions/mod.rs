@@ -5,6 +5,7 @@ pub mod issue_certificate;
 pub mod record_baseline;
 pub mod register_verified_consumer;
 pub mod revoke_verified_consumer;
+pub mod rotate_cluster_keys;
 
 pub use challenge_certificate::*;
 pub use get_certificate::*;
@@ -13,3 +14,4 @@ pub use issue_certificate::*;
 pub use record_baseline::*;
 pub use register_verified_consumer::*;
 pub use revoke_verified_consumer::*;
+pub use rotate_cluster_keys::*;

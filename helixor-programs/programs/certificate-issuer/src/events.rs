@@ -114,6 +114,32 @@ pub struct VerifiedConsumerRegistered {
     pub registered_at_unix: i64,
 }
 
+/// M-06: emitted when `rotate_cluster_keys` completes. Carries the
+/// before/after snapshot versions so off-chain verifiers replaying
+/// historical certs know which snapshot to fetch (paired with the cert's
+/// `issuer_config_version` stamp from M-05). The new cluster set itself
+/// is NOT in the event payload — readers fetch the post-rotation
+/// `IssuerConfig` directly; the event is just the audit trail of WHEN
+/// the rotation happened and by whom.
+#[event]
+pub struct ClusterKeysRotated {
+    /// The admin authority that effected the rotation. Must equal
+    /// `issuer_config.authority` at the time of the call.
+    pub authority:          Pubkey,
+    /// The config_version BEFORE the rotation (the snapshot being retired).
+    pub old_config_version: u32,
+    /// The config_version AFTER the rotation (= old + 1).
+    pub new_config_version: u32,
+    /// The new cluster size — operationally useful so an off-chain
+    /// indexer can flag accidental shrink/grow without parsing the
+    /// post-rotation account.
+    pub new_cluster_size:   u8,
+    /// The new threshold.
+    pub new_threshold:      u8,
+    /// Unix seconds at rotation time.
+    pub rotated_at_unix:    i64,
+}
+
 /// DBP-2: emitted when a VerifiedConsumer badge is revoked, via either a
 /// partner self-revoke (`PartnerSelfRevoke`) or an admin revoke
 /// (`AdminBadFaith` / `AdminTerminated`). Downstream lending contracts that
