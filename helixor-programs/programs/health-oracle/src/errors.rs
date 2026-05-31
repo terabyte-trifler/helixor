@@ -173,6 +173,22 @@ pub enum HelixorError {
            forward a forged or stale slot anchor")]
     SlotAnchorHashMismatch = 6093,
 
+    // ── C-01: 2-phase commit on advance_epoch ──────────────────────────────
+    #[msg("C-01: a fresh advance_epoch proposal is already in flight — call \
+           finalize_advance_epoch first, or wait PROPOSE_OVERWRITE_DELAY_SECONDS \
+           past pending_proposed_at before overwriting the stale proposal")]
+    PendingAdvanceAlreadyInFlight = 6110,
+    #[msg("C-01: finalize_advance_epoch found no pending proposal — call \
+           propose_advance_epoch first")]
+    NoPendingAdvance = 6111,
+    #[msg("C-01: FINALIZE_DELAY_SECONDS has not elapsed since the matching \
+           propose_advance_epoch tx — the observability window must close \
+           before the tick commits")]
+    PendingAdvanceFinalizeDelayActive = 6112,
+    #[msg("C-01: the staged pending_target_epoch is no longer current_epoch + 1 \
+           — refusing to commit a drifted target, propose again to re-stage")]
+    PendingAdvanceTargetDrift = 6113,
+
     // ── M-13: anti-griefing rent escrow on submit_score ─────────────────────
     #[msg("M-13: submit_score escrow balance is below the required \
            MIN_SUBMIT_ESCROW_DEPOSIT_LAMPORTS floor above rent-exempt — \

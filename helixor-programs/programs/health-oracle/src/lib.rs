@@ -65,19 +65,36 @@ pub mod health_oracle {
         instructions::initialize_oracle_config::handler(ctx, oracle_keys, min_confidence)
     }
 
-    /// Day-19 NEW: tick the epoch counter at the end of a 24h cycle.
-    /// Guarded — the epoch duration must have elapsed.
+    /// C-01: PHASE 1 of the 2-phase epoch advance. Verifies Tier-1
+    /// M-of-N attestations (or, in degraded mode, Tier-2 liveness
+    /// fallback) and STAGES the target into EpochState.pending_*. The
+    /// epoch counter itself does NOT mutate yet — that happens in
+    /// `finalize_advance_epoch`, which `propose_advance_epoch` gates
+    /// to be at least FINALIZE_DELAY_SECONDS later so off-chain
+    /// monitors observe every tick BEFORE it commits.
     ///
-    /// AW-02 FIX (supersedes VULN-02 single-key): the Tier-1 normal path
-    /// now requires M-of-N cluster Ed25519 attestations over the canonical
-    /// advance digest (sha256("helixor-epoch-advance" || current_epoch ||
-    /// target_epoch || last_advanced_at)). Single-key advance via
-    /// `advance_authority` is GONE — the field is retained as a layout-
-    /// compatible hint only. Tier 2 (liveness fallback at 2× duration)
-    /// remains: any cluster member may advance solo. See advance_epoch.rs
-    /// for the full design and threat model.
-    pub fn advance_epoch(ctx: Context<AdvanceEpoch>) -> Result<()> {
-        instructions::advance_epoch::handler(ctx)
+    /// AW-02 (carried forward): Tier 1 requires M-of-N cluster Ed25519
+    /// attestations over the canonical advance digest. The single-key
+    /// `advance_authority` field is retained for layout/back-compat
+    /// only.
+    pub fn propose_advance_epoch(ctx: Context<AdvanceEpoch>) -> Result<()> {
+        instructions::advance_epoch::propose_handler(ctx)
+    }
+
+    /// C-01: PHASE 2 of the 2-phase epoch advance. Reads the pending
+    /// target staged by `propose_advance_epoch`, refuses until
+    /// FINALIZE_DELAY_SECONDS have elapsed since the propose, then
+    /// commits `current_epoch = pending_target_epoch` and clears the
+    /// pending fields. Emits the canonical `EpochAdvanced` plus the
+    /// tier-specific event (Threshold / Fallback) using the count +
+    /// tier captured at propose time.
+    ///
+    /// Permissionless in the Tier-1 case (anyone can pay the finalize
+    /// fee once the delay has elapsed). Tier-2 finalize is restricted
+    /// to current cluster members as a defence-in-depth replay against
+    /// a propose-then-rotate-keys hostile sequence.
+    pub fn finalize_advance_epoch(ctx: Context<FinalizeAdvanceEpoch>) -> Result<()> {
+        instructions::advance_epoch::finalize_handler(ctx)
     }
 
     /// Rotate the advance_authority key to a new pubkey.

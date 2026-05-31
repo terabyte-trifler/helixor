@@ -213,6 +213,32 @@ pub struct EpochAdvancedByThreshold {
     pub submitter:      Pubkey,
 }
 
+/// C-01: emitted by `propose_advance_epoch` when an epoch tick is STAGED
+/// (not yet committed). The matching commit fires `EpochAdvanced` +
+/// `EpochAdvancedByThreshold` / `EpochAdvancedByFallback` once
+/// `finalize_advance_epoch` lands at least `FINALIZE_DELAY_SECONDS`
+/// later. Off-chain monitors that watch this stream see every tick in
+/// two halves — Proposed first, then the canonical Advanced — which is
+/// the observability budget C-01 buys.
+#[event]
+pub struct EpochAdvanceProposed {
+    pub from_epoch:     u64,
+    pub target_epoch:   u64,
+    pub proposed_at:    i64,
+    /// Distinct cluster signers counted at propose time (Tier 1) or 1
+    /// (Tier 2, the lone fallback advancer). The matching finalize
+    /// event re-emits this count verbatim.
+    pub attester_count: u8,
+    /// True iff the proposal was staged via the Tier-2 liveness
+    /// fallback path (cluster member, fallback window open). False for
+    /// the normal Tier-1 M-of-N path.
+    pub by_fallback:    bool,
+    /// The propose-tx submitter — the fee payer for the propose half
+    /// of the 2-phase commit. The finalize tx may be submitted by a
+    /// DIFFERENT signer (permissionless in the Tier-1 case).
+    pub proposer:       Pubkey,
+}
+
 /// Emitted when the admin rotates the advance_authority key.
 #[event]
 pub struct AdvanceAuthorityRotated {

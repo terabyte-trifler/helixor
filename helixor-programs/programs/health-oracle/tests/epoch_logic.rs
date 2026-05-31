@@ -57,7 +57,11 @@ fn epoch_at(last_advanced_at: i64) -> EpochState {
         epoch_duration_seconds: EpochState::DEFAULT_DURATION_SECONDS,
         advance_authority:      Default::default(),
         bump:                   0,
-        _reserved:              [0u8; 32],
+        pending_target_epoch:   0,
+        pending_proposed_at:    0,
+        pending_attester_count: 0,
+        pending_by_fallback:    0,
+        _reserved:              [0u8; 14],
     }
 }
 
@@ -151,7 +155,11 @@ fn fallback_handles_zero_last_advanced_at() {
         epoch_duration_seconds: EpochState::DEFAULT_DURATION_SECONDS,
         advance_authority:      Default::default(),
         bump:                   0,
-        _reserved:              [0u8; 32],
+        pending_target_epoch:   0,
+        pending_proposed_at:    0,
+        pending_attester_count: 0,
+        pending_by_fallback:    0,
+        _reserved:              [0u8; 14],
     };
     // Any realistic "now" is >> 2× 86400, so fallback is open.
     assert!(state.liveness_fallback_elapsed(1_000_000));
@@ -172,7 +180,11 @@ fn rotated_authority_is_reflected_in_subsequent_checks() {
         epoch_duration_seconds: EpochState::DEFAULT_DURATION_SECONDS,
         advance_authority:      original_key,
         bump:                   255,
-        _reserved:              [0u8; 32],
+        pending_target_epoch:   0,
+        pending_proposed_at:    0,
+        pending_attester_count: 0,
+        pending_by_fallback:    0,
+        _reserved:              [0u8; 14],
     };
 
     assert_eq!(state.advance_authority, original_key);
@@ -195,7 +207,11 @@ fn advance_authority_change_does_not_affect_epoch_or_timing() {
         epoch_duration_seconds: EpochState::DEFAULT_DURATION_SECONDS,
         advance_authority:      original_key,
         bump:                   0,
-        _reserved:              [0u8; 32],
+        pending_target_epoch:   0,
+        pending_proposed_at:    0,
+        pending_attester_count: 0,
+        pending_by_fallback:    0,
+        _reserved:              [0u8; 14],
     };
 
     state.advance_authority = new_key;

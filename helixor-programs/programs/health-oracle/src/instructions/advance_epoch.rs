@@ -3,6 +3,34 @@
 //
 // advance_epoch — tick the epoch counter at the end of a 24h cycle.
 //
+// C-01 — 2-PHASE COMMIT
+// ---------------------
+// The pre-C-01 handler verified Tier-1/Tier-2 authority AND mutated
+// `current_epoch` in a single transaction — i.e. the only observability
+// off-chain monitors got was AFTER the tick committed. C-01 splits this
+// into two ix's, exported as the `propose_advance_epoch` and
+// `finalize_advance_epoch` entry-points on `lib.rs`:
+//
+//   * `propose_handler`: runs the SAME Tier-1/Tier-2 verification as
+//     before, but writes `EpochState.pending_target_epoch /
+//     pending_proposed_at / pending_attester_count / pending_by_fallback`
+//     INSTEAD of mutating `current_epoch`. Emits `EpochAdvanceProposed`.
+//     Refuses if a fresh pending proposal already exists (overwriting
+//     only allowed after `PROPOSE_OVERWRITE_DELAY_SECONDS` of staleness).
+//
+//   * `finalize_handler`: requires `now >= pending_proposed_at +
+//     FINALIZE_DELAY_SECONDS`, then commits the staged target into
+//     `current_epoch`, clears the pending fields, and emits the
+//     canonical `EpochAdvanced` plus the tier-specific
+//     `EpochAdvancedByThreshold` / `EpochAdvancedByFallback` event using
+//     the COUNTS / TIER captured at propose time. From the off-chain
+//     event-stream perspective, the (Proposed, Finalized) pair are the
+//     two halves of one canonical tick.
+//
+// Off-chain monitors observe the proposal AT LEAST `FINALIZE_DELAY_SECONDS`
+// before the commit lands — enough to react if a hostile cluster member
+// assembled a quorum with the wrong digest or in the wrong direction.
+//
 // The oracle calls this once per cycle. It increments current_epoch, so the
 // next round of certificates is issued under a fresh epoch number — a fresh
 // set of ["cert", agent, epoch] PDAs. The previous epoch's certificates are
@@ -62,7 +90,10 @@ use solana_program::{hash::hashv, instruction::Instruction};
 use solana_sdk_ids::ed25519_program;
 
 use crate::errors::HelixorError;
-use crate::events::{EpochAdvanced, EpochAdvancedByFallback, EpochAdvancedByThreshold};
+use crate::events::{
+    EpochAdvanceProposed, EpochAdvanced,
+    EpochAdvancedByFallback, EpochAdvancedByThreshold,
+};
 use crate::state::{EpochState, OracleConfig};
 
 // -----------------------------------------------------------------------------
@@ -281,29 +312,48 @@ pub struct AdvanceEpoch<'info> {
 }
 
 // =============================================================================
-// Handler
+// C-01 — Phase 1: propose_advance_epoch
 // =============================================================================
+//
+// Verifies the SAME Tier-1/Tier-2 authority that the pre-C-01 monolithic
+// advance_epoch did, but instead of mutating `current_epoch`, it stages
+// the target into the EpochState pending fields. A matching
+// `finalize_advance_epoch` tx commits the tick after the observability
+// window elapses.
 
-pub fn handler(ctx: Context<AdvanceEpoch>) -> Result<()> {
+pub fn propose_handler(ctx: Context<AdvanceEpoch>) -> Result<()> {
     let clock    = Clock::get()?;
     let now      = clock.unix_timestamp;
     let advancer = ctx.accounts.advancer.key();
 
     // Snapshot epoch_state fields BEFORE the mutable borrow we take to
-    // write the new counter. The digest depends on the PRE-tick state.
+    // write the staged target. The digest depends on the PRE-tick state.
     let current_epoch    = ctx.accounts.epoch_state.current_epoch;
     let last_advanced_at = ctx.accounts.epoch_state.last_advanced_at;
     let may_advance      = ctx.accounts.epoch_state.may_advance(now);
     let fallback_open    = ctx.accounts.epoch_state.liveness_fallback_elapsed(now);
+    let overwrite_ok     =
+        ctx.accounts.epoch_state.pending_overwrite_allowed(now);
 
     // ── Guard 1: epoch duration must have elapsed ────────────────────────────
     require!(may_advance, HelixorError::EpochNotElapsed);
+
+    // ── Guard 2 (C-01): a fresh pending proposal blocks new proposals ───────
+    // A pending proposal younger than PROPOSE_OVERWRITE_DELAY_SECONDS
+    // is "in flight" — the legitimate next step is finalize, not
+    // overwrite. After the staleness window elapses (1h) any proposer
+    // may overwrite, so a crashed proposer cannot deadlock the next
+    // tick.
+    require!(
+        overwrite_ok,
+        HelixorError::PendingAdvanceAlreadyInFlight,
+    );
 
     let target_epoch = current_epoch
         .checked_add(1)
         .ok_or(HelixorError::EpochCounterOverflow)?;
 
-    // ── Guard 2: authority check (two-tier) ──────────────────────────────────
+    // ── Guard 3: authority check (two-tier) ──────────────────────────────────
     //
     // Tier 1 (normal): try to verify M-of-N cluster attestations over the
     //   canonical digest. If that succeeds, advance with a threshold event.
@@ -338,32 +388,140 @@ pub fn handler(ctx: Context<AdvanceEpoch>) -> Result<()> {
         }
     };
 
-    // ── Advance ──────────────────────────────────────────────────────────────
+    // ── Stage the pending advance ───────────────────────────────────────────
+    // The pending fields are zero-initialised at `initialize_epoch` and
+    // re-zeroed by `finalize_advance_epoch`. We clear before writing in
+    // case we're overwriting a stale proposal (overwrite_ok above).
+    let epoch_state = &mut ctx.accounts.epoch_state;
+    epoch_state.clear_pending_advance();
+    epoch_state.pending_target_epoch   = target_epoch;
+    epoch_state.pending_proposed_at    = now;
+    epoch_state.pending_attester_count = attester_count;
+    epoch_state.pending_by_fallback    = u8::from(by_fallback);
+
+    emit!(EpochAdvanceProposed {
+        from_epoch:     current_epoch,
+        target_epoch,
+        proposed_at:    now,
+        attester_count,
+        by_fallback,
+        proposer:       advancer,
+    });
+    msg!(
+        "epoch advance PROPOSED: {} -> {} by {} (tier={}, attesters={})",
+        current_epoch, target_epoch, advancer,
+        if by_fallback { "fallback" } else { "threshold" },
+        attester_count,
+    );
+
+    Ok(())
+}
+
+// =============================================================================
+// C-01 — Phase 2: finalize_advance_epoch
+// =============================================================================
+
+#[derive(Accounts)]
+pub struct FinalizeAdvanceEpoch<'info> {
+    /// The epoch counter — same singleton mutated by the legacy
+    /// advance_epoch handler. The mutation is identical; only the
+    /// gating moved into the pending-state machine.
+    #[account(
+        mut,
+        seeds = [EpochState::SEED],
+        bump  = epoch_state.bump,
+    )]
+    pub epoch_state: Account<'info, EpochState>,
+
+    /// OracleConfig — read to allow finalize to (re-)check cluster
+    /// membership for the Tier-2 path AT FINALIZE TIME as well. (The
+    /// propose handler already gated on cluster membership; this is
+    /// a defence-in-depth replay against a propose-then-rotate-keys
+    /// hostile sequence that would otherwise let an out-of-cluster
+    /// finalizer rubber-stamp a fallback proposal.)
+    #[account(
+        seeds = [OracleConfig::SEED],
+        bump  = oracle_config.bump,
+    )]
+    pub oracle_config: Account<'info, OracleConfig>,
+
+    /// The fee payer / tx submitter. C-01 keeps finalize permissionless
+    /// in the M-of-N (Tier-1) case — any signer can finalize once the
+    /// FINALIZE_DELAY_SECONDS observability window has elapsed — but
+    /// gates Tier-2 (fallback) finalize on the submitter being a
+    /// current cluster member (matching the Tier-2 propose gate).
+    pub finalizer: Signer<'info>,
+}
+
+pub fn finalize_handler(ctx: Context<FinalizeAdvanceEpoch>) -> Result<()> {
+    let clock     = Clock::get()?;
+    let now       = clock.unix_timestamp;
+    let finalizer = ctx.accounts.finalizer.key();
+
+    // ── Guard 1: a pending proposal must exist ───────────────────────────────
+    require!(
+        ctx.accounts.epoch_state.has_pending_advance(),
+        HelixorError::NoPendingAdvance,
+    );
+
+    // ── Guard 2: the finalize-delay window must have elapsed ─────────────────
+    require!(
+        ctx.accounts.epoch_state.pending_advance_ready(now),
+        HelixorError::PendingAdvanceFinalizeDelayActive,
+    );
+
+    // Snapshot before the mutable borrow.
+    let current_epoch    = ctx.accounts.epoch_state.current_epoch;
+    let pending_target   = ctx.accounts.epoch_state.pending_target_epoch;
+    let attester_count   = ctx.accounts.epoch_state.pending_attester_count;
+    let by_fallback      = ctx.accounts.epoch_state.pending_by_fallback != 0;
+
+    // ── Guard 3: the staged target must still be current_epoch + 1 ─────────
+    // Defence-in-depth against a propose that somehow targeted the wrong
+    // epoch (or against a future bug that advances current_epoch through
+    // a path other than this handler). Without this check, a stale
+    // pending could silently advance the chain by an unintended delta.
+    let expected_target = current_epoch
+        .checked_add(1)
+        .ok_or(HelixorError::EpochCounterOverflow)?;
+    require!(
+        pending_target == expected_target,
+        HelixorError::PendingAdvanceTargetDrift,
+    );
+
+    // ── Guard 4 (Tier-2 defence-in-depth): only a cluster member may ────────
+    // finalize a fallback proposal. Tier-1 proposals are permissionless to
+    // finalize — the M-of-N attestations were already verified at propose.
+    if by_fallback {
+        require!(
+            ctx.accounts.oracle_config.is_cluster_member(&finalizer),
+            HelixorError::NotAuthorisedAdvancer,
+        );
+    }
+
+    // ── Commit ───────────────────────────────────────────────────────────────
     let epoch_state = &mut ctx.accounts.epoch_state;
     let from = epoch_state.current_epoch;
-    epoch_state.current_epoch    = target_epoch;
+    epoch_state.current_epoch    = pending_target;
     epoch_state.last_advanced_at = now;
+    epoch_state.clear_pending_advance();
 
-    // Canonical advance event — emitted on EVERY successful advance.
     emit!(EpochAdvanced {
         from_epoch:  from,
         to_epoch:    epoch_state.current_epoch,
         advanced_at: now,
     });
 
-    // Supplemental tier-specific events. Off-chain monitoring depends on
-    // these to distinguish a healthy M-of-N tick from the degraded
-    // liveness-fallback tick.
     if by_fallback {
         emit!(EpochAdvancedByFallback {
             from_epoch:  from,
             to_epoch:    epoch_state.current_epoch,
             advanced_at: now,
-            cluster_key: advancer,
+            cluster_key: finalizer,
         });
         msg!(
-            "epoch advanced via liveness fallback: {} -> {} by cluster key {}",
-            from, epoch_state.current_epoch, advancer,
+            "epoch advance FINALIZED via liveness fallback: {} -> {} by cluster key {}",
+            from, epoch_state.current_epoch, finalizer,
         );
     } else {
         emit!(EpochAdvancedByThreshold {
@@ -371,10 +529,10 @@ pub fn handler(ctx: Context<AdvanceEpoch>) -> Result<()> {
             to_epoch:       epoch_state.current_epoch,
             advanced_at:    now,
             attester_count,
-            submitter:      advancer,
+            submitter:      finalizer,
         });
         msg!(
-            "epoch advanced via M-of-N threshold: {} -> {} (attesters={})",
+            "epoch advance FINALIZED via M-of-N threshold: {} -> {} (attesters={})",
             from, epoch_state.current_epoch, attester_count,
         );
     }
