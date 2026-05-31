@@ -367,6 +367,21 @@ pub fn verify_threshold_signatures(
         CertificateError::WrongInstructionsSysvar,
     );
 
+    // H-01 defence in depth: the config's stored threshold MUST be a
+    // strict-majority over the live cluster size. The init + rotate
+    // paths enforce this at write time; this runtime check refuses to
+    // verify against a sub-majority threshold even if a future bug
+    // somehow lets one land on the config. The cluster-direct cert
+    // write fails fast instead of silently issuing a cert backed by an
+    // un-safe quorum.
+    require!(
+        IssuerConfig::is_strict_majority_threshold(
+            config.threshold,
+            config.cluster_keys.len(),
+        ),
+        CertificateError::InvalidThreshold,
+    );
+
     // Walk every instruction in the transaction, collect the Ed25519
     // precompile ones, parse them, and tally the distinct cluster-key
     // signers whose signed message matches our expected digest.

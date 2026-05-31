@@ -98,17 +98,13 @@ pub fn handler(
             );
         }
     }
-    let n = new_cluster_keys.len() as u8;
+    // H-01: defer to the centralised strict-majority helper. Both write
+    // paths (initialize_config + rotate_cluster_keys) call the same
+    // helper so they cannot drift.
     require!(
-        new_threshold >= 1 && new_threshold <= n,
+        IssuerConfig::is_strict_majority_threshold(new_threshold, new_cluster_keys.len()),
         CertificateError::InvalidThreshold,
     );
-    if n >= 3 {
-        require!(
-            new_threshold as usize >= (new_cluster_keys.len() / 2 + 1),
-            CertificateError::InvalidThreshold,
-        );
-    }
 
     // ── 3. Reject no-op rotations ───────────────────────────────────────────
     // A rotation that changes neither keys nor threshold is operationally

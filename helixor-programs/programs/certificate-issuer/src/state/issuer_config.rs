@@ -161,4 +161,34 @@ impl IssuerConfig {
             && !self.challenge_attester_keys.is_empty()
             && (self.challenge_threshold as usize) <= self.challenge_attester_keys.len()
     }
+
+    // ── H-01: centralised strict-majority threshold helper ──────────────────
+    // The previous code inlined the strict-majority check at two call sites
+    // (initialize_config and rotate_cluster_keys). A future write path that
+    // forgot to include the check would silently allow a sub-majority
+    // threshold to be persisted. This helper is the SINGLE source of truth
+    // for "is this threshold a strict-majority over this cluster size".
+    //
+    // It is ALSO consulted at signature-verify time
+    // (`verify_threshold_signatures`) as defence-in-depth: if a future
+    // refactor lets a sub-majority threshold land on the config, the
+    // runtime check rejects every cert write until the config is fixed.
+    //
+    // Definition:
+    //   * cluster_size == 1 -> threshold must be exactly 1 (degenerate
+    //     single-issuer case; not a BFT cluster).
+    //   * cluster_size >= 3 -> threshold must be > cluster_size / 2
+    //     (strict majority, equivalent to `>= cluster_size/2 + 1`).
+    //   * cluster_size == 2 is unreachable — the init/rotate paths reject
+    //     it with `InvalidClusterSize`. The helper returns `false` for
+    //     any threshold in that case so a defence-in-depth caller still
+    //     bails.
+    pub fn is_strict_majority_threshold(threshold: u8, cluster_size: usize) -> bool {
+        match cluster_size {
+            0 => false,
+            1 => threshold == 1,
+            2 => false,
+            n => (threshold as usize) > n / 2 && (threshold as usize) <= n,
+        }
+    }
 }

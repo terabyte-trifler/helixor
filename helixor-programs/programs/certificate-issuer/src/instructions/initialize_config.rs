@@ -73,21 +73,14 @@ pub fn handler(
             );
         }
     }
-    // Threshold must be in 1..=cluster_keys.len(). For a BFT cluster a
-    // STRICT MAJORITY is required (e.g. 3 of 5); a 1-key deployment uses
-    // threshold = 1.
-    let n = cluster_keys.len() as u8;
+    // H-01: defer to the centralised strict-majority helper. The helper
+    // pins the rule for cluster_size in {1, 3..=5} (size 2 is rejected
+    // above). A future write path that forgot to call this would silently
+    // allow a sub-majority threshold to be persisted.
     require!(
-        threshold >= 1 && threshold <= n,
+        IssuerConfig::is_strict_majority_threshold(threshold, cluster_keys.len()),
         CertificateError::InvalidThreshold,
     );
-    if n >= 3 {
-        // For an actual cluster, the threshold must be a strict majority.
-        require!(
-            threshold as usize >= (cluster_keys.len() / 2 + 1),
-            CertificateError::InvalidThreshold,
-        );
-    }
 
     // ── AW-01-EXT.6: validate the challenge-attester cluster ────────────────
     // Empty + threshold-0 is allowed (challenge ix disabled at deploy
