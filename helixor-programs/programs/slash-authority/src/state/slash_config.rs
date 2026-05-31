@@ -166,6 +166,26 @@ pub const SLASH_CONFIG_GENESIS_VERSION: u32 = 1;
 /// pause_authority within the cap.
 pub const MAX_PAUSE_SECONDS: i64 = 7 * 24 * 3_600;
 
+/// H-04 (absolute cap): the MINIMUM elapsed time between the END of one
+/// pause window (`paused_until`) and the START of the next. 24h. The
+/// per-pause `MAX_PAUSE_SECONDS` already caps a single pause; the
+/// cooldown caps the DUTY CYCLE across a run of pauses, converting H-04
+/// from "bounded by rotation latency" to "bounded by code".
+///
+/// With `MAX_PAUSE_SECONDS = 7d` and `PAUSE_COOLDOWN_SECONDS = 24h`, the
+/// worst-case duty cycle a hostile pause_authority can sustain is
+/// 7d / 8d = 87.5%, with a guaranteed 24h unpaused window once every
+/// 8 days for SPOF-#2 to land a 2-of-3 attested rotation tx (which has
+/// a 48h timelock floor; the rotation can be PROPOSED in the unpaused
+/// window and ENACTED inside a subsequent unpaused window).
+///
+/// The cooldown is enforced against `slash_config.paused_until` —
+/// `unpause_settlements` deliberately PRESERVES `paused_until` (only
+/// clears `paused` and `paused_at`) so the cooldown applies across an
+/// early manual unpause too. Otherwise a compromised pause_authority
+/// could `pause -> unpause -> pause` to bypass the cooldown.
+pub const PAUSE_COOLDOWN_SECONDS: i64 = 24 * 3_600;
+
 /// M-07: the BUILT-IN DEFAULTS for the two settle_slash timing gates.
 /// These are also re-exported as `DEFAULT_EXECUTE_TO_SETTLE_SECONDS` /
 /// `DEFAULT_SETTLE_GRACE_SECONDS` from `instructions::settle_slash` so
@@ -285,6 +305,19 @@ impl SlashConfig {
     /// the H-04 mitigation.
     pub fn is_paused_now(&self, now: i64) -> bool {
         self.paused && now < self.paused_until
+    }
+
+    /// H-04 (absolute cap): is `now` outside the cooldown window after
+    /// the previous pause's `paused_until`? Returns true iff the next
+    /// `pause_settlements` call should be allowed on the timing axis.
+    /// Genesis (`paused_until == 0`) trivially satisfies the cooldown
+    /// for any plausibly-current `now`. After every pause window,
+    /// regardless of whether it expired naturally or was unpaused
+    /// early, the next pause is blocked until
+    /// `now >= paused_until + PAUSE_COOLDOWN_SECONDS`. The saturating
+    /// add keeps the predicate well-defined even at i64::MAX.
+    pub fn pause_cooldown_satisfied(&self, now: i64) -> bool {
+        now >= self.paused_until.saturating_add(PAUSE_COOLDOWN_SECONDS)
     }
 
     /// M-07: the EFFECTIVE execute->settle floor. Falls back to the

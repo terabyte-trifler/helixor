@@ -32,6 +32,8 @@ use anchor_lang::prelude::*;
 use crate::errors::SlashError;
 use crate::events::SlashPaused;
 use crate::state::{SlashConfig, MAX_PAUSE_SECONDS};
+#[allow(unused_imports)] // referenced from the H-04 cooldown doc-block below
+use crate::state::PAUSE_COOLDOWN_SECONDS;
 
 #[derive(Accounts)]
 pub struct PauseSettlements<'info> {
@@ -78,6 +80,18 @@ pub fn pause_handler(
         SlashError::AlreadyPaused,
     );
 
+    // H-04 (absolute cap): require PAUSE_COOLDOWN_SECONDS of unpaused
+    // time between the END of the previous pause window
+    // (`paused_until`) and the START of this one. The cooldown applies
+    // even if the previous pause was unpaused early —
+    // `unpause_settlements` deliberately preserves `paused_until` so a
+    // pause / unpause / immediately-re-pause cycle cannot bypass the
+    // cap. Genesis (paused_until == 0) trivially passes.
+    require!(
+        config.pause_cooldown_satisfied(now),
+        SlashError::PauseCooldownActive,
+    );
+
     let paused_until = now
         .checked_add(duration_seconds)
         .ok_or(SlashError::MathOverflow)?;
@@ -109,9 +123,16 @@ pub fn unpause_handler(ctx: Context<PauseSettlements>) -> Result<()> {
     // the gate is `is_paused_now`, but the explicit reset keeps the
     // queried state tidy.
     require!(config.paused, SlashError::NotPaused);
-    config.paused       = false;
-    config.paused_at    = 0;
-    config.paused_until = 0;
+    config.paused    = false;
+    config.paused_at = 0;
+    // H-04 (absolute cap): DELIBERATELY DO NOT zero `paused_until`. The
+    // field becomes the historical end-marker of the just-ended pause
+    // window, and `pause_handler` checks it against the cooldown when
+    // the next pause is attempted. Zeroing it would let a compromised
+    // pause_authority bypass the cooldown via pause -> unpause ->
+    // immediate-re-pause. `is_paused_now` already gates on the
+    // `paused` flag, so leaving `paused_until` populated does not
+    // re-block settle/execute/appeal.
     emit!(SlashPaused {
         paused:    false,
         at:        now,

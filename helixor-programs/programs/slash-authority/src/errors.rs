@@ -83,6 +83,12 @@ pub enum SlashError {
     #[msg("H-04: pause duration must be > 0 and <= MAX_PAUSE_SECONDS (7 days) — \
            indefinite pauses are not permitted, the pause_authority must re-pause")]
     PauseDurationInvalid = 6065,
+    #[msg("H-04 (absolute cap): pause cooldown has not elapsed — \
+           PAUSE_COOLDOWN_SECONDS must pass between the END of the previous \
+           pause window (paused_until) and the START of the next, even if the \
+           previous pause was manually unpaused early. This caps the worst-case \
+           duty cycle a compromised pause_authority can sustain.")]
+    PauseCooldownActive = 6066,
 
     // ── VULN-08: settle_slash timing gates ──────────────────────────────────
     #[msg("minimum execute to settle gap (48h) has not elapsed — defence in \
