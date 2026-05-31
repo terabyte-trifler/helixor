@@ -134,10 +134,22 @@ pub fn check_settle_timing(
 #[derive(Accounts)]
 pub struct SettleSlash<'info> {
     /// The agent's escrow vault — the encumbered funds leave it here.
+    ///
+    /// H-02: settling on an already-inactive vault is the gap the audit
+    /// flagged. A terminal Compromise settlement on a sibling slash
+    /// deactivates the vault (`settle_slash` sets `vault.active = false`),
+    /// and `appeal_slash` / `resolve_appeal` already refuse to operate on
+    /// an inactive vault. Without this constraint, `settle_slash` itself
+    /// could still drain funds out of the dead vault, breaking the
+    /// "terminal = frozen" invariant the rest of the program relies on.
+    /// The encumbered lamports of pending non-terminal records on a
+    /// terminally-compromised vault are forfeit — protocol design — and
+    /// this constraint pins that semantic uniformly.
     #[account(
         mut,
         seeds = [EscrowVault::SEED_PREFIX, escrow_vault.agent_wallet.as_ref()],
         bump  = escrow_vault.bump,
+        constraint = escrow_vault.active @ SlashError::VaultInactive,
     )]
     pub escrow_vault: Account<'info, EscrowVault>,
 
