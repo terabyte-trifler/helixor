@@ -137,6 +137,24 @@ class EpochReport:
                 return r
         return None
 
+    def diagnosis_records(self) -> tuple:
+        """Day-34 Phase-1: derive a `DiagnosisRecord` per agent with a
+        usable `ScoreResult`. Agents whose scoring failed produce no
+        diagnosis — that result's score is unsafe to break down."""
+        from diagnosis.record import record_from_score_result
+
+        out = []
+        for r in self.results:
+            if r.score_result is None:
+                continue
+            out.append(record_from_score_result(
+                agent_wallet=r.agent_wallet,
+                epoch=self.epoch_id,
+                score_result=r.score_result,
+                computed_at=self.computed_at,
+            ))
+        return tuple(out)
+
 
 # =============================================================================
 # The score-submission seam

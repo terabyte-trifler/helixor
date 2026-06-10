@@ -43,6 +43,7 @@ from api.webhooks import (
 )
 from api.byzantine_repo import ByzantineRepository
 from api.cluster_health import ClusterHealthRepository
+from api.diagnosis_repo import DiagnosisRecord, DiagnosisRepository
 from api.flag_obfuscation import compute_flag_token, popcount
 from api.metrics import (
     ApiMetrics, CollectorRegistry, make_registry, render_metrics,
@@ -64,6 +65,9 @@ from api.schemas import (
     ChallengeEntry,
     ChallengesResponse,
     ClusterHealthResponse,
+    DecodedFlagLabel,
+    DiagnosisResponse,
+    DimensionBreakdownEntry,
     EpochSummaryEntry,
     ErrorResponse,
     HealthResponse,
@@ -74,6 +78,7 @@ from api.schemas import (
     HistoryResponse,
     PerNodeRevealEntry,
     PerNodeRevealsResponse,
+    RemediationHint,
     SafeScoreResponse,
     SafeScoreVelocityWindow,
     StrikeEntry,
@@ -82,6 +87,16 @@ from api.schemas import (
 )
 from api.score_repo import ScoreRecord, ScoreRepository
 from api.validation import validate_wallet
+
+from diagnosis import (
+    LABEL_METADATA,
+    RemediationCode,
+    Severity,
+    decode,
+    default_remediation,
+    severity_of,
+)
+from diagnosis.taxonomy import FailureMode
 
 
 # =============================================================================
@@ -193,6 +208,94 @@ def _to_history_entry(rec: ScoreRecord) -> HistoryEntry:
 
 
 # =============================================================================
+# Diagnosis record → response shape (Day 34, Phase-1 off-chain)
+# =============================================================================
+
+def _to_diagnosis(rec: DiagnosisRecord) -> DiagnosisResponse:
+    """Project a `DiagnosisRecord` into the wire shape, decoding the
+    legacy u32 flag bitmask through the Day-33 taxonomy so the response
+    carries both the raw bits and the human-readable labels.
+
+    The flag exposure here is INTENTIONALLY less obfuscated than the
+    `HealthResponse` surface — the diagnosis endpoint exists to *explain*
+    failure modes, so the labels (and the underlying u32 bitmask) ARE
+    the product. VULN-24's adversarial-ML rationale does not apply: a
+    consumer reading diagnosis output is the operator the surface is
+    built for, not the adversary the score-only endpoint protected
+    against. The Day-33 attestation tag (`off_chain_v1`) tells the
+    consumer this tier is not threshold-signed yet.
+    """
+    decoded = decode(rec.flags)
+    known_bits = {label.bit for label in decoded}
+    set_bits = _bit_positions(rec.flags)
+    undecoded = [b for b in set_bits if b not in known_bits]
+
+    remediation_mask = default_remediation(rec.flags)
+    severity = severity_of(rec.flags)
+
+    return DiagnosisResponse(
+        agent_wallet=rec.agent_wallet,
+        epoch=rec.epoch,
+        score=rec.score,
+        alert_tier=_tier(rec.alert_tier),
+        alert_tier_code=rec.alert_tier,
+        immediate_red=rec.immediate_red,
+        dimensions=[
+            DimensionBreakdownEntry(
+                dimension=b.dimension,
+                score=b.score,
+                max_score=b.max_score,
+                score_normalised=b.score_normalised,
+                flags=b.flags,
+                sub_scores=dict(b.sub_scores),
+                algo_version=b.algo_version,
+            )
+            for b in rec.dimensions.values()
+        ],
+        weighted_contributions=dict(rec.weighted_contributions),
+        flags=rec.flags,
+        decoded_labels=[
+            DecodedFlagLabel(
+                name=label.name,
+                bit=label.bit,
+                description=label.description,
+                severity=label.severity.name,
+                owasp_refs=list(label.owasp_refs),
+            )
+            for label in decoded
+        ],
+        undecoded_flag_bits=undecoded,
+        remediation_hints=[
+            RemediationHint(name=rc.name, bit=int(rc).bit_length() - 1)
+            for rc in RemediationCode
+            if (int(remediation_mask) & int(rc)) == int(rc) and int(rc) != 0
+        ],
+        aggregate_severity=severity.name,
+        confidence=rec.confidence,
+        gaming_detected=rec.gaming_detected,
+        gaming_drop_fraction=rec.gaming_drop_fraction,
+        delta_clamped=rec.delta_clamped,
+        scoring_algo_version=rec.scoring_algo_version,
+        scoring_weights_version=rec.scoring_weights_version,
+        scoring_schema_fingerprint=rec.scoring_schema_fingerprint,
+        baseline_stats_hash=rec.baseline_stats_hash,
+        computed_at=rec.computed_at,
+    )
+
+
+def _bit_positions(mask: int) -> list[int]:
+    out: list[int] = []
+    bit = 0
+    remaining = mask
+    while remaining:
+        if remaining & 1:
+            out.append(bit)
+        remaining >>= 1
+        bit += 1
+    return out
+
+
+# =============================================================================
 # The factory
 # =============================================================================
 
@@ -201,6 +304,7 @@ def create_app(
     score_repo:      ScoreRepository,
     byzantine_repo:  ByzantineRepository,
     cluster_repo:    ClusterHealthRepository,
+    diagnosis_repo:  DiagnosisRepository | None = None,
     network:         str            = "localnet",
     is_production:   bool           = False,
     scoring_algo_version:    str | None = None,
@@ -237,6 +341,14 @@ def create_app(
     metrics  = ApiMetrics(registry)
     metrics.is_production.set(1 if is_production else 0)
     metrics.schema_version.set(SCHEMA_VERSION)
+
+    if diagnosis_repo is None:
+        # An unwired diagnosis tier defaults to an empty in-memory repo —
+        # the routes still respond (with 404) so a tracking client can
+        # detect the surface exists. This matches the score_repo's
+        # "empty repo at bring-up" posture.
+        from api.diagnosis_repo import InMemoryDiagnosisRepo
+        diagnosis_repo = InMemoryDiagnosisRepo()
 
     if key_registry is None:
         key_registry = ApiKeyRegistry()
@@ -393,6 +505,44 @@ def create_app(
             raise HTTPException(404, f"no score for {wallet} at epoch {epoch}")
         response.headers["Cache-Control"] = SCORE_CACHE_CONTROL
         return _to_health(rec)
+
+    @app.get("/agents/{wallet}/diagnosis", response_model=DiagnosisResponse)
+    def agent_diagnosis(wallet: str, response: Response) -> DiagnosisResponse:
+        """Day-34 Phase-1: structured diagnosis for the latest epoch.
+
+        The response carries `attestation: "off_chain_v1"` — the data
+        is faithful to the oracle's epoch_runner output but is not
+        threshold-signed (Phase-2 cert v2 will be). A consumer that
+        builds its own audit chain MUST switch on the attestation tag.
+        """
+        wallet = validate_wallet(wallet)
+        rec = diagnosis_repo.latest_diagnosis(wallet)
+        if rec is None:
+            raise HTTPException(404, f"no diagnosis recorded for {wallet}")
+        # Off-chain diagnosis IS operational data: it exposes the raw
+        # u32 flag bitmask + the per-dimension breakdown the score-only
+        # endpoint deliberately obfuscates. We do not let intermediaries
+        # cache it, and we do not let the CDN serve a stale copy past
+        # the next epoch advance.
+        response.headers["Cache-Control"] = OPERATIONAL_CACHE_CONTROL
+        return _to_diagnosis(rec)
+
+    @app.get(
+        "/agents/{wallet}/diagnosis/{epoch}", response_model=DiagnosisResponse,
+    )
+    def agent_diagnosis_at_epoch(
+        wallet: str, epoch: int, response: Response,
+    ) -> DiagnosisResponse:
+        wallet = validate_wallet(wallet)
+        if epoch < 1:
+            raise HTTPException(400, "epoch must be >= 1")
+        rec = diagnosis_repo.diagnosis_at_epoch(wallet, epoch)
+        if rec is None:
+            raise HTTPException(
+                404, f"no diagnosis for {wallet} at epoch {epoch}",
+            )
+        response.headers["Cache-Control"] = OPERATIONAL_CACHE_CONTROL
+        return _to_diagnosis(rec)
 
     @app.get("/agents/{wallet}/safe_score", response_model=SafeScoreResponse)
     def agent_safe_score(
@@ -702,6 +852,7 @@ def create_app(
     app.state.webhook_registry = webhook_registry
     app.state.webhook_dispatcher = webhook_dispatcher
     app.state.degrading_tracker = degrading_tracker
+    app.state.diagnosis_repo = diagnosis_repo
     return app
 
 

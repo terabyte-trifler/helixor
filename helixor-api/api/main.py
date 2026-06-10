@@ -111,6 +111,7 @@ from api.app import create_app                                      # noqa: E402
 from api.auth import ApiKeyRegistry, load_keys_from_env             # noqa: E402
 from api.byzantine_repo import InMemoryByzantineRepo                # noqa: E402
 from api.cluster_health import InMemoryClusterHealthRepo            # noqa: E402
+from api.diagnosis_repo import InMemoryDiagnosisRepo                # noqa: E402
 from api.rate_limit import (                                        # noqa: E402
     load_public_limit_from_env,
     load_trust_proxy_from_env,
@@ -156,6 +157,7 @@ def _build_repos():
             InMemoryScoreRepo(),
             InMemoryByzantineRepo(),
             InMemoryClusterHealthRepo(),
+            InMemoryDiagnosisRepo(),
         )
 
     # The TimescaleDB-backed implementations are deferred — when they
@@ -164,7 +166,7 @@ def _build_repos():
     #     from api._timescale import open_repos
     #     return open_repos(db_url)
     #
-    # The factory contract (3 protocol-conforming objects) is stable.
+    # The factory contract (4 protocol-conforming objects) is stable.
     logger.warning(
         "DATABASE_URL is set but the Timescale-backed adapters "
         "(api._timescale) have not landed yet. Falling back to empty "
@@ -175,6 +177,7 @@ def _build_repos():
         InMemoryScoreRepo(),
         InMemoryByzantineRepo(),
         InMemoryClusterHealthRepo(),
+        InMemoryDiagnosisRepo(),
     )
 
 
@@ -183,7 +186,7 @@ def _build_repos():
 # =============================================================================
 
 def build_app():
-    score_repo, byzantine_repo, cluster_repo = _build_repos()
+    score_repo, byzantine_repo, cluster_repo, diagnosis_repo = _build_repos()
 
     # VULN-09: load API keys + rate-limit config from the environment.
     # An empty HELIXOR_API_KEYS is a legitimate (if locked-down) state —
@@ -225,6 +228,7 @@ def build_app():
         score_repo=score_repo,
         byzantine_repo=byzantine_repo,
         cluster_repo=cluster_repo,
+        diagnosis_repo=diagnosis_repo,
         network=_VERDICT.network,
         is_production=_VERDICT.is_production,
         scoring_algo_version=os.environ.get("SCORING_ALGO_VERSION"),

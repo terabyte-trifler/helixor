@@ -20,11 +20,18 @@ use either path with identical response decoding.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 SCHEMA_VERSION = 1
+
+# Phase-1 diagnosis attestation tag. Day-34 surfaces a non-threshold-
+# attested diagnosis, so we mark every response with this literal — the
+# consumer can switch on it. Phase-2 lifts the same fields into the
+# threshold-signed cert v2, which will mark them `"cert_v2"`.
+DIAGNOSIS_ATTESTATION_OFF_CHAIN_V1: Literal["off_chain_v1"] = "off_chain_v1"
 
 
 # =============================================================================
@@ -80,6 +87,104 @@ class HistoryResponse(BaseModel):
     from_epoch:     int | None
     to_epoch:       int | None
     limit:          int
+
+
+# =============================================================================
+# Diagnosis endpoint (Day 34, Phase-1, off-chain)
+# =============================================================================
+#
+# The diagnosis surface returns the structured breakdown the scorer
+# already computes: per-dimension `{score, max_score, sub_scores,
+# flags}`, weighted contributions that sum to the composite, and the
+# decoded labels + remediation hints the web app renders.
+#
+# An EXPLICIT `attestation` field marks the tier of trust. Day-34 is
+# `"off_chain_v1"`: the data is faithful to the oracle's epoch_runner
+# output but is NOT yet carried by a threshold-signed certificate. A
+# consumer that requires an attested diagnosis must wait for Phase-2
+# (cert v2), at which point the same shape will be served with
+# `attestation: "cert_v2"`. The field is part of the wire contract
+# precisely so a switch-statement can branch on it.
+
+
+class DimensionBreakdownEntry(BaseModel):
+    """One dimension's slice of the diagnosis. Mirrors
+    `oracle.diagnosis.DimensionBreakdown` field for field; the
+    `score_normalised` derived value is included so a consumer doesn't
+    have to redo the divide."""
+    dimension:        str
+    score:            int
+    max_score:        int
+    score_normalised: float
+    flags:            int
+    sub_scores:       dict[str, float]
+    algo_version:     int
+
+
+class DecodedFlagLabel(BaseModel):
+    """One legacy (low-32-bit) flag bit decoded through the Day-33
+    taxonomy. The decode is best-effort: bits that exist in the
+    aggregated `flags` but have no taxonomy entry (e.g. a per-dimension
+    bit the high-level FailureMode doesn't model yet) are NOT raised
+    here — they appear in `undecoded_flag_bits`."""
+    name:        str
+    bit:         int
+    description: str
+    severity:    str          # "INFO" | "LOW" | "MED" | "HIGH" | "CRITICAL"
+    owasp_refs:  list[str]
+
+
+class RemediationHint(BaseModel):
+    """A single suggested remediation derived from the decoded labels.
+
+    The set is the union of `default_remediation` across every decoded
+    label — i.e. *if these labels were the diagnosis, here are the
+    actions the playbook suggests*. Day-34 surfaces hints only; the
+    Phase-2 cert v2 will threshold-sign the bitmask itself."""
+    name:        str
+    bit:         int
+
+
+class DiagnosisResponse(BaseModel):
+    """`GET /agents/{wallet}/diagnosis` and
+    `…/diagnosis/{epoch}` — the off-chain diagnosis surface.
+
+    The `attestation` field is part of the wire contract: a consumer
+    that hashes this response into its own audit chain MUST switch on
+    it so the Phase-1 / Phase-2 transition is observable.
+    """
+    schema_version:    int                          = Field(SCHEMA_VERSION, alias="_v")
+    attestation:       Literal["off_chain_v1"]      = DIAGNOSIS_ATTESTATION_OFF_CHAIN_V1
+
+    agent_wallet:      str
+    epoch:             int
+    score:             int                           # 0..1000 composite
+    alert_tier:        str                           # "GREEN" | "YELLOW" | "RED"
+    alert_tier_code:   int                           # 0 | 1 | 2
+    immediate_red:     bool
+
+    dimensions:                 list[DimensionBreakdownEntry]
+    weighted_contributions:     dict[str, int]       # sums to `score` (± rounding)
+
+    flags:                      int                  # u32, aggregated legacy bitmask
+    decoded_labels:             list[DecodedFlagLabel]
+    undecoded_flag_bits:        list[int]            # bits set but not in taxonomy
+    remediation_hints:          list[RemediationHint]
+    aggregate_severity:         str                  # max severity over decoded_labels
+
+    confidence:                 int                   # 0..1000
+    gaming_detected:            bool
+    gaming_drop_fraction:       float
+    delta_clamped:              bool
+
+    scoring_algo_version:       int
+    scoring_weights_version:    int
+    scoring_schema_fingerprint: str
+    baseline_stats_hash:        str
+
+    computed_at:                datetime
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # =============================================================================

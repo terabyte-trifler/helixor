@@ -35,6 +35,11 @@ from .decode import (
     default_remediation,
     severity_of,
 )
+from .record import (
+    DiagnosisRecord,
+    DimensionBreakdown,
+    record_from_score_result,
+)
 
 __all__ = (
     "FailureMode",
@@ -46,4 +51,7 @@ __all__ = (
     "decode",
     "default_remediation",
     "severity_of",
+    "DiagnosisRecord",
+    "DimensionBreakdown",
+    "record_from_score_result",
 )

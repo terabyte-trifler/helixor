@@ -21,6 +21,11 @@ from api.cluster_health import (
     InMemoryClusterHealthRepo,
     NodeHeartbeat,
 )
+from api.diagnosis_repo import (
+    DiagnosisRecord,
+    DimensionBreakdown,
+    InMemoryDiagnosisRepo,
+)
 from api.rate_limit import SlidingWindowLimiter
 from api.score_repo import InMemoryScoreRepo, ScoreRecord
 
@@ -151,6 +156,81 @@ def cluster_repo() -> InMemoryClusterHealthRepo:
 
 
 @pytest.fixture
+def diagnosis_repo() -> InMemoryDiagnosisRepo:
+    """Day-34 fixture: two diagnosis records that mirror the score_repo
+    fixture's WALLET_A epoch-29 and WALLET_B epoch-29 rows. Per-dimension
+    breakdown is synthetic but well-shaped — enough to exercise the
+    response projection + decode wiring."""
+    repo = InMemoryDiagnosisRepo()
+    repo.add(_synthetic_diagnosis(
+        wallet=WALLET_A, epoch=29, score=920, alert_tier=0,
+        immediate_red=False,
+        # IMMEDIATE_RED bit (1<<3) deliberately unset; CONSISTENCY_DRIFT
+        # bit (1<<24, a per-dimension legacy bit) set to exercise the
+        # undecoded-bit branch in the response. flag=0x00 = no bits.
+        flags=0x00,
+    ))
+    repo.add(_synthetic_diagnosis(
+        wallet=WALLET_A, epoch=28, score=851, alert_tier=1,
+        immediate_red=False,
+        # PROVISIONAL (1<<0) + IMMEDIATE_RED (1<<3) — but immediate_red
+        # is False so a consumer can see the bit-vs-cert-tier distinction.
+        # We just set PROVISIONAL for this row.
+        flags=0x01,
+    ))
+    repo.add(_synthetic_diagnosis(
+        wallet=WALLET_B, epoch=29, score=220, alert_tier=2,
+        immediate_red=True,
+        # IMMEDIATE_RED + several detector bits to exercise decode.
+        flags=0x09,  # PROVISIONAL | IMMEDIATE_RED
+    ))
+    return repo
+
+
+def _synthetic_diagnosis(
+    *, wallet: str, epoch: int, score: int, alert_tier: int,
+    immediate_red: bool, flags: int,
+) -> DiagnosisRecord:
+    """Build a minimal but valid DiagnosisRecord for tests."""
+    # Per-dimension caps so the synthetic breakdown is always valid.
+    dim_caps = [
+        ("drift", 200), ("anomaly", 200), ("performance", 200),
+        ("consistency", 200), ("security", 150),
+    ]
+    dims = {
+        name: DimensionBreakdown(
+            dimension=name,
+            score=min(score // 5, max_score),
+            max_score=max_score,
+            flags=0,
+            sub_scores={"primary": 0.5},
+            algo_version=1,
+        )
+        for name, max_score in dim_caps
+    }
+    base = score // 5
+    contributions = {
+        "drift":       base,
+        "anomaly":     base,
+        "performance": base,
+        "consistency": base,
+        "security":    score - 4 * base,
+    }
+    return DiagnosisRecord(
+        agent_wallet=wallet, epoch=epoch, score=score,
+        alert_tier=alert_tier, immediate_red=immediate_red,
+        dimensions=dims, weighted_contributions=contributions,
+        flags=flags,
+        confidence=900, gaming_detected=False, gaming_drop_fraction=0.0,
+        delta_clamped=False,
+        scoring_algo_version=2, scoring_weights_version=1,
+        scoring_schema_fingerprint="f" * 64,
+        baseline_stats_hash="b" * 64,
+        computed_at=REF_TS,
+    )
+
+
+@pytest.fixture
 def key_registry() -> ApiKeyRegistry:
     return ApiKeyRegistry([
         ApiKey.from_secret(
@@ -169,11 +249,13 @@ def rate_limiter() -> SlidingWindowLimiter:
 
 
 @pytest.fixture
-def app(score_repo, byzantine_repo, cluster_repo, key_registry, rate_limiter):
+def app(score_repo, byzantine_repo, cluster_repo, diagnosis_repo,
+        key_registry, rate_limiter):
     return create_app(
         score_repo=score_repo,
         byzantine_repo=byzantine_repo,
         cluster_repo=cluster_repo,
+        diagnosis_repo=diagnosis_repo,
         network="localnet",
         is_production=False,
         scoring_algo_version="v2.7",
