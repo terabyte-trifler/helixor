@@ -15,11 +15,21 @@ import type {
   ByzantineRecentResponse,
   ChallengesResponse,
   ClusterHealthResponse,
+  DecodedFlagLabel,
+  DiagnosisResponse,
+  DimensionBreakdownEntry,
   HealthResponse,
   HistoryResponse,
+  RemediationHint,
+  Severity,
   StrikeSummaryResponse,
   VersionResponse,
 } from "@/types/api";
+import {
+  failureModeByName,
+  remediationByName,
+  SEVERITY_RANK,
+} from "./taxonomy";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Deterministic hash → 0..1 for use as a seed
@@ -266,7 +276,241 @@ export const mockApi = {
       network_is_production: false,
     };
   },
+
+  async getAgentDiagnosis(wallet: string): Promise<DiagnosisResponse | null> {
+    if (wallet === "404" || wallet === "not-found") return null;
+    return buildSyntheticDiagnosis(wallet);
+  },
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Diagnosis mocks — each featured agent gets a distinct story so the
+// DiagnosticPanel reads differently across the four demo wallets.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface DiagnosisScript {
+  /** Names from taxonomy.failure_modes that should appear as decoded labels.  */
+  failure_modes: string[];
+  /** A handful of low-32 detector bits to leave undecoded (trace bits).  */
+  undecoded_bits: number[];
+  /** Per-dimension {raw, max, sub} — controls the bar fill on the panel.  */
+  dimensions: Record<
+    string,
+    { raw: number; max: number; sub: Record<string, number> }
+  >;
+  confidence: number;
+  gaming_detected: boolean;
+  gaming_drop_fraction: number;
+}
+
+const DIMENSION_CAPS: Array<readonly [string, number]> = [
+  ["drift",        200],
+  ["anomaly",      200],
+  ["performance",  200],
+  ["consistency",  200],
+  ["security",     150],
+];
+
+const STABLE_TRADER_DIAG: DiagnosisScript = {
+  failure_modes: [],
+  undecoded_bits: [],
+  dimensions: {
+    drift:       { raw: 188, max: 200, sub: { jensen_shannon: 0.06, kl: 0.04 } },
+    anomaly:     { raw: 192, max: 200, sub: { mahalanobis: 0.08, iforest: 0.05 } },
+    performance: { raw: 184, max: 200, sub: { sharpe: 0.81, drawdown: 0.04 } },
+    consistency: { raw: 186, max: 200, sub: { sortino: 0.78, autocorr: 0.92 } },
+    security:    { raw: 141, max: 150, sub: { tool_audit: 0.96, identity: 1.0 } },
+  },
+  confidence: 962,
+  gaming_detected: false,
+  gaming_drop_fraction: 0.0,
+};
+
+const RECOVERING_YIELD_DIAG: DiagnosisScript = {
+  failure_modes: [
+    "DEGRADED_BASELINE",
+    "OUTPUT_DISTRIBUTION_DRIFT",
+    "LATENCY_DEGRADATION",
+  ],
+  undecoded_bits: [16, 18],
+  dimensions: {
+    drift:       { raw: 122, max: 200, sub: { jensen_shannon: 0.28, kl: 0.22 } },
+    anomaly:     { raw: 160, max: 200, sub: { mahalanobis: 0.18, iforest: 0.12 } },
+    performance: { raw: 130, max: 200, sub: { sharpe: 0.41, drawdown: 0.18 } },
+    consistency: { raw: 158, max: 200, sub: { sortino: 0.52, autocorr: 0.66 } },
+    security:    { raw: 142, max: 150, sub: { tool_audit: 0.93, identity: 1.0 } },
+  },
+  confidence: 740,
+  gaming_detected: false,
+  gaming_drop_fraction: 0.0,
+};
+
+const DRIFTING_MM_DIAG: DiagnosisScript = {
+  failure_modes: [
+    "OUTPUT_DISTRIBUTION_DRIFT",
+    "ALIGNMENT_REGRESSION",
+    "MISINFORMATION",
+    "DIMENSION_CLAMPED",
+  ],
+  undecoded_bits: [11, 13],
+  dimensions: {
+    drift:       { raw:  86, max: 200, sub: { jensen_shannon: 0.42, kl: 0.39 } },
+    anomaly:     { raw: 121, max: 200, sub: { mahalanobis: 0.31, iforest: 0.27 } },
+    performance: { raw: 142, max: 200, sub: { sharpe: 0.55, drawdown: 0.21 } },
+    consistency: { raw: 110, max: 200, sub: { sortino: 0.38, autocorr: 0.41 } },
+    security:    { raw: 124, max: 150, sub: { tool_audit: 0.84, identity: 0.96 } },
+  },
+  confidence: 612,
+  gaming_detected: false,
+  gaming_drop_fraction: 0.0,
+};
+
+const FLAGGED_EXFIL_DIAG: DiagnosisScript = {
+  failure_modes: [
+    "IMMEDIATE_RED",
+    "SENSITIVE_INFO_DISCLOSURE",
+    "DATA_LEAKAGE",
+    "TOOL_MISUSE",
+    "EXCESSIVE_AGENCY",
+    "ENSEMBLE_INCOMPLETE",
+  ],
+  undecoded_bits: [9, 14, 19],
+  dimensions: {
+    drift:       { raw:  62, max: 200, sub: { jensen_shannon: 0.51, kl: 0.48 } },
+    anomaly:     { raw:  44, max: 200, sub: { mahalanobis: 0.62, iforest: 0.59 } },
+    performance: { raw:  38, max: 200, sub: { sharpe: 0.11, drawdown: 0.44 } },
+    consistency: { raw:  28, max: 200, sub: { sortino: 0.09, autocorr: 0.21 } },
+    security:    { raw:  12, max: 150, sub: { tool_audit: 0.21, identity: 0.18 } },
+  },
+  confidence: 488,
+  gaming_detected: true,
+  gaming_drop_fraction: 0.34,
+};
+
+function diagnosisScriptFor(wallet: string): DiagnosisScript {
+  if (wallet === FEATURED_AGENTS[0].wallet) return STABLE_TRADER_DIAG;
+  if (wallet === FEATURED_AGENTS[1].wallet) return RECOVERING_YIELD_DIAG;
+  if (wallet === FEATURED_AGENTS[2].wallet) return DRIFTING_MM_DIAG;
+  if (wallet === FEATURED_AGENTS[3].wallet) return FLAGGED_EXFIL_DIAG;
+  // Unknown wallet — give it a quiet, mostly-clean diagnosis so a
+  // pasted partner wallet doesn't render with an alarming demo story.
+  return STABLE_TRADER_DIAG;
+}
+
+/** Build a DiagnosisResponse that matches the synthetic health response
+ *  for the given wallet — same composite, same alert tier. */
+function buildSyntheticDiagnosis(wallet: string): DiagnosisResponse {
+  const s = syntheticScore(wallet);
+  const script = diagnosisScriptFor(wallet);
+
+  // dimensions
+  const dimensions: DimensionBreakdownEntry[] = DIMENSION_CAPS.map(
+    ([name, max]) => {
+      const cell = script.dimensions[name];
+      const raw = cell ? Math.min(cell.raw, max) : Math.floor(max * 0.6);
+      return {
+        dimension: name,
+        score: raw,
+        max_score: max,
+        score_normalised: max > 0 ? raw / max : 0,
+        flags: 0,
+        sub_scores: cell?.sub ?? {},
+        algo_version: 2,
+      };
+    },
+  );
+
+  // weighted_contributions: scale per-dim contribution so the sum
+  // matches the cert score, so the panel "adds up" visibly.
+  const totalRaw = dimensions.reduce((a, d) => a + d.score, 0) || 1;
+  const targetTotal = s.score;
+  const contributions: Record<string, number> = {};
+  let allocated = 0;
+  dimensions.forEach((d, i) => {
+    const c =
+      i === dimensions.length - 1
+        ? targetTotal - allocated
+        : Math.round((d.score / totalRaw) * targetTotal);
+    contributions[d.dimension] = Math.max(0, c);
+    allocated += c;
+  });
+
+  // decoded_labels — resolve each scripted failure mode through the taxonomy
+  const decoded_labels: DecodedFlagLabel[] = script.failure_modes
+    .map((name) => failureModeByName(name))
+    .filter((m): m is NonNullable<typeof m> => m !== undefined)
+    .map((m) => ({
+      name: m.name,
+      bit: m.bit,
+      description: m.description,
+      severity: m.severity,
+      owasp_refs: m.owasp_refs,
+    }));
+
+  // aggregate_severity — max over decoded labels (or INFO if none)
+  let aggregate_severity: Severity = "INFO";
+  for (const lbl of decoded_labels) {
+    if (SEVERITY_RANK[lbl.severity] > SEVERITY_RANK[aggregate_severity]) {
+      aggregate_severity = lbl.severity;
+    }
+  }
+
+  // remediation_hints — union of every decoded label's default_remediation
+  const seen = new Set<string>();
+  const remediation_hints: RemediationHint[] = [];
+  for (const lbl of decoded_labels) {
+    const mode = failureModeByName(lbl.name);
+    if (!mode) continue;
+    for (const codeName of mode.default_remediation.codes) {
+      if (seen.has(codeName)) continue;
+      const rem = remediationByName(codeName);
+      if (!rem) continue;
+      seen.add(codeName);
+      remediation_hints.push({ name: rem.name, bit: rem.bit });
+    }
+  }
+
+  // flags bitmask: assemble from decoded labels + undecoded trace bits
+  let flags = 0;
+  // Note: bits go up to 62, so use BigInt then mask back; we keep the
+  // wire shape as `number` since only low-32 bits travel through `flags`
+  // in the legacy field. We OR the LOW-32 decoded bits + trace bits.
+  for (const lbl of decoded_labels) {
+    if (lbl.bit < 32) flags |= 1 << lbl.bit;
+  }
+  for (const bit of script.undecoded_bits) {
+    if (bit < 32) flags |= 1 << bit;
+  }
+
+  return {
+    _v: 1,
+    attestation: "off_chain_v1",
+    agent_wallet: wallet,
+    epoch: CURRENT_EPOCH,
+    score: s.score,
+    alert_tier: s.tier,
+    alert_tier_code: s.code,
+    immediate_red: s.immediate_red,
+    dimensions,
+    weighted_contributions: contributions,
+    flags,
+    decoded_labels,
+    undecoded_flag_bits: script.undecoded_bits,
+    remediation_hints,
+    aggregate_severity,
+    confidence: script.confidence,
+    gaming_detected: script.gaming_detected,
+    gaming_drop_fraction: script.gaming_drop_fraction,
+    delta_clamped: false,
+    scoring_algo_version: 2,
+    scoring_weights_version: 1,
+    scoring_schema_fingerprint:
+      "f51a2b97d0c4e1a8f4e9c3d2b5a1798c4e7f0d3b6a2c1e95f8b0d7a4e3c2b1f0",
+    baseline_stats_hash:
+      "b81e2c46a9f1d3520c87b4691f2e0a35d8c41b7f02e9aa64db3852c1e7409f6c",
+    computed_at: epochAt(CURRENT_EPOCH),
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Featured agents for the landing ticker

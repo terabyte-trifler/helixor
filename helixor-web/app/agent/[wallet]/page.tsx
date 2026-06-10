@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowUpRight, ArrowLeft } from "lucide-react";
-import { getAgentHealth, getAgentHistory } from "@/lib/api";
+import { getAgentDiagnosis, getAgentHealth, getAgentHistory } from "@/lib/api";
 import { ScoreRing } from "@/components/score/ScoreRing";
 import { TierBadge } from "@/components/score/TierBadge";
+import { DiagnosticPanel } from "@/components/diagnosis/DiagnosticPanel";
 import { HistorySpark } from "@/components/charts/HistorySpark";
 import { HistoryTable } from "@/components/data/HistoryTable";
 import { LookupBar } from "@/components/lookup/LookupBar";
@@ -32,12 +33,13 @@ export default async function AgentPage({ params }: PageProps) {
   const { wallet } = await params;
   const decoded = decodeURIComponent(wallet);
 
-  const [health, history] = await Promise.all([
+  const [health, history, diagnosis] = await Promise.all([
     getAgentHealth(decoded).catch(() => null),
     getAgentHistory(decoded, 30).catch(() => ({
       _v: 1 as const, agent_wallet: decoded, entries: [], from_epoch: null,
       to_epoch: null, limit: 30,
     })),
+    getAgentDiagnosis(decoded).catch(() => null),
   ]);
 
   if (!health) return notFound();
@@ -151,6 +153,13 @@ export default async function AgentPage({ params }: PageProps) {
           </div>
         </div>
       </div>
+
+      {/* ── Diagnostic panel ──────────────────────────────────────────── */}
+      {diagnosis && (
+        <div className="mt-12">
+          <DiagnosticPanel diagnosis={diagnosis} />
+        </div>
+      )}
 
       {/* ── History chart ─────────────────────────────────────────────── */}
       <div className="mt-16">

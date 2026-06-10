@@ -48,6 +48,71 @@ export interface HistoryResponse {
   limit: number;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Diagnosis (Day 34) — Phase-1 off-chain. The `attestation` literal lets
+// downstream consumers branch on Phase-1 vs Phase-2 (cert v2) trust.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type DiagnosisAttestation = "off_chain_v1";
+
+export type Severity = "INFO" | "LOW" | "MED" | "HIGH" | "CRITICAL";
+
+export interface DimensionBreakdownEntry {
+  dimension: string;
+  score: number;
+  max_score: number;
+  score_normalised: number;
+  flags: number;
+  sub_scores: Record<string, number>;
+  algo_version: number;
+}
+
+export interface DecodedFlagLabel {
+  name: string;
+  bit: number;
+  description: string;
+  severity: Severity;
+  owasp_refs: string[];
+}
+
+export interface RemediationHint {
+  name: string;
+  bit: number;
+}
+
+export interface DiagnosisResponse {
+  _v: 1;
+  attestation: DiagnosisAttestation;
+
+  agent_wallet: string;
+  epoch: number;
+  score: number;
+  alert_tier: AlertTier;
+  alert_tier_code: AlertTierCode;
+  immediate_red: boolean;
+
+  dimensions: DimensionBreakdownEntry[];
+  weighted_contributions: Record<string, number>;
+
+  flags: number;
+  decoded_labels: DecodedFlagLabel[];
+  undecoded_flag_bits: number[];
+  remediation_hints: RemediationHint[];
+  aggregate_severity: Severity;
+
+  confidence: number;
+  gaming_detected: boolean;
+  gaming_drop_fraction: number;
+  delta_clamped: boolean;
+
+  scoring_algo_version: number;
+  scoring_weights_version: number;
+  scoring_schema_fingerprint: string;
+  baseline_stats_hash: string;
+
+  computed_at: string;
+}
+
 export interface ByzantineFlagEntry {
   node: string;
   epoch: number;

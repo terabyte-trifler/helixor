@@ -20,6 +20,7 @@ import type {
   ByzantineRecentResponse,
   ChallengesResponse,
   ClusterHealthResponse,
+  DiagnosisResponse,
   HealthResponse,
   HistoryResponse,
   StrikeSummaryResponse,
@@ -127,4 +128,18 @@ export async function getChallenges(
 export async function getVersion(): Promise<VersionResponse> {
   if (isMock()) return mockApi.getVersion();
   return fetchJson<VersionResponse>("/version");
+}
+
+export async function getAgentDiagnosis(
+  wallet: string,
+): Promise<DiagnosisResponse | null> {
+  if (isMock()) return mockApi.getAgentDiagnosis(wallet);
+  try {
+    return await fetchJson<DiagnosisResponse>(
+      `/agents/${encodeURIComponent(wallet)}/diagnosis`,
+    );
+  } catch (e) {
+    if (e instanceof ApiNotFoundError) return null;
+    throw e;
+  }
 }

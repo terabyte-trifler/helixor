@@ -1,0 +1,779 @@
+{
+  "schema_version": 1,
+  "failure_modes": [
+    {
+      "name": "PROVISIONAL",
+      "bit": 0,
+      "value": 1,
+      "description": "detector ran with thin data \u2014 outputs are low confidence",
+      "severity": "INFO",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 134217728,
+        "codes": [
+          "COLLECT_EVIDENCE"
+        ]
+      }
+    },
+    {
+      "name": "INSUFFICIENT_DATA",
+      "bit": 1,
+      "value": 2,
+      "description": "detector refused to run; the score is a default placeholder",
+      "severity": "LOW",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 134217728,
+        "codes": [
+          "COLLECT_EVIDENCE"
+        ]
+      }
+    },
+    {
+      "name": "INCOMPATIBLE_INPUT",
+      "bit": 2,
+      "value": 4,
+      "description": "baseline or feature vector was rejected by the detector",
+      "severity": "LOW",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 134348800,
+        "codes": [
+          "RUN_FRESH_BASELINE",
+          "COLLECT_EVIDENCE"
+        ]
+      }
+    },
+    {
+      "name": "IMMEDIATE_RED",
+      "bit": 3,
+      "value": 8,
+      "description": "fast-path RED \u2014 composite scorer demands immediate flag",
+      "severity": "CRITICAL",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 50331649,
+        "codes": [
+          "PAUSE_AGENT",
+          "ALERT_OPERATORS",
+          "ENGAGE_HUMAN_REVIEW"
+        ]
+      }
+    },
+    {
+      "name": "DEGRADED_BASELINE",
+      "bit": 4,
+      "value": 16,
+      "description": "active baseline is provisional \u2014 drift readings are weak",
+      "severity": "LOW",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 131072,
+        "codes": [
+          "RUN_FRESH_BASELINE"
+        ]
+      }
+    },
+    {
+      "name": "ENSEMBLE_INCOMPLETE",
+      "bit": 5,
+      "value": 32,
+      "description": "VULN-24 \u2014 fewer than 3 of 5 detectors fired (evasion suspect)",
+      "severity": "MED",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 150994944,
+        "codes": [
+          "ALERT_OPERATORS",
+          "COLLECT_EVIDENCE"
+        ]
+      }
+    },
+    {
+      "name": "DIMENSION_CLAMPED",
+      "bit": 6,
+      "value": 64,
+      "description": "per-dimension velocity guard fired (single-detector pump suspect)",
+      "severity": "LOW",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 67108864,
+        "codes": [
+          "AUDIT_RECENT_OUTPUTS"
+        ]
+      }
+    },
+    {
+      "name": "INPUT_DIVERGENCE",
+      "bit": 7,
+      "value": 128,
+      "description": "AW-01 \u2014 at least one node's input commitment differed from majority",
+      "severity": "MED",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 150994944,
+        "codes": [
+          "ALERT_OPERATORS",
+          "COLLECT_EVIDENCE"
+        ]
+      }
+    },
+    {
+      "name": "SOURCE_DISAGREEMENT",
+      "bit": 29,
+      "value": 536870912,
+      "description": "AW-01-EXT \u2014 a node saw upstream RPC fleet disagreement",
+      "severity": "MED",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 150994944,
+        "codes": [
+          "ALERT_OPERATORS",
+          "COLLECT_EVIDENCE"
+        ]
+      }
+    },
+    {
+      "name": "PROMPT_INJECTION",
+      "bit": 32,
+      "value": 4294967296,
+      "description": "user-supplied prompt steered the agent off its declared task",
+      "severity": "HIGH",
+      "owasp_refs": [
+        "LLM01:2025"
+      ],
+      "default_remediation": {
+        "value": 16789504,
+        "codes": [
+          "PATCH_PROMPT_GUARD",
+          "ENABLE_OUTPUT_FILTER",
+          "ALERT_OPERATORS"
+        ]
+      }
+    },
+    {
+      "name": "AGENT_GOAL_HIJACK",
+      "bit": 33,
+      "value": 8589934592,
+      "description": "agent's declared goal was redefined mid-execution by external input",
+      "severity": "CRITICAL",
+      "owasp_refs": [
+        "ASI01:2026"
+      ],
+      "default_remediation": {
+        "value": 50331649,
+        "codes": [
+          "PAUSE_AGENT",
+          "ALERT_OPERATORS",
+          "ENGAGE_HUMAN_REVIEW"
+        ]
+      }
+    },
+    {
+      "name": "TOOL_MISUSE",
+      "bit": 34,
+      "value": 17179869184,
+      "description": "tool was invoked with malformed args or outside its declared contract",
+      "severity": "HIGH",
+      "owasp_refs": [
+        "ASI02:2026"
+      ],
+      "default_remediation": {
+        "value": 67109120,
+        "codes": [
+          "REVIEW_TOOL_PERMISSIONS",
+          "AUDIT_RECENT_OUTPUTS"
+        ]
+      }
+    },
+    {
+      "name": "TOOL_LOOP",
+      "bit": 35,
+      "value": 34359738368,
+      "description": "tool call repeated past the loop budget (cost + latency runaway)",
+      "severity": "MED",
+      "owasp_refs": [
+        "ASI02:2026"
+      ],
+      "default_remediation": {
+        "value": 257,
+        "codes": [
+          "PAUSE_AGENT",
+          "REVIEW_TOOL_PERMISSIONS"
+        ]
+      }
+    },
+    {
+      "name": "EXCESSIVE_AGENCY",
+      "bit": 36,
+      "value": 68719476736,
+      "description": "agent exercised authority beyond the operator's declared scope",
+      "severity": "HIGH",
+      "owasp_refs": [
+        "LLM06:2025"
+      ],
+      "default_remediation": {
+        "value": 768,
+        "codes": [
+          "REVIEW_TOOL_PERMISSIONS",
+          "REDUCE_AUTONOMY"
+        ]
+      }
+    },
+    {
+      "name": "IDENTITY_PRIVILEGE_ABUSE",
+      "bit": 37,
+      "value": 137438953472,
+      "description": "agent assumed or escalated to an identity / role it should not hold",
+      "severity": "CRITICAL",
+      "owasp_refs": [
+        "ASI03:2026"
+      ],
+      "default_remediation": {
+        "value": 16777408,
+        "codes": [
+          "REVOKE_AGENT_IDENTITY",
+          "ROTATE_API_KEYS",
+          "ALERT_OPERATORS"
+        ]
+      }
+    },
+    {
+      "name": "SUPPLY_CHAIN_COMPROMISE",
+      "bit": 38,
+      "value": 274877906944,
+      "description": "a dependency, model, or pinned artefact failed integrity verification",
+      "severity": "CRITICAL",
+      "owasp_refs": [
+        "LLM03:2025",
+        "ASI04:2026"
+      ],
+      "default_remediation": {
+        "value": 16809986,
+        "codes": [
+          "ISOLATE_AGENT",
+          "VERIFY_SUPPLY_CHAIN",
+          "ALERT_OPERATORS"
+        ]
+      }
+    },
+    {
+      "name": "UNEXPECTED_CODE_EXECUTION",
+      "bit": 39,
+      "value": 549755813888,
+      "description": "agent executed code outside its sandbox or declared interpreter",
+      "severity": "CRITICAL",
+      "owasp_refs": [
+        "ASI05:2026"
+      ],
+      "default_remediation": {
+        "value": 150994947,
+        "codes": [
+          "PAUSE_AGENT",
+          "ISOLATE_AGENT",
+          "ALERT_OPERATORS",
+          "COLLECT_EVIDENCE"
+        ]
+      }
+    },
+    {
+      "name": "MEMORY_POISONING",
+      "bit": 40,
+      "value": 1099511627776,
+      "description": "stored memory entries contradict baseline distribution \u2014 write injection",
+      "severity": "HIGH",
+      "owasp_refs": [
+        "ASI06:2026"
+      ],
+      "default_remediation": {
+        "value": 262176,
+        "codes": [
+          "CLEAR_AGENT_MEMORY",
+          "SCAN_MEMORY_STORE"
+        ]
+      }
+    },
+    {
+      "name": "CONTEXT_POISONING",
+      "bit": 41,
+      "value": 2199023255552,
+      "description": "in-session context window was steered by injected retrieved content",
+      "severity": "HIGH",
+      "owasp_refs": [
+        "ASI06:2026"
+      ],
+      "default_remediation": {
+        "value": 48,
+        "codes": [
+          "RESTART_AGENT_SESSION",
+          "CLEAR_AGENT_MEMORY"
+        ]
+      }
+    },
+    {
+      "name": "INSECURE_INTER_AGENT_COMM",
+      "bit": 42,
+      "value": 4398046511104,
+      "description": "peer-to-peer message lacked authentication or used an untrusted channel",
+      "severity": "HIGH",
+      "owasp_refs": [
+        "ASI07:2026"
+      ],
+      "default_remediation": {
+        "value": 524292,
+        "codes": [
+          "BLOCK_AGENT_PEER",
+          "VERIFY_AGENT_IDENTITY"
+        ]
+      }
+    },
+    {
+      "name": "CASCADING_AGENT_FAILURE",
+      "bit": 43,
+      "value": 8796093022208,
+      "description": "a peer agent's bad output corrupted this agent's downstream chain",
+      "severity": "HIGH",
+      "owasp_refs": [
+        "ASI08:2026"
+      ],
+      "default_remediation": {
+        "value": 16777219,
+        "codes": [
+          "PAUSE_AGENT",
+          "ISOLATE_AGENT",
+          "ALERT_OPERATORS"
+        ]
+      }
+    },
+    {
+      "name": "HUMAN_TRUST_EXPLOITATION",
+      "bit": 44,
+      "value": 17592186044416,
+      "description": "agent output exploited user trust patterns (urgency, authority cues)",
+      "severity": "MED",
+      "owasp_refs": [
+        "ASI09:2026"
+      ],
+      "default_remediation": {
+        "value": 33562624,
+        "codes": [
+          "ENABLE_OUTPUT_FILTER",
+          "ENGAGE_HUMAN_REVIEW"
+        ]
+      }
+    },
+    {
+      "name": "ROGUE_AGENT",
+      "bit": 45,
+      "value": 35184372088832,
+      "description": "agent acted against its declared principal \u2014 full identity divergence",
+      "severity": "CRITICAL",
+      "owasp_refs": [
+        "ASI10:2026"
+      ],
+      "default_remediation": {
+        "value": 16777282,
+        "codes": [
+          "ISOLATE_AGENT",
+          "REVOKE_AGENT_IDENTITY",
+          "ALERT_OPERATORS"
+        ]
+      }
+    },
+    {
+      "name": "SENSITIVE_INFO_DISCLOSURE",
+      "bit": 46,
+      "value": 70368744177664,
+      "description": "agent surfaced data outside its declared confidentiality scope",
+      "severity": "HIGH",
+      "owasp_refs": [
+        "LLM02:2025"
+      ],
+      "default_remediation": {
+        "value": 83894272,
+        "codes": [
+          "ENABLE_OUTPUT_FILTER",
+          "ALERT_OPERATORS",
+          "AUDIT_RECENT_OUTPUTS"
+        ]
+      }
+    },
+    {
+      "name": "DATA_MODEL_POISONING",
+      "bit": 47,
+      "value": 140737488355328,
+      "description": "training / fine-tuning artefacts diverged from approved provenance",
+      "severity": "HIGH",
+      "owasp_refs": [
+        "LLM04:2025"
+      ],
+      "default_remediation": {
+        "value": 196608,
+        "codes": [
+          "ROLLBACK_MODEL_VERSION",
+          "RUN_FRESH_BASELINE"
+        ]
+      }
+    },
+    {
+      "name": "IMPROPER_OUTPUT_HANDLING",
+      "bit": 48,
+      "value": 281474976710656,
+      "description": "downstream consumer received insufficiently sanitised agent output",
+      "severity": "MED",
+      "owasp_refs": [
+        "LLM05:2025"
+      ],
+      "default_remediation": {
+        "value": 67117056,
+        "codes": [
+          "ENABLE_OUTPUT_FILTER",
+          "AUDIT_RECENT_OUTPUTS"
+        ]
+      }
+    },
+    {
+      "name": "SYSTEM_PROMPT_LEAK",
+      "bit": 49,
+      "value": 562949953421312,
+      "description": "internal system prompt or hidden instructions surfaced in output",
+      "severity": "MED",
+      "owasp_refs": [
+        "LLM07:2025"
+      ],
+      "default_remediation": {
+        "value": 12288,
+        "codes": [
+          "PATCH_PROMPT_GUARD",
+          "ENABLE_OUTPUT_FILTER"
+        ]
+      }
+    },
+    {
+      "name": "VECTOR_EMBEDDING_WEAKNESS",
+      "bit": 50,
+      "value": 1125899906842624,
+      "description": "retrieval / embedding step admitted adversarial or malformed vectors",
+      "severity": "MED",
+      "owasp_refs": [
+        "LLM08:2025"
+      ],
+      "default_remediation": {
+        "value": 278528,
+        "codes": [
+          "TIGHTEN_RETRIEVAL_FILTER",
+          "SCAN_MEMORY_STORE"
+        ]
+      }
+    },
+    {
+      "name": "MISINFORMATION",
+      "bit": 51,
+      "value": 2251799813685248,
+      "description": "output contained factually wrong claims at material rate",
+      "severity": "MED",
+      "owasp_refs": [
+        "LLM09:2025"
+      ],
+      "default_remediation": {
+        "value": 24576,
+        "codes": [
+          "ENABLE_OUTPUT_FILTER",
+          "TIGHTEN_RETRIEVAL_FILTER"
+        ]
+      }
+    },
+    {
+      "name": "UNBOUNDED_CONSUMPTION",
+      "bit": 52,
+      "value": 4503599627370496,
+      "description": "per-call resource use exceeded declared envelope (tokens, cost, time)",
+      "severity": "MED",
+      "owasp_refs": [
+        "LLM10:2025"
+      ],
+      "default_remediation": {
+        "value": 1025,
+        "codes": [
+          "PAUSE_AGENT",
+          "DECREASE_RATE_LIMITS"
+        ]
+      }
+    },
+    {
+      "name": "HALLUCINATION_CASCADE",
+      "bit": 53,
+      "value": 9007199254740992,
+      "description": "a hallucinated step in a chain corrupted every dependent downstream step",
+      "severity": "HIGH",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 67108912,
+        "codes": [
+          "RESTART_AGENT_SESSION",
+          "CLEAR_AGENT_MEMORY",
+          "AUDIT_RECENT_OUTPUTS"
+        ]
+      }
+    },
+    {
+      "name": "OUTPUT_DISTRIBUTION_DRIFT",
+      "bit": 54,
+      "value": 18014398509481984,
+      "description": "output distribution diverged materially from the established baseline",
+      "severity": "MED",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 67239936,
+        "codes": [
+          "RUN_FRESH_BASELINE",
+          "AUDIT_RECENT_OUTPUTS"
+        ]
+      }
+    },
+    {
+      "name": "CONTEXT_WINDOW_EXHAUSTION",
+      "bit": 55,
+      "value": 36028797018963968,
+      "description": "context window filled \u2014 agent began truncating load-bearing history",
+      "severity": "LOW",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 48,
+        "codes": [
+          "RESTART_AGENT_SESSION",
+          "CLEAR_AGENT_MEMORY"
+        ]
+      }
+    },
+    {
+      "name": "LATENCY_DEGRADATION",
+      "bit": 56,
+      "value": 72057594037927936,
+      "description": "per-call latency exceeded SLO baseline by sustained margin",
+      "severity": "LOW",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 67110912,
+        "codes": [
+          "INCREASE_RATE_LIMITS",
+          "AUDIT_RECENT_OUTPUTS"
+        ]
+      }
+    },
+    {
+      "name": "COST_BLOWUP",
+      "bit": 57,
+      "value": 144115188075855872,
+      "description": "spend per task exceeded declared budget envelope",
+      "severity": "MED",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 67109888,
+        "codes": [
+          "DECREASE_RATE_LIMITS",
+          "AUDIT_RECENT_OUTPUTS"
+        ]
+      }
+    },
+    {
+      "name": "ALIGNMENT_REGRESSION",
+      "bit": 58,
+      "value": 288230376151711744,
+      "description": "behavioural alignment metrics regressed after a model / config swap",
+      "severity": "HIGH",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 33619968,
+        "codes": [
+          "ROLLBACK_MODEL_VERSION",
+          "ENGAGE_HUMAN_REVIEW"
+        ]
+      }
+    },
+    {
+      "name": "DATA_LEAKAGE",
+      "bit": 59,
+      "value": 576460752303423488,
+      "description": "training / customer data leaked into outputs against confidentiality policy",
+      "severity": "HIGH",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 83894272,
+        "codes": [
+          "ENABLE_OUTPUT_FILTER",
+          "ALERT_OPERATORS",
+          "AUDIT_RECENT_OUTPUTS"
+        ]
+      }
+    },
+    {
+      "name": "JAILBREAK",
+      "bit": 60,
+      "value": 1152921504606846976,
+      "description": "safety filter bypassed via known or novel jailbreak technique",
+      "severity": "HIGH",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 16789504,
+        "codes": [
+          "PATCH_PROMPT_GUARD",
+          "ENABLE_OUTPUT_FILTER",
+          "ALERT_OPERATORS"
+        ]
+      }
+    },
+    {
+      "name": "SUB_AGENT_DEADLOCK",
+      "bit": 61,
+      "value": 2305843009213693952,
+      "description": "sub-agents stalled in mutual wait \u2014 no forward progress",
+      "severity": "MED",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 18,
+        "codes": [
+          "ISOLATE_AGENT",
+          "RESTART_AGENT_SESSION"
+        ]
+      }
+    },
+    {
+      "name": "ROLE_CONFUSION",
+      "bit": 62,
+      "value": 4611686018427387904,
+      "description": "agent confused its declared role with that of a peer or user",
+      "severity": "MED",
+      "owasp_refs": [],
+      "default_remediation": {
+        "value": 48,
+        "codes": [
+          "RESTART_AGENT_SESSION",
+          "CLEAR_AGENT_MEMORY"
+        ]
+      }
+    }
+  ],
+  "remediation_codes": [
+    {
+      "name": "PAUSE_AGENT",
+      "bit": 0,
+      "value": 1
+    },
+    {
+      "name": "ISOLATE_AGENT",
+      "bit": 1,
+      "value": 2
+    },
+    {
+      "name": "BLOCK_AGENT_PEER",
+      "bit": 2,
+      "value": 4
+    },
+    {
+      "name": "QUARANTINE_TOOL_RESULT",
+      "bit": 3,
+      "value": 8
+    },
+    {
+      "name": "RESTART_AGENT_SESSION",
+      "bit": 4,
+      "value": 16
+    },
+    {
+      "name": "CLEAR_AGENT_MEMORY",
+      "bit": 5,
+      "value": 32
+    },
+    {
+      "name": "REVOKE_AGENT_IDENTITY",
+      "bit": 6,
+      "value": 64
+    },
+    {
+      "name": "ROTATE_API_KEYS",
+      "bit": 7,
+      "value": 128
+    },
+    {
+      "name": "REVIEW_TOOL_PERMISSIONS",
+      "bit": 8,
+      "value": 256
+    },
+    {
+      "name": "REDUCE_AUTONOMY",
+      "bit": 9,
+      "value": 512
+    },
+    {
+      "name": "DECREASE_RATE_LIMITS",
+      "bit": 10,
+      "value": 1024
+    },
+    {
+      "name": "INCREASE_RATE_LIMITS",
+      "bit": 11,
+      "value": 2048
+    },
+    {
+      "name": "PATCH_PROMPT_GUARD",
+      "bit": 12,
+      "value": 4096
+    },
+    {
+      "name": "ENABLE_OUTPUT_FILTER",
+      "bit": 13,
+      "value": 8192
+    },
+    {
+      "name": "TIGHTEN_RETRIEVAL_FILTER",
+      "bit": 14,
+      "value": 16384
+    },
+    {
+      "name": "VERIFY_SUPPLY_CHAIN",
+      "bit": 15,
+      "value": 32768
+    },
+    {
+      "name": "ROLLBACK_MODEL_VERSION",
+      "bit": 16,
+      "value": 65536
+    },
+    {
+      "name": "RUN_FRESH_BASELINE",
+      "bit": 17,
+      "value": 131072
+    },
+    {
+      "name": "SCAN_MEMORY_STORE",
+      "bit": 18,
+      "value": 262144
+    },
+    {
+      "name": "VERIFY_AGENT_IDENTITY",
+      "bit": 19,
+      "value": 524288
+    },
+    {
+      "name": "ALERT_OPERATORS",
+      "bit": 24,
+      "value": 16777216
+    },
+    {
+      "name": "ENGAGE_HUMAN_REVIEW",
+      "bit": 25,
+      "value": 33554432
+    },
+    {
+      "name": "AUDIT_RECENT_OUTPUTS",
+      "bit": 26,
+      "value": 67108864
+    },
+    {
+      "name": "COLLECT_EVIDENCE",
+      "bit": 27,
+      "value": 134217728
+    }
+  ]
+}
