@@ -105,6 +105,11 @@ class AgentEpochResult:
     slashed:        bool = False
     # The slash submission record (a SlashResult, a test stub, or None).
     slash_submission: object | None = None
+    # ── Day 36: opt-in mechanical-diagnosis kernel output ───────────────────
+    # Populated only when run_epoch is called with run_diagnosis_kernel=True.
+    # Stays None by default so the existing baseline of epoch-runner tests
+    # observes zero change in EpochReport shape.
+    kernel_result:    object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +266,7 @@ def run_epoch(
     node_id:      str = "oracle-node-0",
     registry:     DetectorRegistry | None = None,
     computed_at:  datetime | None = None,
+    run_diagnosis_kernel: bool = False,
 ) -> EpochReport:
     """
     Run one scoring epoch over a set of agents.
@@ -365,6 +371,36 @@ def run_epoch(
             logger.info("epoch %d: slash WARRANTED for %s (no slash_fn — "
                         "not executed): %s", epoch_id, wallet, decision.reason)
 
+        kernel_result: object | None = None
+        if run_diagnosis_kernel:
+            # Day-36 mechanical diagnosis kernel — opt-in, defaults OFF.
+            # The kernel runs against the same current_transactions /
+            # current_window the score already consumed, plus the agent's
+            # security context (declared domain + program allowlist). A
+            # failure inside the kernel must NOT taint the score path:
+            # contain any exception and leave kernel_result=None.
+            try:
+                from diagnosis.detectors import run_kernel as _run_kernel
+
+                # SecurityContext today exposes only a denylist; the kernel's
+                # unauthorized_program detector wants an allowlist. Pass an
+                # empty allowlist for now — the detector abstains on empty,
+                # so this is a no-op until a future patch threads an
+                # allowlist field through SecurityContext.
+                kernel_result = _run_kernel(
+                    list(agent_input.current_transactions),
+                    agent_input.current_window,
+                    declared_domain=getattr(
+                        agent_input.consistency_context, "declared_domain", "",
+                    ) or "",
+                    allowed_programs=frozenset(),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "epoch %d: diagnosis kernel failed for %s: %s",
+                    epoch_id, wallet, exc,
+                )
+
         results.append(AgentEpochResult(
             agent_wallet=wallet, score_result=score_result,
             submitted=bool(submission), submission=submission,
@@ -372,6 +408,7 @@ def run_epoch(
             slash_decision=decision,
             slashed=slashed,
             slash_submission=slash_submission,
+            kernel_result=kernel_result,
         ))
 
     return EpochReport(epoch_id=epoch_id, computed_at=ts, results=tuple(results))
