@@ -92,6 +92,20 @@ class AgentScore:
     One agent's score, as a node would reveal it. The fields mirror the
     on-chain certificate payload so a revealed score maps straight onto a
     `submit_score` / `issue_certificate` call.
+
+    Day 37 — commit-reveal payload v2:
+      * `failure_mode_bitmask` (u64) — the diagnosis kernel's label
+        bitmask for this agent. Folded into the commit hash, so a node
+        cannot change which labels it asserted between commit and reveal.
+        Aggregated by per-bit majority vote (`aggregation.py`).
+      * `diagnosis_payload_hash` (32 raw bytes or empty) — the SHA-256 of
+        the kernel's canonical JSON for this agent. The aggregator
+        requires an EXACT-MATCH honest majority on this hash — a node
+        whose kernel diverged from the majority is excluded from the cert
+        signing set with a hard deviation (no flap window).
+
+    Both fields default to "no diagnosis" (0 / b"") so pre-Day-37 callers
+    and the score-only single-node path keep the same wire shape.
     """
     agent_wallet:  str
     score:         int
@@ -99,6 +113,13 @@ class AgentScore:
     flags:         int
     immediate_red: bool
     confidence:    int
+    # Day 37 — diagnosis label bitmask (u64). 0 = no kernel run / no labels.
+    failure_mode_bitmask: int = 0
+    # Day 37 — sha256 of the kernel's canonical JSON, raw 32 bytes. Empty
+    # bytes when no kernel ran (the score-only legacy path). The
+    # canonical wire form pads empty to 32 zero bytes so every agent
+    # record is fixed-width.
+    diagnosis_payload_hash: bytes = b""
 
     def __post_init__(self) -> None:
         if not (0 <= self.score <= 1000):
@@ -109,6 +130,16 @@ class AgentScore:
             raise ValueError(f"confidence out of range: {self.confidence}")
         if not (0 <= self.flags <= 0xFFFFFFFF):
             raise ValueError(f"flags must be u32, got {self.flags}")
+        if not (0 <= self.failure_mode_bitmask <= 0xFFFFFFFFFFFFFFFF):
+            raise ValueError(
+                f"failure_mode_bitmask must be u64, "
+                f"got {self.failure_mode_bitmask}"
+            )
+        if self.diagnosis_payload_hash and len(self.diagnosis_payload_hash) != 32:
+            raise ValueError(
+                f"diagnosis_payload_hash must be empty or 32 bytes, "
+                f"got {len(self.diagnosis_payload_hash)}"
+            )
 
 
 # =============================================================================

@@ -77,6 +77,23 @@ DRIFT_STRIKE_THRESHOLD = 3
 NON_REVEAL_STRIKE_THRESHOLD = 3
 
 
+# Day 37 — label deviation. A node whose `failure_mode_bitmask` lies far
+# from the cluster consensus is flagged for ONE epoch when its Hamming
+# distance from the consensus bitmask crosses this threshold. The
+# threshold is on the deviating-bit COUNT, not a fraction: a flat
+# tolerance prevents label-flap from striking a node that disagrees on a
+# single noisy detector (which would happen during a rolling kernel
+# upgrade or a transient feature blip). Three bits ~ 4.7% of u64; few
+# enough to catch a node lying about a class of failure modes, generous
+# enough to absorb one noisy detector mismatch.
+LABEL_DEVIATION_HAMMING_THRESHOLD = 3
+
+# Day 37 — label-strike threshold. Per-epoch label deviation accumulates
+# on its own track. Three strikes routes to a `PROOF_LABEL_DEVIATION`
+# challenge, mirroring the conflicting-scores escalation cadence.
+LABEL_STRIKE_THRESHOLD = 3
+
+
 # =============================================================================
 # Strike record
 # =============================================================================
@@ -100,6 +117,22 @@ class StrikeRecord:
     non_reveal_epochs:     list[int] = field(default_factory=list)
     # True once a non-reveal challenge has been filed.
     non_reveal_challenged: bool = False
+    # Day 37 — per-epoch label-deviation strikes (Hamming distance
+    # above LABEL_DEVIATION_HAMMING_THRESHOLD). Soft track, accumulates
+    # to LABEL_STRIKE_THRESHOLD before challenging.
+    label_strikes:         int = 0
+    label_epochs:          list[int] = field(default_factory=list)
+    label_challenged:      bool = False
+    # Day 37 — hard payload-hash mismatch strikes. A revealed payload
+    # hash that disagrees with the honest-majority consensus is treated
+    # as a hard deviation: every such epoch counts as a strike, and the
+    # FIRST one already files the challenge — there is no flap window
+    # for "I happened to compute a different kernel JSON on a 50-50
+    # split"; the kernel is deterministic by spec, divergence here is
+    # a bug or an attack.
+    payload_hash_mismatch_strikes:   int = 0
+    payload_hash_mismatch_epochs:    list[int] = field(default_factory=list)
+    payload_hash_mismatch_challenged: bool = False
 
     @property
     def at_threshold(self) -> bool:
@@ -112,6 +145,10 @@ class StrikeRecord:
     @property
     def at_non_reveal_threshold(self) -> bool:
         return self.non_reveal_strikes >= NON_REVEAL_STRIKE_THRESHOLD
+
+    @property
+    def at_label_threshold(self) -> bool:
+        return self.label_strikes >= LABEL_STRIKE_THRESHOLD
 
 
 # =============================================================================
@@ -158,6 +195,15 @@ PROOF_SLOW_DRIFT = 1
 # forcing the cluster onto the partial-reveal early-close path and
 # threatening protocol liveness if it had ever held a hostage majority.
 PROOF_NON_REVEAL = 2
+# Day 37: label-deviation evidence — a node whose `failure_mode_bitmask`
+# diverged from the cluster consensus (Hamming distance above
+# LABEL_DEVIATION_HAMMING_THRESHOLD) over LABEL_STRIKE_THRESHOLD epochs.
+PROOF_LABEL_DEVIATION = 3
+# Day 37: payload-hash mismatch — a node whose `diagnosis_payload_hash`
+# disagreed with the honest-majority consensus on bytes. Hard deviation,
+# no flap window. The kernel is deterministic; any divergence here is a
+# bug or an attack.
+PROOF_PAYLOAD_HASH_MISMATCH = 4
 
 
 # =============================================================================
@@ -190,6 +236,43 @@ class NonRevealFlag:
     # The reveal-deadline that lapsed — for the audit citation. Logical
     # clock value (the commit-reveal protocol's `now` units).
     reveal_deadline: float
+
+
+@dataclass(frozen=True, slots=True)
+class LabelDeviationFlag:
+    """
+    Day 37 — one node's label-deviation flag for one commit-reveal epoch.
+
+    The evidence is the Hamming distance from this node's
+    `failure_mode_bitmask` to the cluster's consensus bitmask for one
+    agent. Distances above `LABEL_DEVIATION_HAMMING_THRESHOLD` count as
+    a strike; the watchdog accumulates them on the per-node label track
+    and escalates after `LABEL_STRIKE_THRESHOLD` epochs.
+    """
+    node_id:        str
+    epoch:          int
+    subject_agent:  str
+    accused_bitmask:  int
+    consensus_bitmask: int
+    hamming_distance: int
+
+
+@dataclass(frozen=True, slots=True)
+class PayloadHashMismatchFlag:
+    """
+    Day 37 — one node's payload-hash mismatch for one commit-reveal epoch.
+
+    The kernel is deterministic by spec; a node whose
+    `diagnosis_payload_hash` disagrees with the honest-majority consensus
+    has either a kernel bug or is lying about which bytes it computed.
+    Either way it is excluded from the cert signing set IMMEDIATELY and
+    the first occurrence files the challenge — no flap window.
+    """
+    node_id:           str
+    epoch:             int
+    subject_agent:     str
+    accused_hash:      bytes
+    consensus_hash:    bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -472,6 +555,161 @@ class ByzantineWatchdog:
     def is_non_reveal_challenged(self, node_id: str) -> bool:
         record = self._strikes.get(node_id)
         return record.non_reveal_challenged if record else False
+
+    # ── Day 37 — label-deviation attribution (soft) ────────────────────────
+
+    def record_label_deviations(
+        self,
+        epoch: int,
+        flags: Iterable["LabelDeviationFlag"],
+        *,
+        challenge_fn: ChallengeFn | None = None,
+    ) -> list[ByzantineChallenge]:
+        """
+        Record one epoch's label-deviation flags. Each named node gains
+        ONE label strike (deduped per epoch even if the node deviated
+        across several agents — the WORST deviation is cited). A node
+        crossing `LABEL_STRIKE_THRESHOLD` is challenged once with
+        ProofType.LabelDeviation.
+
+        Mirrors `record_drift_attackers`: idempotent across re-runs of
+        the same epoch (a node already struck for that epoch is not
+        double-struck), and the first threshold-crossing files exactly
+        one challenge through the injected `ChallengeFn`.
+        """
+        flags_by_node: dict[str, "LabelDeviationFlag"] = {}
+        for flag in flags:
+            if flag.epoch != epoch:
+                raise ValueError(
+                    f"label-deviation flag epoch {flag.epoch} != "
+                    f"record_epoch {epoch}"
+                )
+            existing = flags_by_node.get(flag.node_id)
+            if existing is None or flag.hamming_distance > existing.hamming_distance:
+                flags_by_node[flag.node_id] = flag
+
+        filed: list[ByzantineChallenge] = []
+        for node_id, flag in sorted(flags_by_node.items()):
+            record = self._strikes.setdefault(
+                node_id, StrikeRecord(node_id=node_id),
+            )
+            if epoch in record.label_epochs:
+                continue                              # already counted
+            record.label_strikes += 1
+            record.label_epochs.append(epoch)
+            logger.warning(
+                "label-deviation flag: node %s, epoch %d, label-strike "
+                "%d/%d (hamming=%d, agent=%s)",
+                node_id, epoch,
+                record.label_strikes, LABEL_STRIKE_THRESHOLD,
+                flag.hamming_distance, flag.subject_agent,
+            )
+            if (
+                record.label_strikes >= LABEL_STRIKE_THRESHOLD
+                and not record.label_challenged
+            ):
+                challenge = ByzantineChallenge(
+                    accused_node=node_id,
+                    proof_type=PROOF_LABEL_DEVIATION,
+                    strikes=record.label_strikes,
+                    flagged_epochs=tuple(record.label_epochs),
+                    subject_epoch=flag.epoch,
+                    subject_agent=flag.subject_agent,
+                    accused_score=flag.accused_bitmask & 0xFFFFFFFF,
+                    cluster_median=flag.consensus_bitmask & 0xFFFFFFFF,
+                )
+                record.label_challenged = True
+                filed.append(challenge)
+                logger.error(
+                    "node %s reached %d label-strikes — filing "
+                    "challenge_oracle (LabelDeviation)",
+                    node_id, record.label_strikes,
+                )
+                if challenge_fn is not None:
+                    challenge_fn(challenge)
+        return filed
+
+    def label_strikes_for(self, node_id: str) -> int:
+        record = self._strikes.get(node_id)
+        return record.label_strikes if record else 0
+
+    def is_label_challenged(self, node_id: str) -> bool:
+        record = self._strikes.get(node_id)
+        return record.label_challenged if record else False
+
+    # ── Day 37 — payload-hash mismatch (hard) ──────────────────────────────
+
+    def record_payload_hash_mismatches(
+        self,
+        epoch: int,
+        flags: Iterable["PayloadHashMismatchFlag"],
+        *,
+        challenge_fn: ChallengeFn | None = None,
+    ) -> list[ByzantineChallenge]:
+        """
+        Record one epoch's payload-hash mismatches. The kernel is
+        deterministic by spec, so a mismatch is treated as a HARD
+        deviation: the strike is recorded AND the challenge is filed on
+        the FIRST occurrence — no `LABEL_STRIKE_THRESHOLD`-style flap
+        window.
+
+        Dedup per node per epoch (multiple agents → ONE strike); a node
+        already challenged for payload-hash mismatch is not double-charged.
+        """
+        flags_by_node: dict[str, "PayloadHashMismatchFlag"] = {}
+        for flag in flags:
+            if flag.epoch != epoch:
+                raise ValueError(
+                    f"payload-hash mismatch flag epoch {flag.epoch} != "
+                    f"record_epoch {epoch}"
+                )
+            flags_by_node.setdefault(flag.node_id, flag)
+
+        filed: list[ByzantineChallenge] = []
+        for node_id, flag in sorted(flags_by_node.items()):
+            record = self._strikes.setdefault(
+                node_id, StrikeRecord(node_id=node_id),
+            )
+            if epoch in record.payload_hash_mismatch_epochs:
+                continue
+            record.payload_hash_mismatch_strikes += 1
+            record.payload_hash_mismatch_epochs.append(epoch)
+            logger.error(
+                "payload-hash mismatch: node %s, epoch %d, agent=%s "
+                "(accused=%s, consensus=%s)",
+                node_id, epoch, flag.subject_agent,
+                flag.accused_hash.hex()[:16] if flag.accused_hash else "<empty>",
+                flag.consensus_hash.hex()[:16] if flag.consensus_hash else "<empty>",
+            )
+            if not record.payload_hash_mismatch_challenged:
+                challenge = ByzantineChallenge(
+                    accused_node=node_id,
+                    proof_type=PROOF_PAYLOAD_HASH_MISMATCH,
+                    strikes=record.payload_hash_mismatch_strikes,
+                    flagged_epochs=tuple(record.payload_hash_mismatch_epochs),
+                    subject_epoch=flag.epoch,
+                    subject_agent=flag.subject_agent,
+                    accused_score=0,
+                    cluster_median=0,
+                )
+                record.payload_hash_mismatch_challenged = True
+                filed.append(challenge)
+                logger.error(
+                    "node %s — filing challenge_oracle "
+                    "(PayloadHashMismatch) on first occurrence",
+                    node_id,
+                )
+                if challenge_fn is not None:
+                    challenge_fn(challenge)
+        return filed
+
+    def payload_hash_mismatch_strikes_for(self, node_id: str) -> int:
+        record = self._strikes.get(node_id)
+        return record.payload_hash_mismatch_strikes if record else 0
+
+    def is_payload_hash_mismatch_challenged(self, node_id: str) -> bool:
+        record = self._strikes.get(node_id)
+        return record.payload_hash_mismatch_challenged if record else False
 
     # ── Queries ─────────────────────────────────────────────────────────────
 

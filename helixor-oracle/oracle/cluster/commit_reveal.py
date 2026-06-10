@@ -92,6 +92,14 @@ def canonical_scores(scores: Sequence[AgentScore]) -> bytes:
       - per agent, fields in a FIXED order, each as a fixed-width record,
       - a length prefix so two different agent sets cannot collide.
 
+    Day 37 — payload v2 trailer per agent:
+      - 8 bytes big-endian u64 failure_mode_bitmask, then
+      - 32 raw bytes diagnosis_payload_hash (zero-padded if absent).
+    Pre-Day-37 callers construct AgentScore with the defaults (0, b"")
+    so their wire bytes get a fixed-width zero trailer — identical across
+    callers, unambiguous, and the commit hash binds the diagnosis labels
+    to the score in one cryptographic act.
+
     Pure + deterministic.
     """
     ordered = sorted(scores, key=lambda s: s.agent_wallet)
@@ -111,6 +119,10 @@ def canonical_scores(scores: Sequence[AgentScore]) -> bytes:
         parts.append(s.flags.to_bytes(4, "big"))
         parts.append((1 if s.immediate_red else 0).to_bytes(1, "big"))
         parts.append(s.confidence.to_bytes(2, "big"))
+        # Day 37 payload v2 trailer — diagnosis label bitmask + payload hash.
+        parts.append(s.failure_mode_bitmask.to_bytes(8, "big"))
+        payload_hash = s.diagnosis_payload_hash or b"\x00" * 32
+        parts.append(payload_hash)
 
     return b"".join(parts)
 

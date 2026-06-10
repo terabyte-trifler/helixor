@@ -81,6 +81,22 @@ class AggregatedScore:
     Carries the median values AND the audit trail: which nodes
     contributed, how many, and the spread, so a reviewer can see the
     cluster agreed (or how far apart it was).
+
+    Day 37 — label consensus fields:
+      * `label_bitmask` (u64) — the per-bit majority of every contributing
+        node's `failure_mode_bitmask`. A bit is set iff a strict majority
+        of CONTRIBUTING nodes set it; a single faulty node can neither
+        inject nor suppress a label.
+      * `diagnosis_payload_hash` (32 bytes or empty) — the exact-match hash
+        a strict honest majority of contributing nodes agreed on. Empty
+        when no majority hash exists (the cluster could not agree on
+        diagnosis payload bytes) OR every node ran in score-only mode.
+      * `payload_hash_signers` — the node ids whose payload hash matched
+        the consensus. The cert signing set comes from this when label
+        consensus is in play.
+      * `payload_hash_dissenters` — the node ids whose payload hash did
+        NOT match the consensus. Hard label-deviation evidence; the
+        watchdog strikes these immediately (no flap window).
     """
     agent_wallet:        str
     # The median values — what the cluster submits on-chain.
@@ -95,11 +111,27 @@ class AggregatedScore:
     quorum:              int
     # The spread of the raw `score` values — 0 means perfect agreement.
     score_spread:        int
+    # Day 37 — label consensus. Defaults make pre-v2 callers behave as
+    # before (no label_bitmask, no payload-hash consensus, no dissenters).
+    label_bitmask:               int = 0
+    diagnosis_payload_hash:      bytes = b""
+    payload_hash_signers:        tuple[str, ...] = ()
+    payload_hash_dissenters:     tuple[str, ...] = ()
 
     @property
     def unanimous(self) -> bool:
         """True if every contributing node produced the identical score."""
         return self.score_spread == 0
+
+    @property
+    def has_payload_hash_consensus(self) -> bool:
+        """
+        True iff a strict honest majority of contributing nodes agreed on
+        a non-empty `diagnosis_payload_hash`. When False the cluster
+        emits no payload-hash field downstream — the cert is score-only
+        (or the labels did not converge).
+        """
+        return bool(self.diagnosis_payload_hash)
 
 
 class QuorumNotMet(Exception):
@@ -233,6 +265,15 @@ def aggregate_scores(
     # clear a flag.
     median_flags      = _majority_flags([ns.score.flags for ns in scores_sorted])
 
+    # Day 37 — label consensus. Per-bit u64 majority over the diagnosis
+    # bitmask; exact-match majority over the payload-hash bytes.
+    label_bitmask = _majority_label_bits(
+        [ns.score.failure_mode_bitmask for ns in scores_sorted]
+    )
+    consensus_hash, signers, dissenters = _payload_hash_consensus(
+        scores_sorted
+    )
+
     return AggregatedScore(
         agent_wallet=agent_wallet,
         score=median_score,
@@ -244,6 +285,10 @@ def aggregate_scores(
         node_count=len(node_scores),
         quorum=quorum,
         score_spread=max(raw_scores) - min(raw_scores),
+        label_bitmask=label_bitmask,
+        diagnosis_payload_hash=consensus_hash,
+        payload_hash_signers=signers,
+        payload_hash_dissenters=dissenters,
     )
 
 
@@ -261,3 +306,83 @@ def _majority_flags(flag_values: Sequence[int]) -> int:
         if set_count > n / 2:
             result |= mask
     return result
+
+
+def _majority_label_bits(values: Sequence[int]) -> int:
+    """
+    Day 37 — per-bit majority over the u64 diagnosis label bitmask. A bit
+    is set in the aggregate iff a strict majority of contributing nodes
+    set it.
+
+    The Day-37 spec phrases it as "bit set iff >= ceil((n_honest+1)/2)
+    honest nodes set it" — over the SIGNING set this is exactly a strict
+    majority of the contributors, which is what we apply here. Below
+    quorum the function isn't called (aggregate_scores guards on that).
+    """
+    n = len(values)
+    if n == 0:
+        return 0
+    result = 0
+    for bit in range(64):
+        mask = 1 << bit
+        set_count = sum(1 for v in values if v & mask)
+        if set_count > n / 2:
+            result |= mask
+    return result
+
+
+def _payload_hash_consensus(
+    scores_sorted: Sequence["NodeScore"],
+) -> tuple[bytes, tuple[str, ...], tuple[str, ...]]:
+    """
+    Day 37 — exact-match honest-majority consensus over the per-agent
+    `diagnosis_payload_hash`. Returns (consensus_hash, signers,
+    dissenters):
+
+      * consensus_hash — the byte string a strict majority of contributing
+        nodes agreed on. b"" when no non-empty hash holds a strict
+        majority (either the cluster is in score-only mode, or no
+        majority emerged — the diagnosis labels did not converge).
+      * signers — node ids whose hash equals the consensus, in input
+        order. Empty when there is no consensus. The cert signing set
+        used downstream by Day 38 attestation.
+      * dissenters — node ids whose hash differs from the consensus.
+        Hard label-deviation evidence; the watchdog strikes these
+        immediately (no flap window). Pre-v2 nodes that reveal an empty
+        hash are NOT dissenters when there is no consensus — empty
+        agrees with empty.
+    """
+    n = len(scores_sorted)
+    if n == 0:
+        return b"", (), ()
+    counts: dict[bytes, int] = {}
+    for ns in scores_sorted:
+        h = bytes(ns.score.diagnosis_payload_hash)
+        if not h:
+            continue                # empty hashes do not "vote" for anything
+        counts[h] = counts.get(h, 0) + 1
+    if not counts:
+        # Score-only mode — no node ran the kernel. Empty consensus is the
+        # right answer; nobody is a dissenter.
+        return b"", (), ()
+    best_hash, best_count = max(counts.items(), key=lambda kv: kv[1])
+    if best_count <= n / 2:
+        # No strict majority — labels diverged. Surface NO consensus hash
+        # but flag every non-empty-hash node as a dissenter so the
+        # watchdog can attribute the divergence. (Empty-hash nodes are
+        # not dissenters — they simply didn't run the kernel.)
+        dissenters = tuple(
+            ns.node_id for ns in scores_sorted
+            if ns.score.diagnosis_payload_hash
+        )
+        return b"", (), dissenters
+    signers = tuple(
+        ns.node_id for ns in scores_sorted
+        if bytes(ns.score.diagnosis_payload_hash) == best_hash
+    )
+    dissenters = tuple(
+        ns.node_id for ns in scores_sorted
+        if bytes(ns.score.diagnosis_payload_hash) != best_hash
+        and ns.score.diagnosis_payload_hash                # skip empty / pre-v2
+    )
+    return best_hash, signers, dissenters
