@@ -217,4 +217,15 @@ pub enum CertificateError {
            alert vector and would have no defence against a same-block \
            write-shadow bug without this gate.")]
     InvalidAlertVectorBinding = 6131,
+
+    // ── Day 38 / Cert v2: full diagnostic certificate ───────────────────────
+    #[msg("Day 38: issue_certificate refused — failure_mode_bitmask & \
+           0xFFFF_FFFF != flags as u64. The legacy v1..v8 invariant is that \
+           `flags` is a u32 view onto the same failure-mode bit field as the \
+           v9 u64 bitmask; a mismatch would drift the on-chain record from \
+           every legacy consumer that only reads `flags`. Either the cluster's \
+           per-bit u64 majority disagrees with the u32 flags it published, or \
+           the off-chain submitter computed them independently — both indicate \
+           a bug that must surface, not be silently accepted.")]
+    LegacyFlagsBitmaskMismatch = 6140,
 }

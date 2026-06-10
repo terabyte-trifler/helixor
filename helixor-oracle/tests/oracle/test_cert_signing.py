@@ -253,6 +253,12 @@ class TestCertPayloadDigest:
             + (7).to_bytes(8, "big")
             + sc_hash
             + comp_hash
+            # M-05 sentinel + Day 38 sentinel zeros (default kwargs).
+            + (0).to_bytes(4, "big")        # issuer_config_version
+            + (0).to_bytes(8, "big")        # failure_mode_bitmask
+            + (0).to_bytes(4, "big")        # remediation_codes
+            + b"\x00" * 32                  # diagnosis_payload_hash
+            + (0).to_bytes(1, "big")        # taxonomy_version
         )
         assert produced == hashlib.sha256(manual).digest()
 
@@ -280,6 +286,156 @@ class TestCertPayloadDigest:
             cert_payload_digest(AGENT_PK, 1, 1 << 17, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
         with pytest.raises(ValueError):
             cert_payload_digest(AGENT_PK, 1, 851, 1 << 9, 8, BASELINE_HASH, True, INPUT_COMMITMENT, SLOT_ANCHOR)
+
+    # ─── M-05 sensitivity ────────────────────────────────────────────────────
+
+    def test_digest_changes_with_issuer_config_version(self):
+        a = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, issuer_config_version=1,
+        )
+        b = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, issuer_config_version=2,
+        )
+        assert a != b, "M-05: issuer_config_version must be folded into the digest"
+
+    def test_digest_rejects_out_of_range_issuer_config_version(self):
+        with pytest.raises(ValueError, match="issuer_config_version"):
+            cert_payload_digest(
+                AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+                SLOT_ANCHOR, issuer_config_version=1 << 32,
+            )
+
+    # ─── Day 38 sensitivity ──────────────────────────────────────────────────
+
+    def test_digest_changes_with_failure_mode_bitmask(self):
+        a = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, failure_mode_bitmask=0,
+        )
+        b = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, failure_mode_bitmask=1,
+        )
+        assert a != b
+
+    def test_digest_changes_with_remediation_codes(self):
+        a = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, remediation_codes=0,
+        )
+        b = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, remediation_codes=1,
+        )
+        assert a != b
+
+    def test_digest_changes_with_diagnosis_payload_hash(self):
+        a = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, diagnosis_payload_hash=b"\xaa" * 32,
+        )
+        b = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, diagnosis_payload_hash=b"\xbb" * 32,
+        )
+        assert a != b
+
+    def test_digest_changes_with_taxonomy_version(self):
+        a = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, taxonomy_version=1,
+        )
+        b = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, taxonomy_version=2,
+        )
+        assert a != b
+
+    def test_digest_rejects_out_of_range_day38_fields(self):
+        with pytest.raises(ValueError, match="failure_mode_bitmask"):
+            cert_payload_digest(
+                AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+                SLOT_ANCHOR, failure_mode_bitmask=1 << 64,
+            )
+        with pytest.raises(ValueError, match="remediation_codes"):
+            cert_payload_digest(
+                AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+                SLOT_ANCHOR, remediation_codes=1 << 32,
+            )
+        with pytest.raises(ValueError, match="diagnosis_payload_hash"):
+            cert_payload_digest(
+                AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+                SLOT_ANCHOR, diagnosis_payload_hash=b"short",
+            )
+        with pytest.raises(ValueError, match="taxonomy_version"):
+            cert_payload_digest(
+                AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+                SLOT_ANCHOR, taxonomy_version=1 << 8,
+            )
+
+    def test_preimage_length_is_273_bytes(self):
+        # Day-23 discipline: pin the exact preimage length so any layout
+        # drift (extra/missing field, wrong width) trips immediately.
+        import hashlib
+        produced = cert_payload_digest(
+            AGENT_PK, 1, 851, 2, 8, BASELINE_HASH, True, INPUT_COMMITMENT,
+            SLOT_ANCHOR, baseline_commit_nonce=7,
+            scoring_code_hash=b"\xc0" * 32,
+            score_components_hash=b"\xd0" * 32,
+            issuer_config_version=9,
+            failure_mode_bitmask=0xDEADBEEFCAFEF00D,
+            remediation_codes=0xCAFE_BABE,
+            diagnosis_payload_hash=b"\x77" * 32,
+            taxonomy_version=3,
+        )
+        manual = (
+            AGENT_PK                              # 32
+            + (1).to_bytes(8, "big")              #  8
+            + (851).to_bytes(2, "big")            #  2
+            + (2).to_bytes(1, "big")              #  1
+            + (8).to_bytes(4, "big")              #  4
+            + BASELINE_HASH                       # 32
+            + b"\x01"                             #  1
+            + INPUT_COMMITMENT                    # 32
+            + SLOT_ANCHOR.to_bytes()              # 40
+            + (7).to_bytes(8, "big")              #  8
+            + (b"\xc0" * 32)                      # 32
+            + (b"\xd0" * 32)                      # 32
+            + (9).to_bytes(4, "big")              #  4  M-05
+            + (0xDEADBEEFCAFEF00D).to_bytes(8, "big")  # 8 Day 38
+            + (0xCAFE_BABE).to_bytes(4, "big")    #  4  Day 38
+            + (b"\x77" * 32)                      # 32  Day 38
+            + (3).to_bytes(1, "big")              #  1  Day 38
+        )
+        assert len(manual) == 273, f"preimage length drifted: {len(manual)}"
+        assert produced == hashlib.sha256(manual).digest()
+
+    # ─── Cross-language pin (Day 23 discipline) ─────────────────────────────
+
+    def test_cross_language_pin_v2_all_zero(self):
+        # Pin: the SHA-256 of 273 zero bytes is exactly this digest. The
+        # Rust pin at certificate-issuer/tests/cert_payload_digest_fold_order_pin.rs
+        # `all_zero_input_vector_produces_pinned_digest` asserts the same
+        # 32-byte value. If EITHER side reorders or resizes the layout,
+        # this test fails on BOTH sides and the cluster cannot sign certs
+        # the chain will accept.
+        import hashlib
+        produced = cert_payload_digest(
+            b"\x00" * 32, 0, 0, 0, 0, b"\x00" * 32, False, b"\x00" * 32,
+            SlotAnchor(slot=0, block_hash=b"\x00" * 32),
+            baseline_commit_nonce=0,
+            scoring_code_hash=b"\x00" * 32,
+            score_components_hash=b"\x00" * 32,
+            issuer_config_version=0,
+            failure_mode_bitmask=0,
+            remediation_codes=0,
+            diagnosis_payload_hash=b"\x00" * 32,
+            taxonomy_version=0,
+        )
+        expected = hashlib.sha256(b"\x00" * 273).digest()
+        assert produced == expected, "v2 cross-language zero-vector pin drifted"
 
 
 # =============================================================================

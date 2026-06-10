@@ -10,13 +10,17 @@
 //     cert_payload_digest = SHA256(
 //         agent_wallet ‖ epoch ‖ score ‖ alert_tier ‖ flags ‖
 //         baseline_hash ‖ immediate_red ‖
-//         AW-01    input_commitment      ‖
-//         AW-01-EXT slot_anchor_slot      ‖
-//         AW-01-EXT slot_anchor_hash      ‖
-//         AW-03    baseline_commit_nonce ‖
-//         AW-04    scoring_code_hash     ‖
-//         AW-04    score_components_hash ‖
-//         M-05     issuer_config_version
+//         AW-01     input_commitment       ‖
+//         AW-01-EXT slot_anchor_slot       ‖
+//         AW-01-EXT slot_anchor_hash       ‖
+//         AW-03     baseline_commit_nonce  ‖
+//         AW-04     scoring_code_hash      ‖
+//         AW-04     score_components_hash  ‖
+//         M-05      issuer_config_version  ‖
+//         Day 38    failure_mode_bitmask   ‖
+//         Day 38    remediation_codes      ‖
+//         Day 38    diagnosis_payload_hash ‖
+//         Day 38    taxonomy_version
 //     )
 //
 // Every dimension is folded BEFORE the threshold-signature check. A
@@ -62,38 +66,46 @@ use certificate_issuer::signing::cert_payload_digest;
 /// computation diverges from it.
 #[allow(clippy::too_many_arguments)]
 fn manual_cert_payload_digest(
-    agent_wallet:          &Pubkey,
-    epoch:                 u64,
-    score:                 u16,
-    alert_tier:            u8,
-    flags:                 u32,
-    baseline_hash:         &[u8; 32],
-    immediate_red:         bool,
-    input_commitment:      &[u8; 32],
-    slot_anchor_slot:      u64,
-    slot_anchor_hash:      &[u8; 32],
-    baseline_commit_nonce: u64,
-    scoring_code_hash:     &[u8; 32],
-    score_components_hash: &[u8; 32],
-    issuer_config_version: u32,
+    agent_wallet:           &Pubkey,
+    epoch:                  u64,
+    score:                  u16,
+    alert_tier:             u8,
+    flags:                  u32,
+    baseline_hash:          &[u8; 32],
+    immediate_red:          bool,
+    input_commitment:       &[u8; 32],
+    slot_anchor_slot:       u64,
+    slot_anchor_hash:       &[u8; 32],
+    baseline_commit_nonce:  u64,
+    scoring_code_hash:      &[u8; 32],
+    score_components_hash:  &[u8; 32],
+    issuer_config_version:  u32,
+    failure_mode_bitmask:   u64,
+    remediation_codes:      u32,
+    diagnosis_payload_hash: &[u8; 32],
+    taxonomy_version:       u8,
 ) -> [u8; 32] {
     let immediate_red_byte: u8 = if immediate_red { 1 } else { 0 };
-    let mut buf: Vec<u8> = Vec::with_capacity(228);
-    buf.extend_from_slice(agent_wallet.as_ref());                  // 32
-    buf.extend_from_slice(&epoch.to_be_bytes());                   //  8
-    buf.extend_from_slice(&score.to_be_bytes());                   //  2
-    buf.push(alert_tier);                                          //  1
-    buf.extend_from_slice(&flags.to_be_bytes());                   //  4
-    buf.extend_from_slice(baseline_hash);                          // 32
-    buf.push(immediate_red_byte);                                  //  1
-    buf.extend_from_slice(input_commitment);                       // 32
-    buf.extend_from_slice(&slot_anchor_slot.to_be_bytes());        //  8
-    buf.extend_from_slice(slot_anchor_hash);                       // 32
-    buf.extend_from_slice(&baseline_commit_nonce.to_be_bytes());   //  8
-    buf.extend_from_slice(scoring_code_hash);                      // 32
-    buf.extend_from_slice(score_components_hash);                  // 32
-    buf.extend_from_slice(&issuer_config_version.to_be_bytes());   //  4
-    debug_assert_eq!(buf.len(), 228);
+    let mut buf: Vec<u8> = Vec::with_capacity(273);
+    buf.extend_from_slice(agent_wallet.as_ref());                    // 32
+    buf.extend_from_slice(&epoch.to_be_bytes());                     //  8
+    buf.extend_from_slice(&score.to_be_bytes());                     //  2
+    buf.push(alert_tier);                                            //  1
+    buf.extend_from_slice(&flags.to_be_bytes());                     //  4
+    buf.extend_from_slice(baseline_hash);                            // 32
+    buf.push(immediate_red_byte);                                    //  1
+    buf.extend_from_slice(input_commitment);                         // 32
+    buf.extend_from_slice(&slot_anchor_slot.to_be_bytes());          //  8
+    buf.extend_from_slice(slot_anchor_hash);                         // 32
+    buf.extend_from_slice(&baseline_commit_nonce.to_be_bytes());     //  8
+    buf.extend_from_slice(scoring_code_hash);                        // 32
+    buf.extend_from_slice(score_components_hash);                    // 32
+    buf.extend_from_slice(&issuer_config_version.to_be_bytes());     //  4
+    buf.extend_from_slice(&failure_mode_bitmask.to_be_bytes());      //  8
+    buf.extend_from_slice(&remediation_codes.to_be_bytes());         //  4
+    buf.extend_from_slice(diagnosis_payload_hash);                   // 32
+    buf.push(taxonomy_version);                                      //  1
+    debug_assert_eq!(buf.len(), 273);
     hashv(&[buf.as_slice()]).to_bytes()
 }
 
@@ -102,13 +114,21 @@ fn manual_cert_payload_digest(
 fn canonical_inputs() -> (
     Pubkey, u64, u16, u8, u32, [u8; 32], bool,
     [u8; 32], u64, [u8; 32], u64, [u8; 32], [u8; 32], u32,
+    u64, u32, [u8; 32], u8,
 ) {
     let agent = Pubkey::new_from_array([0x11; 32]);
-    let baseline_hash         = [0x22; 32];
-    let input_commitment      = [0x33; 32];
-    let slot_anchor_hash      = [0x44; 32];
-    let scoring_code_hash     = [0x55; 32];
-    let score_components_hash = [0x66; 32];
+    let baseline_hash          = [0x22; 32];
+    let input_commitment       = [0x33; 32];
+    let slot_anchor_hash       = [0x44; 32];
+    let scoring_code_hash      = [0x55; 32];
+    let score_components_hash  = [0x66; 32];
+    let diagnosis_payload_hash = [0x77; 32];
+    // Day 38: failure_mode_bitmask's low 32 bits MUST equal `flags as u64`
+    // — the ix-layer legacy invariant. The high 32 bits encode v2-only
+    // failure modes; here a distinct high-half value catches a reorder
+    // bug that swaps the field with `remediation_codes`.
+    let failure_mode_bitmask: u64 =
+        ((0xCAFE_F00Du32 as u64) << 32) | (0xDEAD_BEEFu32 as u64);
     (
         agent,
         100u64,                // epoch
@@ -124,6 +144,10 @@ fn canonical_inputs() -> (
         scoring_code_hash,
         score_components_hash,
         7u32,                  // issuer_config_version
+        failure_mode_bitmask,  // Day 38
+        0x0000_BEEFu32,        // Day 38 remediation_codes
+        diagnosis_payload_hash, // Day 38
+        3u8,                   // Day 38 taxonomy_version
     )
 }
 
@@ -133,13 +157,15 @@ fn canonical_inputs() -> (
 
 #[test]
 fn canonical_impl_matches_manual_concat_for_canonical_inputs() {
-    let (a, e, s, t, f, bh, ir, ic, sas, sah, bcn, sch, schash, ver) =
-        canonical_inputs();
+    let (a, e, s, t, f, bh, ir, ic, sas, sah, bcn, sch, schash, ver,
+         fmb, rc, dph, txv) = canonical_inputs();
     let canonical = cert_payload_digest(
         &a, e, s, t, f, &bh, ir, &ic, sas, &sah, bcn, &sch, &schash, ver,
+        fmb, rc, &dph, txv,
     );
     let manual = manual_cert_payload_digest(
         &a, e, s, t, f, &bh, ir, &ic, sas, &sah, bcn, &sch, &schash, ver,
+        fmb, rc, &dph, txv,
     );
     assert_eq!(
         canonical, manual,
@@ -156,10 +182,12 @@ fn canonical_impl_matches_manual_concat_for_all_zero_inputs() {
     let canonical = cert_payload_digest(
         &agent, 0, 0, 0, 0, &zero32, false, &zero32, 0, &zero32, 0,
         &zero32, &zero32, 0,
+        0, 0, &zero32, 0,
     );
     let manual = manual_cert_payload_digest(
         &agent, 0, 0, 0, 0, &zero32, false, &zero32, 0, &zero32, 0,
         &zero32, &zero32, 0,
+        0, 0, &zero32, 0,
     );
     assert_eq!(canonical, manual);
 }
@@ -173,10 +201,11 @@ fn epoch_is_big_endian_8_bytes() {
     // Bit pattern: epoch = 0x0000_0000_0000_00FF. BE: trailing 0xFF.
     // LE: leading 0xFF. Different digest in each case — if the impl
     // changed to LE the digest would no longer match `manual`.
-    let (a, _, s, t, f, bh, ir, ic, sas, sah, bcn, sch, schash, ver) =
-        canonical_inputs();
+    let (a, _, s, t, f, bh, ir, ic, sas, sah, bcn, sch, schash, ver,
+         fmb, rc, dph, txv) = canonical_inputs();
     let d_be = cert_payload_digest(
         &a, 0xFFu64, s, t, f, &bh, ir, &ic, sas, &sah, bcn, &sch, &schash, ver,
+        fmb, rc, &dph, txv,
     );
     // Manually concat with LE on epoch ONLY.
     let mut buf: Vec<u8> = Vec::new();
@@ -194,6 +223,10 @@ fn epoch_is_big_endian_8_bytes() {
     buf.extend_from_slice(&sch);
     buf.extend_from_slice(&schash);
     buf.extend_from_slice(&ver.to_be_bytes());
+    buf.extend_from_slice(&fmb.to_be_bytes());
+    buf.extend_from_slice(&rc.to_be_bytes());
+    buf.extend_from_slice(&dph);
+    buf.push(txv);
     let d_le_epoch = hashv(&[buf.as_slice()]).to_bytes();
     assert_ne!(
         d_be, d_le_epoch,
@@ -205,13 +238,15 @@ fn epoch_is_big_endian_8_bytes() {
 #[test]
 fn immediate_red_is_one_byte_boolean() {
     // Flip just the immediate_red bit. Digest must change.
-    let (a, e, s, t, f, bh, _, ic, sas, sah, bcn, sch, schash, ver) =
-        canonical_inputs();
+    let (a, e, s, t, f, bh, _, ic, sas, sah, bcn, sch, schash, ver,
+         fmb, rc, dph, txv) = canonical_inputs();
     let d_true = cert_payload_digest(
         &a, e, s, t, f, &bh, true, &ic, sas, &sah, bcn, &sch, &schash, ver,
+        fmb, rc, &dph, txv,
     );
     let d_false = cert_payload_digest(
         &a, e, s, t, f, &bh, false, &ic, sas, &sah, bcn, &sch, &schash, ver,
+        fmb, rc, &dph, txv,
     );
     assert_ne!(d_true, d_false);
 }
@@ -228,16 +263,19 @@ macro_rules! sensitivity {
         #[test]
         fn $name() {
             let base = canonical_inputs();
-            let (a, e, s, t, f, bh, ir, ic, sas, sah, bcn, sch, schash, ver) =
-                base.clone();
+            let (a, e, s, t, f, bh, ir, ic, sas, sah, bcn, sch, schash, ver,
+                 fmb, rc, dph, txv) = base.clone();
             let d_a = cert_payload_digest(
                 &a, e, s, t, f, &bh, ir, &ic, sas, &sah, bcn, &sch, &schash, ver,
+                fmb, rc, &dph, txv,
             );
             let mut m = base;
             $body(&mut m);
-            let (a, e, s, t, f, bh, ir, ic, sas, sah, bcn, sch, schash, ver) = m;
+            let (a, e, s, t, f, bh, ir, ic, sas, sah, bcn, sch, schash, ver,
+                 fmb, rc, dph, txv) = m;
             let d_b = cert_payload_digest(
                 &a, e, s, t, f, &bh, ir, &ic, sas, &sah, bcn, &sch, &schash, ver,
+                fmb, rc, &dph, txv,
             );
             assert_ne!(
                 d_a, d_b,
@@ -251,6 +289,7 @@ macro_rules! sensitivity {
 type InputTuple = (
     Pubkey, u64, u16, u8, u32, [u8; 32], bool,
     [u8; 32], u64, [u8; 32], u64, [u8; 32], [u8; 32], u32,
+    u64, u32, [u8; 32], u8,
 );
 
 sensitivity!(agent_wallet_is_folded,         |m: &mut InputTuple| m.0  = Pubkey::new_from_array([0xAA; 32]));
@@ -267,6 +306,10 @@ sensitivity!(aw03_baseline_commit_nonce_is_folded,  |m: &mut InputTuple| m.10 ^=
 sensitivity!(aw04_scoring_code_hash_is_folded,      |m: &mut InputTuple| m.11[0] ^= 1);
 sensitivity!(aw04_score_components_hash_is_folded,  |m: &mut InputTuple| m.12[0] ^= 1);
 sensitivity!(m05_issuer_config_version_is_folded,   |m: &mut InputTuple| m.13 ^= 1);
+sensitivity!(day38_failure_mode_bitmask_is_folded,   |m: &mut InputTuple| m.14 ^= 1);
+sensitivity!(day38_remediation_codes_is_folded,      |m: &mut InputTuple| m.15 ^= 1);
+sensitivity!(day38_diagnosis_payload_hash_is_folded, |m: &mut InputTuple| m.16[0] ^= 1);
+sensitivity!(day38_taxonomy_version_is_folded,       |m: &mut InputTuple| m.17 ^= 1);
 
 // -----------------------------------------------------------------------------
 // 4) Known-vector pin — all-zero input vector
@@ -274,7 +317,7 @@ sensitivity!(m05_issuer_config_version_is_folded,   |m: &mut InputTuple| m.13 ^=
 
 #[test]
 fn all_zero_input_vector_produces_pinned_digest() {
-    // The SHA-256 of 228 zero bytes — recomputed via solana_program's
+    // The SHA-256 of 273 zero bytes — recomputed via solana_program's
     // hashv on the all-zero buffer. Captured once and pinned. A reorder
     // that swaps two equal-width zero fields would still match this
     // (because the bytes are identical), but combined with the
@@ -284,22 +327,23 @@ fn all_zero_input_vector_produces_pinned_digest() {
     let actual = cert_payload_digest(
         &agent, 0, 0, 0, 0, &zero32, false, &zero32, 0, &zero32, 0,
         &zero32, &zero32, 0,
+        0, 0, &zero32, 0,
     );
 
-    // Independently: hash a 228-byte zero buffer.
-    let zero_buf = vec![0u8; 228];
+    // Independently: hash a 273-byte zero buffer.
+    let zero_buf = vec![0u8; 273];
     let expected = hashv(&[zero_buf.as_slice()]).to_bytes();
 
     assert_eq!(
         actual, expected,
         "all-zero input vector did not produce the expected SHA-256 of \
-         228 zero bytes — the digest preimage is no longer 228 bytes \
+         273 zero bytes — the digest preimage is no longer 273 bytes \
          long, or a non-zero constant has been folded in",
     );
 }
 
 #[test]
-fn preimage_length_is_228_bytes() {
+fn preimage_length_is_273_bytes() {
     // The exact byte count documented in the header comment. Off-chain
     // signers + verifiers allocate buffers of this size; a drift here
     // means every signer in the ecosystem allocates the wrong size.
@@ -318,8 +362,12 @@ fn preimage_length_is_228_bytes() {
         32,  // scoring_code_hash (AW-04)
         32,  // score_components_hash (AW-04)
         4,   // issuer_config_version (M-05)
+        8,   // failure_mode_bitmask (Day 38)
+        4,   // remediation_codes (Day 38)
+        32,  // diagnosis_payload_hash (Day 38)
+        1,   // taxonomy_version (Day 38)
     ];
     let total: usize = widths.iter().sum();
-    assert_eq!(total, 228);
-    assert_eq!(widths.len(), 14);
+    assert_eq!(total, 273);
+    assert_eq!(widths.len(), 18);
 }

@@ -33,10 +33,15 @@ fn health_certificate_size_constants_are_correct() {
     // +  1 challenge_state        (AW-01-EXT.6, v5)      =   1
     // +  8 baseline_commit_nonce  (AW-03,     v6)        =   8  (from reserve)
     // + 32 scoring_code_hash      (AW-04,     v7)        =  32  (appended; +32 growth)
-    // +  6 reserved                                       =   6
-    // = 242 (was 210 pre-AW-04; +32 from appending scoring_code_hash)
-    assert_eq!(HealthCertificate::SIZE_WITHOUT_DISCRIMINATOR, 242);
-    assert_eq!(HealthCertificate::SPACE, 250);          // + 8 discriminator
+    // +  4 issuer_config_version  (M-05,      v8)        =   4  (carved from reserve)
+    // +  1 taxonomy_version       (Day 38,    v9)        =   1  (carved from reserve)
+    // +  8 failure_mode_bitmask   (Day 38,    v9)        =   8  (appended)
+    // +  4 remediation_codes      (Day 38,    v9)        =   4  (appended)
+    // + 32 diagnosis_payload_hash (Day 38,    v9)        =  32  (appended)
+    // +  1 reserved                                       =   1
+    // = 286 (was 242 at v8; +44 from Day 38 appends, _reserved 2 -> 1 for taxonomy carve)
+    assert_eq!(HealthCertificate::SIZE_WITHOUT_DISCRIMINATOR, 286);
+    assert_eq!(HealthCertificate::SPACE, 294);          // + 8 discriminator
 }
 
 #[test]
@@ -79,7 +84,11 @@ fn layout_versions_are_current() {
     // v7: AW-04 — scoring_code_hash (32 bytes APPENDED; size 210 -> 242).
     // v8: M-05 — issuer_config_version (u32) CARVED from the v7 _reserved
     //     (6 -> 2 bytes). Account size UNCHANGED at 242 — no realloc.
-    assert_eq!(HealthCertificate::CURRENT_LAYOUT_VERSION, 8);
+    // v9: Day 38 / Cert v2 — taxonomy_version (u8) CARVED from the v8
+    //     _reserved (2 -> 1 byte); failure_mode_bitmask (u64),
+    //     remediation_codes (u32), diagnosis_payload_hash ([u8; 32])
+    //     APPENDED. Account size GROWS 242 -> 286 (realloc on issuance).
+    assert_eq!(HealthCertificate::CURRENT_LAYOUT_VERSION, 9);
     assert_eq!(BaselineStats::CURRENT_LAYOUT_VERSION, 1);
 }
 

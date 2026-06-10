@@ -131,11 +131,26 @@ pub mod certificate_issuer {
         // zero / empty / oversized AW-04 input.
         scoring_code_hash:        [u8; 32],
         score_components_payload: Vec<u8>,
+        // Day 38 / Cert v2: the cluster's full diagnostic certificate —
+        // u64 failure-mode bitmask, u32 remediation codes, 32-byte
+        // diagnosis-payload hash, u8 taxonomy schema version. All four are
+        // folded into `cert_payload_digest` so the threshold signatures
+        // attest to them. The ix enforces the legacy invariant
+        // `failure_mode_bitmask & 0xFFFF_FFFF == flags as u64` so every
+        // v1..v8 consumer reading only `flags` continues to see consistent
+        // data. Pre-Day-38 callers (none — Day 38 is the first version
+        // exposing these args) would have passed `0, 0, [0; 32], 0`.
+        failure_mode_bitmask:     u64,
+        remediation_codes:        u32,
+        diagnosis_payload_hash:   [u8; 32],
+        taxonomy_version:         u8,
     ) -> Result<()> {
         instructions::issue_certificate::handler(
             ctx, epoch, score, alert_tier, flags, immediate_red,
             input_commitment, slot_anchor_slot, slot_anchor_hash,
             scoring_code_hash, score_components_payload,
+            failure_mode_bitmask, remediation_codes, diagnosis_payload_hash,
+            taxonomy_version,
         )
     }
 

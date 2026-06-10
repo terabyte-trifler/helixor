@@ -524,6 +524,8 @@ mod tests {
         let cert_d = crate::signing::cert_payload_digest(
             &cert, 1, 0, 0, 0, &[0u8; 32], false, &[0u8; 32], 0, &[0u8; 32], 0,
             &[0u8; 32], &[0u8; 32], 0,
+            // Day 38: pre-Day-38 sentinel — zero diagnostic certificate.
+            0, 0, &[0u8; 32], 0,
         );
         assert_ne!(challenge_d, cert_d);
     }

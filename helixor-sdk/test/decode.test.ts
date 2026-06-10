@@ -51,11 +51,21 @@ function buildHealthCertificate(opts: {
   challengeState?: number;
   baselineCommitNonce?: bigint;
   baselineHash?: Uint8Array;
+  scoringCodeHash?: Uint8Array;
+  issuerConfigVersion?: number;
+  taxonomyVersion?: number;
+  failureModeBitmask?: bigint;
+  remediationCodes?: number;
+  diagnosisPayloadHash?: Uint8Array;
+  /**
+   * Override the total buffer size — set this to truncate to a legacy
+   * size (e.g. 218 for v6, 250 for v7/v8, 294 for v9). Defaults to 294
+   * (v9 size) so newer fields can always be written.
+   */
+  bufferSize?: number;
 }): Buffer {
-  // 8 discriminator + 210 data = 218 bytes (HealthCertificate::SPACE v4/v5
-  // — challenge_state shares a byte with what used to be _reserved, so the
-  // total size is unchanged from v4).
-  const buf = Buffer.alloc(218);
+  // v9 size: 8 disc + 286 data = 294 bytes. Smaller targets truncate.
+  const buf = Buffer.alloc(opts.bufferSize ?? 294);
   let o = 8; // skip discriminator
 
   buf.fill(0xaa, o, o + 32); o += 32; // agent_wallet
@@ -73,7 +83,7 @@ function buildHealthCertificate(opts: {
   o += 32; // baseline_hash
   buf.writeUInt8(opts.immediateRed ? 1 : 0, o); o += 1;
   buf.writeUInt8(254, o); o += 1; // bump
-  buf.writeUInt8(opts.layoutVersion ?? 6, o); o += 1; // layout_version (v6 default)
+  buf.writeUInt8(opts.layoutVersion ?? 9, o); o += 1; // layout_version (v9 default)
   buf.writeUInt8(opts.signerCount ?? 0, o); o += 1; // signer_count
   if (opts.inputCommitment) {
     Buffer.from(opts.inputCommitment).copy(buf, o);
@@ -86,8 +96,42 @@ function buildHealthCertificate(opts: {
   o += 32;
   // v5: challenge_state (1 byte)
   buf.writeUInt8(opts.challengeState ?? 0, o); o += 1;
-  // v6: baseline_commit_nonce (8 bytes), then _reserved [6] left zero.
+  // v6: baseline_commit_nonce (8 bytes)
   buf.writeBigUInt64LE(opts.baselineCommitNonce ?? 0n, o); o += 8;
+  // v7: scoring_code_hash (32 bytes, appended)
+  if (o + 32 <= buf.length) {
+    if (opts.scoringCodeHash) {
+      Buffer.from(opts.scoringCodeHash).copy(buf, o);
+    }
+    o += 32;
+  }
+  // v8: issuer_config_version (u32 LE, carved from v7 _reserved)
+  if (o + 4 <= buf.length) {
+    buf.writeUInt32LE(opts.issuerConfigVersion ?? 0, o);
+    o += 4;
+  }
+  // v9: taxonomy_version (u8, carved from v8 _reserved)
+  if (o + 1 <= buf.length) {
+    buf.writeUInt8(opts.taxonomyVersion ?? 0, o);
+    o += 1;
+  }
+  // v9: failure_mode_bitmask (u64 LE, appended)
+  if (o + 8 <= buf.length) {
+    buf.writeBigUInt64LE(opts.failureModeBitmask ?? 0n, o);
+    o += 8;
+  }
+  // v9: remediation_codes (u32 LE, appended)
+  if (o + 4 <= buf.length) {
+    buf.writeUInt32LE(opts.remediationCodes ?? 0, o);
+    o += 4;
+  }
+  // v9: diagnosis_payload_hash (32 bytes, appended)
+  if (o + 32 <= buf.length) {
+    if (opts.diagnosisPayloadHash) {
+      Buffer.from(opts.diagnosisPayloadHash).copy(buf, o);
+    }
+    o += 32;
+  }
   return buf;
 }
 
@@ -287,6 +331,122 @@ test("v5 buffer decodes baseline_commit_nonce as zero sentinel", () => {
   const cert = decodeHealthCertificate(buf);
   assert.strictEqual(cert.layoutVersion, 5);
   assert.strictEqual(cert.baselineCommitNonce, 0n);
+});
+
+test("decodes v8 issuer_config_version (M-05)", () => {
+  const buf = buildHealthCertificate({
+    epoch: 100,
+    score: 800,
+    alertTier: 1,
+    flags: 0,
+    issuedAt: 1_777_000_000,
+    immediateRed: false,
+    layoutVersion: 8,
+    issuerConfigVersion: 42,
+  });
+  const cert = decodeHealthCertificate(buf);
+  assert.strictEqual(cert.layoutVersion, 8);
+  assert.strictEqual(cert.issuerConfigVersion, 42);
+});
+
+test("v7 buffer decodes issuer_config_version as zero sentinel", () => {
+  // Pre-v8 (size 250) used those 4 bytes as reserved padding; reading
+  // them as 0 is the legacy "issued before M-05" sentinel.
+  const buf = buildHealthCertificate({
+    epoch: 1,
+    score: 700,
+    alertTier: 0,
+    flags: 0,
+    issuedAt: 1,
+    immediateRed: false,
+    layoutVersion: 7,
+    bufferSize: 250, // v7 size: 8 disc + 242 data
+  });
+  const cert = decodeHealthCertificate(buf);
+  assert.strictEqual(cert.layoutVersion, 7);
+  assert.strictEqual(cert.issuerConfigVersion, 0);
+});
+
+test("decodes v9 Day-38 diagnostic fields", () => {
+  const dph = new Uint8Array(32).fill(0x77);
+  const buf = buildHealthCertificate({
+    epoch: 200,
+    score: 750,
+    alertTier: 2,
+    flags: 0xDEADBEEF,
+    issuedAt: 1_800_000_000,
+    immediateRed: true,
+    layoutVersion: 9,
+    issuerConfigVersion: 9,
+    taxonomyVersion: 3,
+    failureModeBitmask: 0xCAFEF00DDEADBEEFn,
+    remediationCodes: 0x0000_BEEF,
+    diagnosisPayloadHash: dph,
+  });
+  const cert = decodeHealthCertificate(buf);
+  assert.strictEqual(cert.layoutVersion, 9);
+  assert.strictEqual(cert.issuerConfigVersion, 9);
+  assert.strictEqual(cert.taxonomyVersion, 3);
+  assert.strictEqual(cert.failureModeBitmask, 0xCAFEF00DDEADBEEFn);
+  assert.strictEqual(cert.remediationCodes, 0x0000_BEEF);
+  assert.deepStrictEqual(Buffer.from(cert.diagnosisPayloadHash), Buffer.from(dph));
+});
+
+test("v1 cert still decodes (the version gate)", () => {
+  // The spec line "v1 certs still decode (version gate)" — a legacy v1
+  // buffer (170+8 = 178 bytes) must still decode, with every post-v1
+  // field falling back to its zero sentinel. This pins the version-gated
+  // decode contract that consumers depend on.
+  const v9 = buildHealthCertificate({
+    epoch: 1,
+    score: 500,
+    alertTier: 0,
+    flags: 0,
+    issuedAt: 1_700_000_000,
+    immediateRed: false,
+    layoutVersion: 1,
+  });
+  const v1 = v9.subarray(0, 178);
+  const cert = decodeHealthCertificate(v1);
+  assert.strictEqual(cert.layoutVersion, 1);
+  assert.strictEqual(cert.epoch, 1);
+  assert.strictEqual(cert.score, 500);
+  // Every post-v1 field falls back to its zero sentinel.
+  assert.strictEqual(cert.slotAnchorSlot, 0n);
+  assert.strictEqual(cert.challengeState, 0);
+  assert.strictEqual(cert.baselineCommitNonce, 0n);
+  assert.strictEqual(cert.issuerConfigVersion, 0);
+  assert.strictEqual(cert.taxonomyVersion, 0);
+  assert.strictEqual(cert.failureModeBitmask, 0n);
+  assert.strictEqual(cert.remediationCodes, 0);
+  assert.deepStrictEqual(
+    Buffer.from(cert.diagnosisPayloadHash),
+    Buffer.alloc(32, 0x00),
+  );
+});
+
+test("v7 buffer decodes Day-38 fields as zero sentinel", () => {
+  // Pre-v9 (size 250) has none of the Day-38 fields; all must decode
+  // as their zero sentinels.
+  const buf = buildHealthCertificate({
+    epoch: 1,
+    score: 700,
+    alertTier: 0,
+    flags: 0,
+    issuedAt: 1,
+    immediateRed: false,
+    layoutVersion: 7,
+    bufferSize: 250, // v7 size
+  });
+  const cert = decodeHealthCertificate(buf);
+  assert.strictEqual(cert.layoutVersion, 7);
+  assert.strictEqual(cert.taxonomyVersion, 0);
+  assert.strictEqual(cert.failureModeBitmask, 0n);
+  assert.strictEqual(cert.remediationCodes, 0);
+  assert.deepStrictEqual(
+    Buffer.from(cert.diagnosisPayloadHash),
+    Buffer.alloc(32, 0x00),
+  );
 });
 
 // =============================================================================

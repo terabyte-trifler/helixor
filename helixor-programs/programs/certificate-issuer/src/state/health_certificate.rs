@@ -36,11 +36,23 @@
 //   --- AW-04 (appended, requires realloc) ----
 //   scoring_code_hash       32   ([u8;32] — sha256 of the scoring kernel
 //                                  source bytes + algo/weights version
-//                                  labels; see scoring/bundle_hash.py)
-//   _reserved                6   (zeroed cushion; unchanged from v6)
-//   TOTAL (without discriminator): 242 bytes (was 210 pre-AW-04;
-//                                  +32 bytes is an explicit growth from
-//                                  appending scoring_code_hash)
+//                                  labels; Day 38 redefines this semantic
+//                                  to ALSO equal the kernel_manifest_hash)
+//   --- M-05 (carved from _reserved) ----
+//   issuer_config_version    4   (u32 — snapshot of IssuerConfig.config_version)
+//   --- Day 38 / Cert v2 (mix of carve + append, requires realloc) ----
+//   taxonomy_version         1   (u8 — failure-mode taxonomy schema version,
+//                                  carved from the 2-byte v8 _reserved)
+//   failure_mode_bitmask     8   (u64 — appended; per-bit failure modes,
+//                                  low 32 bits MUST equal `flags as u64`)
+//   remediation_codes        4   (u32 — appended; bit-set of remediation
+//                                  codes the cluster recommends)
+//   diagnosis_payload_hash  32   ([u8;32] — appended; sha256 of the
+//                                  canonical-JSON cluster diagnosis payload)
+//   _reserved                1   (zeroed cushion; carved from v8's 2 bytes)
+//   TOTAL (without discriminator): 286 bytes (was 242 pre-Day-38;
+//                                  +44 bytes is an explicit growth from
+//                                  appending the three Day-38 fields)
 //
 // AW-01: `input_commitment` is the 32-byte SHA-256 cluster-majority commitment
 // over the canonical input transactions + windows the cluster scored. It is
@@ -213,12 +225,48 @@ pub struct HealthCertificate {
     /// this as 0 — the pre-M-05 sentinel meaning "issued before the
     /// immutability tag existed".
     pub issuer_config_version: u32,
+    /// Day 38: failure-mode taxonomy schema version. Off-chain consumers
+    /// use this to decode `failure_mode_bitmask` against the right
+    /// schema — the taxonomy is versioned because new failure modes get
+    /// added over time. Carved from the v8 `_reserved [u8; 2]`; legacy
+    /// pre-v9 certs decode this as 0 (the sentinel for "no taxonomy
+    /// binding — the bit field has no defined meaning"). Folded into
+    /// `cert_payload_digest` so the threshold signatures attest to the
+    /// schema version.
+    pub taxonomy_version: u8,
+    /// Day 38: u64 per-bit failure-mode bitmask the cluster reached
+    /// per-bit majority consensus on (see oracle/cluster/aggregation.py
+    /// `_majority_label_bits`). The low 32 bits are a u64 widening of
+    /// `flags as u64` — the legacy invariant is preserved by an ix-level
+    /// constraint (`failure_mode_bitmask & 0xFFFF_FFFF == flags as u64`)
+    /// so the diagnostic certificate is BACKWARDS COMPATIBLE with every
+    /// v1..v8 consumer that only reads `flags`. APPENDED at v9; legacy
+    /// pre-v9 certs decode this as 0 (the sentinel for "no diagnostic
+    /// bitmask was published with this cert").
+    pub failure_mode_bitmask: u64,
+    /// Day 38: u32 bit-set of remediation codes the cluster recommends
+    /// for the failure modes in `failure_mode_bitmask`. Off-chain
+    /// consumers map bits to remediation actions (rotate keys, throttle
+    /// trades, etc.) via the published taxonomy schema (named by
+    /// `taxonomy_version`). APPENDED at v9; legacy pre-v9 certs decode
+    /// this as 0 (the sentinel for "no remediation codes were published").
+    pub remediation_codes: u32,
+    /// Day 38: SHA-256 over the canonical-JSON diagnostic payload the
+    /// cluster reached payload-hash consensus on (see
+    /// oracle/cluster/aggregation.py `_payload_hash_consensus`). The
+    /// payload itself is published via the off-chain diagnosis DA layer;
+    /// this hash is the cryptographic binding the cluster signatures
+    /// attest to. APPENDED at v9; legacy pre-v9 certs decode this as
+    /// `[0; 32]` (the sentinel for "no diagnosis payload was published
+    /// with this cert").
+    pub diagnosis_payload_hash: [u8; 32],
     /// Zero-padded reserve for small future fields without a realloc.
-    /// Was 14 bytes pre-AW-03; 8 bytes are AW-03's baseline_commit_nonce;
-    /// AW-04's scoring_code_hash was APPENDED (not carved from reserve)
-    /// so this stayed at 6 bytes. M-05 carved 4 bytes for
-    /// `issuer_config_version`; 2 bytes remain.
-    pub _reserved:      [u8; 2],
+    /// Was 2 bytes at v8; Day 38 carves 1 byte for `taxonomy_version`,
+    /// leaving 1 byte. The Day-38 cluster-diagnosis fields
+    /// (`failure_mode_bitmask`, `remediation_codes`,
+    /// `diagnosis_payload_hash`) were APPENDED rather than carved
+    /// because they don't fit in 1 byte each.
+    pub _reserved:      [u8; 1],
 }
 
 impl HealthCertificate {
@@ -246,7 +294,19 @@ impl HealthCertificate {
     /// realloc. The field is folded into `cert_payload_digest` so the
     /// cluster signatures cryptographically attest to the config
     /// snapshot the cert was issued under.
-    pub const CURRENT_LAYOUT_VERSION: u8 = 8;
+    /// v9: Day 38 / Cert v2 — CARVED `taxonomy_version` (u8) from the
+    /// v8 `_reserved` (2 -> 1 byte) AND APPENDED `failure_mode_bitmask`
+    /// (u64), `remediation_codes` (u32), `diagnosis_payload_hash`
+    /// ([u8;32]). Account size GROWS from 242 to 286 (+44 bytes; explicit
+    /// realloc — the 1 byte of remaining _reserved is too small for any
+    /// of the three appended fields). All four new fields are folded
+    /// into `cert_payload_digest` so the threshold signatures attest to
+    /// the full diagnostic certificate. The ix-level constraint
+    /// `failure_mode_bitmask & 0xFFFF_FFFF == flags as u64` preserves
+    /// the v1..v8 invariant that `flags` is a u32 view onto the same
+    /// failure-mode bit field — every legacy consumer that reads only
+    /// `flags` continues to read consistent data.
+    pub const CURRENT_LAYOUT_VERSION: u8 = 9;
 
     /// The highest valid composite score. Mirrors the off-chain 0..1000 range.
     pub const MAX_SCORE: u16 = 1000;
@@ -260,10 +320,17 @@ impl HealthCertificate {
     /// +  8 baseline_commit_nonce                           =   8  (AW-03)
     /// + 32 scoring_code_hash                               =  32  (AW-04, appended)
     /// +  4 issuer_config_version                           =   4  (M-05, carved)
-    /// +  2 reserved                                        =   2  (was 6 pre-M-05)
-    ///    = 242 (unchanged from v7 — M-05 carved from reserve)
+    /// +  1 taxonomy_version                                =   1  (Day 38, carved)
+    /// +  8 failure_mode_bitmask                            =   8  (Day 38, appended)
+    /// +  4 remediation_codes                               =   4  (Day 38, appended)
+    /// + 32 diagnosis_payload_hash                          =  32  (Day 38, appended)
+    /// +  1 reserved                                        =   1  (was 2 pre-Day-38)
+    ///    = 286 (was 242 pre-Day-38; +44 from the three appended
+    ///           Day-38 cluster-diagnosis fields — explicit realloc)
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
-        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1 + 32 + 8 + 32 + 1 + 8 + 32 + 4 + 2;
+        32 + 8 + 2 + 1 + 4 + 8 + 32 + 32 + 1 + 1 + 1 + 1
+        + 32 + 8 + 32 + 1 + 8 + 32 + 4
+        + 1 + 8 + 4 + 32 + 1;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;

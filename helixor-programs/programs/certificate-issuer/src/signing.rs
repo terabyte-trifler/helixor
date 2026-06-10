@@ -155,41 +155,77 @@ use crate::state::IssuerConfig;
 /// pre-M-05 supplied `0`, which is the sentinel for "issued before the
 /// immutability tag existed"; the cluster signed against 0 in those
 /// cases so verification remains deterministic.
+///
+/// Day 38 (Cert v2): the four trailing fields extend the cert payload
+/// into a FULL DIAGNOSTIC CERTIFICATE. `failure_mode_bitmask` is the
+/// u64 cluster-majority per-bit failure-mode bitmask the cluster reached
+/// consensus on (see oracle/cluster/aggregation.py `_majority_label_bits`),
+/// whose low 32 bits are a u64 widening of `flags` (the legacy invariant
+/// `failure_mode_bitmask & 0xFFFF_FFFF == flags as u64` is enforced at
+/// the ix layer so every v1..v8 consumer continues to read consistent
+/// data). `remediation_codes` is a u32 bit-set of remediation actions
+/// the cluster recommends. `diagnosis_payload_hash` is the SHA-256 over
+/// the canonical-JSON cluster diagnosis payload published off-chain.
+/// `taxonomy_version` names the failure-mode taxonomy schema the bitmask
+/// + remediation bits are decoded against. Folding all four into the
+/// digest means the threshold signatures cryptographically attest to
+/// the full diagnostic certificate — a future cluster cannot publish a
+/// score with the right signatures but a fabricated diagnosis. Legacy
+/// callers pre-Day-38 supplied `0`, `0`, `[0; 32]`, `0` and the digest
+/// extends deterministically — the sentinel means "no diagnostic
+/// payload was published with this cert".
+/// Day 38 (Cert v2): `failure_mode_bitmask` is the u64 cluster-majority
+/// per-bit failure-mode bitmask. `remediation_codes` is the u32 cluster-
+/// recommended remediation bit-set. `diagnosis_payload_hash` is the
+/// SHA-256 over the canonical-JSON cluster diagnosis payload.
+/// `taxonomy_version` names the failure-mode taxonomy schema the bitmask
+/// is decoded against. All four are folded into the digest so the
+/// threshold signatures cryptographically attest to the full diagnostic
+/// certificate — not just the score + alert tier. Legacy v1..v8 callers
+/// pass `0`, `0`, `[0; 32]`, `0` and the digest extends deterministically.
 pub fn cert_payload_digest(
-    agent_wallet:          &Pubkey,
-    epoch:                 u64,
-    score:                 u16,
-    alert_tier:            u8,
-    flags:                 u32,
-    baseline_hash:         &[u8; 32],
-    immediate_red:         bool,
-    input_commitment:      &[u8; 32],
-    slot_anchor_slot:      u64,
-    slot_anchor_hash:      &[u8; 32],
-    baseline_commit_nonce: u64,
-    scoring_code_hash:     &[u8; 32],
-    score_components_hash: &[u8; 32],
-    issuer_config_version: u32,
+    agent_wallet:           &Pubkey,
+    epoch:                  u64,
+    score:                  u16,
+    alert_tier:             u8,
+    flags:                  u32,
+    baseline_hash:          &[u8; 32],
+    immediate_red:          bool,
+    input_commitment:       &[u8; 32],
+    slot_anchor_slot:       u64,
+    slot_anchor_hash:       &[u8; 32],
+    baseline_commit_nonce:  u64,
+    scoring_code_hash:      &[u8; 32],
+    score_components_hash:  &[u8; 32],
+    issuer_config_version:  u32,
+    failure_mode_bitmask:   u64,
+    remediation_codes:      u32,
+    diagnosis_payload_hash: &[u8; 32],
+    taxonomy_version:       u8,
 ) -> [u8; 32] {
     // The byte layout is FIXED and PUBLIC — every signer and verifier must
     // produce these exact bytes. No floats, no Vec, no length-varying
     // field, no separator ambiguity.
     let immediate_red_byte: u8 = if immediate_red { 1 } else { 0 };
     let h = hashv(&[
-        agent_wallet.as_ref(),                  // 32 bytes
-        &epoch.to_be_bytes(),                   //  8 bytes
-        &score.to_be_bytes(),                   //  2 bytes
-        &[alert_tier],                          //  1 byte
-        &flags.to_be_bytes(),                   //  4 bytes
-        baseline_hash,                          // 32 bytes
-        &[immediate_red_byte],                  //  1 byte
-        input_commitment,                       // 32 bytes ← AW-01
-        &slot_anchor_slot.to_be_bytes(),        //  8 bytes ← AW-01-EXT
-        slot_anchor_hash,                       // 32 bytes ← AW-01-EXT
-        &baseline_commit_nonce.to_be_bytes(),   //  8 bytes ← AW-03
-        scoring_code_hash,                      // 32 bytes ← AW-04
-        score_components_hash,                  // 32 bytes ← AW-04
-        &issuer_config_version.to_be_bytes(),   //  4 bytes ← M-05
+        agent_wallet.as_ref(),                    // 32 bytes
+        &epoch.to_be_bytes(),                     //  8 bytes
+        &score.to_be_bytes(),                     //  2 bytes
+        &[alert_tier],                            //  1 byte
+        &flags.to_be_bytes(),                     //  4 bytes
+        baseline_hash,                            // 32 bytes
+        &[immediate_red_byte],                    //  1 byte
+        input_commitment,                         // 32 bytes ← AW-01
+        &slot_anchor_slot.to_be_bytes(),          //  8 bytes ← AW-01-EXT
+        slot_anchor_hash,                         // 32 bytes ← AW-01-EXT
+        &baseline_commit_nonce.to_be_bytes(),     //  8 bytes ← AW-03
+        scoring_code_hash,                        // 32 bytes ← AW-04
+        score_components_hash,                    // 32 bytes ← AW-04
+        &issuer_config_version.to_be_bytes(),     //  4 bytes ← M-05
+        &failure_mode_bitmask.to_be_bytes(),      //  8 bytes ← Day 38
+        &remediation_codes.to_be_bytes(),         //  4 bytes ← Day 38
+        diagnosis_payload_hash,                   // 32 bytes ← Day 38
+        &[taxonomy_version],                      //  1 byte  ← Day 38
     ]);
     h.to_bytes()
 }

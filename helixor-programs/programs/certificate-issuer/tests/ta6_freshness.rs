@@ -34,7 +34,11 @@ fn cert_at(issued_at: i64) -> HealthCertificate {
         baseline_commit_nonce: 0,
         scoring_code_hash:     [0u8; 32],
         issuer_config_version: 1,
-        _reserved:             [0u8; 2],
+        taxonomy_version:       0,
+        failure_mode_bitmask:   0,
+        remediation_codes:      0,
+        diagnosis_payload_hash: [0u8; 32],
+        _reserved:             [0u8; 1],
     }
 }
 

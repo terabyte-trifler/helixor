@@ -103,6 +103,10 @@ pub fn compute_alert_vector_hash(
     slot_anchor_hash:           [u8; 32],
     scoring_code_hash:          [u8; 32],
     score_components_payload:   Vec<u8>,
+    failure_mode_bitmask:       u64,
+    remediation_codes:          u32,
+    diagnosis_payload_hash:     [u8; 32],
+    taxonomy_version:           u8,
 )]
 pub struct IssueCertificate<'info> {
     /// The agent's baseline record. Must exist (record_baseline first).
@@ -230,6 +234,28 @@ pub fn handler(
     // BaselineDataAccount: drift from the canonical form is a bug
     // that must surface, not be silently truncated.
     score_components_payload: Vec<u8>,
+    // Day 38 / Cert v2: per-bit failure-mode bitmask the cluster reached
+    // per-bit majority consensus on. The low 32 bits MUST equal `flags
+    // as u64` — the v1..v8 invariant that `flags` is a u32 view onto the
+    // same failure-mode bit field. Enforced at this layer so every legacy
+    // consumer that only reads `flags` continues to read consistent data.
+    failure_mode_bitmask:     u64,
+    // Day 38 / Cert v2: u32 bit-set of remediation codes the cluster
+    // recommends for the failure modes in `failure_mode_bitmask`. Decoded
+    // against the published taxonomy schema named by `taxonomy_version`.
+    remediation_codes:        u32,
+    // Day 38 / Cert v2: 32-byte SHA-256 over the canonical-JSON cluster
+    // diagnosis payload (see oracle/cluster/aggregation.py
+    // `_payload_hash_consensus`). The payload itself is published via the
+    // off-chain diagnosis DA layer; this hash is the cryptographic
+    // binding the threshold signatures attest to.
+    diagnosis_payload_hash:   [u8; 32],
+    // Day 38 / Cert v2: u8 schema version of the failure-mode taxonomy
+    // the bitmask + remediation bits are decoded against. Folded into
+    // the digest so the cluster signatures attest to the schema version
+    // — a future taxonomy rotation cannot retroactively re-interpret a
+    // historical cert's bitmask.
+    taxonomy_version:         u8,
 ) -> Result<()> {
     // ── VULN-16: refuse a CPI from anything but the canonical health-oracle ─
     // BEFORE we touch the inputs, before we hit the threshold-sig check,
@@ -314,6 +340,18 @@ pub fn handler(
         CertificateError::MissingScoreComponentsHash,
     );
 
+    // ── Day 38: legacy invariant — flags is a u32 view onto the same bits ──
+    // Every v1..v8 consumer reads `flags` (u32) as the failure-mode bitmask.
+    // Day 38 widens it to a u64 (`failure_mode_bitmask`). The low 32 bits of
+    // the wider field MUST equal the legacy `flags as u64` so a legacy
+    // consumer that only reads `flags` continues to read consistent data —
+    // a cluster that publishes mismatched values is refused here, not
+    // silently allowed to drift the on-chain record from the legacy view.
+    require!(
+        failure_mode_bitmask & 0xFFFF_FFFFu64 == flags as u64,
+        CertificateError::LegacyFlagsBitmaskMismatch,
+    );
+
     // ── Verify the (score, alert) pair is consistent ────────────────────────
     // A certificate carries both the numeric score and the categorical
     // tier; storing an inconsistent pair would be a malformed attestation.
@@ -370,6 +408,10 @@ pub fn handler(
         &scoring_code_hash,       // AW-04: binds the scoring-kernel source bytes
         &score_components_hash,   // AW-04: binds the per-dim breakdown
         issuer_config_version,    // M-05: binds the config snapshot
+        failure_mode_bitmask,     // Day 38: binds the u64 failure-mode bitmask
+        remediation_codes,        // Day 38: binds the u32 remediation codes
+        &diagnosis_payload_hash,  // Day 38: binds the diagnosis payload
+        taxonomy_version,         // Day 38: binds the taxonomy schema version
     );
     let valid_signers = crate::signing::verify_threshold_signatures(
         &digest,
@@ -414,6 +456,16 @@ pub fn handler(
     // (e.g. in an off-chain mirror) without re-deriving it from the
     // current on-chain config.
     cert.issuer_config_version = issuer_config_version;
+    // Day 38 / Cert v2: stamp the cluster-diagnosis fields. All four
+    // were folded into the digest above, so the threshold signatures
+    // cryptographically attest to them. Storing them on the cert lets
+    // an off-chain consumer fetch the full diagnostic certificate in
+    // ONE account read — no need to reconstruct anything from off-chain
+    // sources to know what the cluster claimed went wrong.
+    cert.failure_mode_bitmask   = failure_mode_bitmask;
+    cert.remediation_codes      = remediation_codes;
+    cert.diagnosis_payload_hash = diagnosis_payload_hash;
+    cert.taxonomy_version       = taxonomy_version;
 
     // AW-04: populate the paired ScoreComponentsAccount. Write-once at
     // init; the on-chain `sha256(payload) == components_hash` invariant

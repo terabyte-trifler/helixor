@@ -57,6 +57,11 @@ def cert_payload_digest(
     baseline_commit_nonce:  int   = 0,
     scoring_code_hash:      bytes = b"\x00" * 32,
     score_components_hash:  bytes = b"\x00" * 32,
+    issuer_config_version:  int   = 0,
+    failure_mode_bitmask:   int   = 0,
+    remediation_codes:      int   = 0,
+    diagnosis_payload_hash: bytes = b"\x00" * 32,
+    taxonomy_version:       int   = 0,
 ) -> bytes:
     """
     The 32-byte canonical cert-payload digest — byte-identical to the
@@ -118,6 +123,24 @@ def cert_payload_digest(
     the published components and refuse certs whose replay disagrees.
     Pre-AW-04 callers pass `b"\\x00" * 32` for either kwarg; the on-chain
     handler treats `[0; 32]` as the legacy "no binding" sentinel.
+
+    M-05: `issuer_config_version` is the `IssuerConfig.config_version`
+    snapshot active when the cluster signed. Folding it into the digest
+    means a post-issuance config rotation (which MUST strictly increment
+    `config_version`) cannot retroactively rebind which threshold
+    signature set verifies against a historical cert. Pre-M-05 callers
+    pass `0`, matching the Rust sentinel.
+
+    Day 38 (Cert v2): `failure_mode_bitmask` is the u64 cluster-majority
+    per-bit failure-mode bitmask. `remediation_codes` is the u32 cluster-
+    recommended remediation bit-set. `diagnosis_payload_hash` is the
+    SHA-256 over the canonical-JSON cluster diagnosis payload. The legacy
+    invariant `failure_mode_bitmask & 0xFFFF_FFFF == flags` is enforced
+    by the on-chain ix layer so every v1..v8 consumer reading `flags`
+    sees consistent data. `taxonomy_version` names the failure-mode
+    taxonomy schema. Folding all four into the digest binds the
+    threshold signatures to the FULL DIAGNOSTIC CERTIFICATE. Pre-Day-38
+    callers pass `0, 0, b"\\x00" * 32, 0` (the on-chain sentinels).
     """
     import hashlib
 
@@ -151,6 +174,24 @@ def cert_payload_digest(
         raise ValueError("scoring_code_hash must be 32 bytes")
     if len(score_components_hash) != 32:
         raise ValueError("score_components_hash must be 32 bytes")
+    if not (0 <= issuer_config_version <= 0xFFFFFFFF):
+        raise ValueError(
+            f"issuer_config_version out of u32 range: {issuer_config_version}"
+        )
+    if not (0 <= failure_mode_bitmask <= 0xFFFFFFFFFFFFFFFF):
+        raise ValueError(
+            f"failure_mode_bitmask out of u64 range: {failure_mode_bitmask}"
+        )
+    if not (0 <= remediation_codes <= 0xFFFFFFFF):
+        raise ValueError(
+            f"remediation_codes out of u32 range: {remediation_codes}"
+        )
+    if len(diagnosis_payload_hash) != 32:
+        raise ValueError("diagnosis_payload_hash must be 32 bytes")
+    if not (0 <= taxonomy_version <= 0xFF):
+        raise ValueError(
+            f"taxonomy_version out of u8 range: {taxonomy_version}"
+        )
 
     anchor_bytes = slot_anchor.to_bytes()
     assert len(anchor_bytes) == SLOT_ANCHOR_BYTES, \
@@ -163,14 +204,21 @@ def cert_payload_digest(
         + score.to_bytes(2, "big")                      #  2
         + alert_tier.to_bytes(1, "big")                 #  1
         + flags.to_bytes(4, "big")                      #  4
-        + bytes(baseline_hash)                           # 32
+        + bytes(baseline_hash)                          # 32
         + immediate_red_byte                            #  1
         + bytes(input_commitment)                       # 32  ← AW-01
         + anchor_bytes                                  # 40  ← AW-01-EXT
         + baseline_commit_nonce.to_bytes(8, "big")      #  8  ← AW-03
         + bytes(scoring_code_hash)                      # 32  ← AW-04
         + bytes(score_components_hash)                  # 32  ← AW-04
+        + issuer_config_version.to_bytes(4, "big")      #  4  ← M-05
+        + failure_mode_bitmask.to_bytes(8, "big")       #  8  ← Day 38
+        + remediation_codes.to_bytes(4, "big")          #  4  ← Day 38
+        + bytes(diagnosis_payload_hash)                 # 32  ← Day 38
+        + taxonomy_version.to_bytes(1, "big")           #  1  ← Day 38
     )
+    assert len(payload) == 273, \
+        f"cert_payload_digest preimage must be 273 bytes, got {len(payload)}"
     return hashlib.sha256(payload).digest()
 
 
