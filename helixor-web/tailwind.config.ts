@@ -1,19 +1,17 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Helixor design tokens.
+ * Helixor design tokens — v3 "vermilion" system.
  *
  * AESTHETIC COMMITMENT
  * --------------------
- * Monochrome. The site has NO accent color. The only chromatic moments are
- * the three alert tiers (GREEN/YELLOW/RED), the explorer-link blue, and a
- * single status-OK green used for cluster heartbeat dots. Everything else
- * is a step on a 12-stop grayscale.
+ * Brutalist terminal-manifesto. Warm charcoal canvas (browned blacks, not
+ * neutral), cream text, one vermilion accent carrying all chrome emphasis
+ * (pills, labels, CTAs, terminal output). Green appears ONLY as "the good
+ * number" inside data cards — chart language, never chrome. Tier colors
+ * keep alert semantics on the product pages.
  *
- * The grayscale is custom — not Tailwind defaults, not "neutral", not
- * "zinc". The stops are tuned for OLED-black backgrounds with white text,
- * where the Tailwind default neutral palette looks dead-flat. These stops
- * give a perceptual gradient.
+ * All values are our own; the genre is shared, the execution is original.
  */
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
@@ -21,60 +19,55 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // The grayscale. ink-0 is the page background; ink-12 is pure white.
-        // Numbered (not named) so semantic use is explicit at the call site.
+        // Warm charcoal scale. ink-0 = canvas, ink-12 = cream.
         ink: {
-          0:  "#000000",
-          1:  "#0a0a0a",
-          2:  "#111111",
-          3:  "#1a1a1a",
-          4:  "#262626",
-          5:  "#333333",
-          6:  "#4d4d4d",
-          7:  "#666666",
-          8:  "#808080",
-          9:  "#a3a3a3",
-          10: "#cccccc",
-          11: "#e6e6e6",
-          12: "#ffffff",
+          0:  "#100d0c",
+          1:  "#151110",
+          2:  "#1a1615",
+          3:  "#221d1b",
+          4:  "#2c2624",
+          5:  "#383130",
+          6:  "#524a47",
+          7:  "#6b625e",
+          8:  "#857b76",
+          9:  "#a59c96",
+          10: "#cdc5be",
+          11: "#e8e1d8",
+          12: "#f4efe6",
         },
-        // The ONLY chromatic palette. Used for alert tier badges and the
-        // matching score gauge. Never used for chrome, buttons, or links.
+        accent: {
+          DEFAULT: "#ff4f2e",
+          bright:  "#ff7a5c",
+          dim:     "#7a2a1a",
+        },
+        // "The good number" in data cards.
+        data: {
+          green: "#46d68c",
+        },
         tier: {
           green:  "#34d399",
           yellow: "#fbbf24",
           red:    "#f87171",
         },
-        // Explorer-link blue. Distinct from chrome so users learn "blue =
-        // off-site, on-chain proof."
         chain: "#60a5fa",
-        // Heartbeat OK dot. Quieter than tier.green so it doesn't compete.
         ok:    "#22c55e",
       },
       fontFamily: {
-        // Geist (Vercel-built) — sharper than Inter, designed for technical
-        // products, not a default in any framework.
-        sans: ["var(--font-geist-sans)", "ui-sans-serif", "system-ui"],
-        mono: ["var(--font-geist-mono)", "ui-monospace", "monospace"],
+        sans: ["var(--font-sans)", "ui-sans-serif", "system-ui"],
+        mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },
       fontSize: {
-        // Custom display sizes tuned for the score widget + hero numerals.
-        // The score is the loudest number on the page; it gets its own size.
         "score": ["7rem", { lineHeight: "1", letterSpacing: "-0.04em", fontWeight: "500" }],
-        "display-1": ["4.5rem", { lineHeight: "1.05", letterSpacing: "-0.035em", fontWeight: "500" }],
-        "display-2": ["3rem", { lineHeight: "1.1", letterSpacing: "-0.025em", fontWeight: "500" }],
-        "display-3": ["2rem", { lineHeight: "1.2", letterSpacing: "-0.02em", fontWeight: "500" }],
+        "display-1": ["4.25rem", { lineHeight: "1.02", letterSpacing: "-0.03em", fontWeight: "500" }],
+        "display-2": ["3rem", { lineHeight: "1.08", letterSpacing: "-0.02em", fontWeight: "500" }],
+        "display-3": ["2rem", { lineHeight: "1.2", letterSpacing: "-0.015em", fontWeight: "500" }],
       },
-      letterSpacing: {
-        // Used for ALL-CAPS labels (section headings, table headers).
-        eyebrow: "0.14em",
-      },
+      letterSpacing: { eyebrow: "0.14em" },
       animation: {
-        // The score gauge fills in on first paint; the hero number ticks up.
-        // No other animation in the site except the heartbeat pulse on /network.
         "score-fill": "score-fill 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards",
         "heartbeat":  "heartbeat 2s ease-in-out infinite",
         "fade-in":    "fade-in 0.4s ease-out forwards",
+        "blink":      "blink 1.1s step-end infinite",
         "rise":       "rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards",
       },
       keyframes: {
@@ -86,18 +79,14 @@ const config: Config = {
           "0%, 100%": { opacity: "1", transform: "scale(1)" },
           "50%":      { opacity: "0.6", transform: "scale(1.4)" },
         },
-        "fade-in": {
-          "0%": { opacity: "0" },
-          "100%": { opacity: "1" },
-        },
+        "fade-in": { "0%": { opacity: "0" }, "100%": { opacity: "1" } },
+        "blink":   { "0%, 100%": { opacity: "1" }, "50%": { opacity: "0" } },
         "rise": {
           "0%":   { opacity: "0", transform: "translateY(8px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
       },
-      transitionTimingFunction: {
-        "smooth-out": "cubic-bezier(0.16, 1, 0.3, 1)",
-      },
+      transitionTimingFunction: { "smooth-out": "cubic-bezier(0.16, 1, 0.3, 1)" },
     },
   },
   plugins: [],

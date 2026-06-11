@@ -29,6 +29,7 @@ keys/
 **/.venv/
 **/node_modules/
 **/.next/
+**/.demo/
 **/__pycache__/
 **/*.py[cod]
 **/*.egg-info/
