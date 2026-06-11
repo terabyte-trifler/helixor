@@ -44,6 +44,7 @@ from api.webhooks import (
 from api.byzantine_repo import ByzantineRepository
 from api.cluster_health import ClusterHealthRepository
 from api.diagnosis_repo import DiagnosisRecord, DiagnosisRepository
+from api.evidence_repo import EvidencePayloadRepository
 from api.flag_obfuscation import compute_flag_token, popcount
 from api.metrics import (
     ApiMetrics, CollectorRegistry, make_registry, render_metrics,
@@ -59,6 +60,7 @@ from api.safe_score import (
     compute_safe_score,
 )
 from api.schemas import (
+    DIAGNOSIS_ATTESTATION_OFF_CHAIN_V1,
     SCHEMA_VERSION,
     ByzantineFlagEntry,
     ByzantineRecentResponse,
@@ -70,6 +72,9 @@ from api.schemas import (
     DimensionBreakdownEntry,
     EpochSummaryEntry,
     ErrorResponse,
+    EVIDENCE_ATTESTATION_THRESHOLD,
+    EvidenceResponse,
+    EvidenceVerificationRecipe,
     HealthResponse,
     IntegrationLeaderboardEntry,
     IntegrationLeaderboardResponse,
@@ -305,6 +310,7 @@ def create_app(
     byzantine_repo:  ByzantineRepository,
     cluster_repo:    ClusterHealthRepository,
     diagnosis_repo:  DiagnosisRepository | None = None,
+    evidence_repo:   EvidencePayloadRepository | None = None,
     network:         str            = "localnet",
     is_production:   bool           = False,
     scoring_algo_version:    str | None = None,
@@ -349,6 +355,14 @@ def create_app(
         # "empty repo at bring-up" posture.
         from api.diagnosis_repo import InMemoryDiagnosisRepo
         diagnosis_repo = InMemoryDiagnosisRepo()
+
+    if evidence_repo is None:
+        # Same posture for the Day-39 evidence-DA tier — an unwired
+        # repo answers 404 instead of 500, so a tracking consumer can
+        # detect the surface exists before the indexer streams the
+        # first payload.
+        from api.evidence_repo import InMemoryEvidencePayloadRepo
+        evidence_repo = InMemoryEvidencePayloadRepo()
 
     if key_registry is None:
         key_registry = ApiKeyRegistry()
@@ -543,6 +557,72 @@ def create_app(
             )
         response.headers["Cache-Control"] = OPERATIONAL_CACHE_CONTROL
         return _to_diagnosis(rec)
+
+    @app.get(
+        "/agents/{wallet}/diagnosis/{epoch}/evidence",
+        response_model=EvidenceResponse,
+    )
+    def agent_diagnosis_evidence(
+        wallet: str, epoch: int, response: Response,
+    ) -> EvidenceResponse:
+        """Day-39 — span-level evidence DA behind the on-chain
+        `diagnosis_payload_hash`.
+
+        Returns the EXACT canonical-JSON bytes the cluster threshold-
+        signed against (so a consumer's recomputed sha256 lands on the
+        same on-chain field). The `attestation` discriminator flips
+        from "off_chain_v1" to "threshold_attested" when the indexer
+        has observed the cert v2 hash for this (agent, epoch) AND it
+        matches the served bytes.
+
+        Failure modes:
+          * 404 if no evidence has been ingested for (agent, epoch).
+          * 200 with `attestation: "off_chain_v1"` if the evidence
+            exists but no cert v2 has been observed yet, OR the on-
+            chain hash exists but does not match the served bytes
+            (the latter case surfaces an indexer/cluster divergence —
+            the consumer MUST refuse to attest in this state).
+          * 200 with `attestation: "threshold_attested"` on hash match.
+        """
+        wallet = validate_wallet(wallet)
+        if epoch < 1:
+            raise HTTPException(400, "epoch must be >= 1")
+        rec = evidence_repo.evidence_at_epoch(wallet, epoch)
+        if rec is None:
+            raise HTTPException(
+                404, f"no evidence payload for {wallet} at epoch {epoch}",
+            )
+        # The served bytes are the EXACT bytes hash-bound to the cert —
+        # decoding to a str must not re-canonicalise. The repo invariant
+        # already pins payload_bytes is ASCII canonical JSON.
+        payload_str = rec.payload_bytes.decode("ascii")
+        attestation = (
+            EVIDENCE_ATTESTATION_THRESHOLD
+            if rec.is_threshold_attested
+            else DIAGNOSIS_ATTESTATION_OFF_CHAIN_V1
+        )
+        response.headers["Cache-Control"] = OPERATIONAL_CACHE_CONTROL
+        return EvidenceResponse(
+            attestation=attestation,
+            agent_wallet=rec.agent_wallet,
+            epoch=rec.epoch,
+            taxonomy_version=rec.taxonomy_version,
+            signer_count=rec.signer_count,
+            payload_canonical_json=payload_str,
+            payload_hash_hex=rec.payload_hash.hex(),
+            on_chain_hash_hex=(
+                rec.on_chain_hash.hex() if rec.on_chain_hash is not None else None
+            ),
+            verification=EvidenceVerificationRecipe(
+                hash_algo="sha256",
+                hash_input="payload_canonical_json",
+                json_dumper=(
+                    'json.dumps(payload, sort_keys=True, '
+                    'separators=(",",":"), ensure_ascii=True)'
+                ),
+            ),
+            computed_at=rec.computed_at,
+        )
 
     @app.get("/agents/{wallet}/safe_score", response_model=SafeScoreResponse)
     def agent_safe_score(
@@ -853,6 +933,7 @@ def create_app(
     app.state.webhook_dispatcher = webhook_dispatcher
     app.state.degrading_tracker = degrading_tracker
     app.state.diagnosis_repo = diagnosis_repo
+    app.state.evidence_repo = evidence_repo
     return app
 
 

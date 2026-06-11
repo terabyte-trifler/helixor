@@ -33,6 +33,13 @@ SCHEMA_VERSION = 1
 # threshold-signed cert v2, which will mark them `"cert_v2"`.
 DIAGNOSIS_ATTESTATION_OFF_CHAIN_V1: Literal["off_chain_v1"] = "off_chain_v1"
 
+# Day-39 evidence-DA attestation tag. Lifts to "threshold_attested" when
+# the indexer has observed an on-chain `diagnosis_payload_hash` for the
+# (agent, epoch) AND the bytes served here hash to the same value.
+# Until either side shows up, the served record carries
+# DIAGNOSIS_ATTESTATION_OFF_CHAIN_V1.
+EVIDENCE_ATTESTATION_THRESHOLD: Literal["threshold_attested"] = "threshold_attested"
+
 
 # =============================================================================
 # Health endpoint
@@ -183,6 +190,76 @@ class DiagnosisResponse(BaseModel):
     baseline_stats_hash:        str
 
     computed_at:                datetime
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+# =============================================================================
+# Evidence DA endpoint (Day 39) — span-level evidence behind the on-chain hash
+# =============================================================================
+#
+# The Day-38 HealthCertificate v2 attests to a `diagnosis_payload_hash` —
+# a 32-byte SHA-256 of the canonical-JSON evidence payload. The bytes
+# themselves do NOT go on-chain; they live in the indexer's
+# `diagnosis_payloads` DA table and are served here. A consumer that
+# fetches this endpoint:
+#
+#   1. Reads `payload_canonical_json` — the EXACT bytes the cluster signed.
+#   2. Reads `payload_hash_hex` — convenience copy of sha256(bytes).
+#   3. Reads `on_chain_hash_hex` — what cert v2 attests to (None if the
+#      indexer hasn't seen the cert yet).
+#   4. Recomputes sha256(payload_canonical_json) and verifies it equals
+#      `on_chain_hash_hex`.
+#
+# `attestation` is the discriminator. It is "threshold_attested" iff
+# steps 1-3 line up; otherwise "off_chain_v1" (same off-chain seam as
+# the Day-34 diagnosis surface — a consumer that requires attested
+# evidence MUST branch on this).
+
+
+class EvidenceVerificationRecipe(BaseModel):
+    """The hash-verification recipe the served bytes obey.
+
+    A consumer follows these steps to verify the served payload bytes
+    against the on-chain cert v2 field — none of them require trust in
+    the API, only in the canonical-JSON dumper named here:
+
+      hash_algo:    "sha256"
+      hash_input:   "payload_canonical_json (the served bytes verbatim)"
+      json_dumper:  "json.dumps(..., sort_keys=True,
+                                separators=(',', ':'),
+                                ensure_ascii=True)"
+
+    This is the same dumper Day-23 baseline-hashing and Day-36 kernel
+    JSON use — a consumer that reproduces the dumper byte-for-byte can
+    re-derive every Helixor canonical hash without trusting the
+    server's serialiser.
+    """
+    hash_algo:   str        # "sha256"
+    hash_input:  str        # "payload_canonical_json"
+    json_dumper: str        # the exact json.dumps args
+
+
+class EvidenceResponse(BaseModel):
+    """`GET /agents/{wallet}/diagnosis/{epoch}/evidence` — the off-chain
+    DA payload behind the threshold-attested on-chain hash.
+
+    `attestation` flips to "threshold_attested" iff the indexer has
+    seen the cert v2 hash AND it matches sha256(payload_canonical_json).
+    Otherwise "off_chain_v1" — the bytes are faithfully served but not
+    yet bound to a threshold-signed cert.
+    """
+    schema_version:    int = Field(SCHEMA_VERSION, alias="_v")
+    attestation:       Literal["off_chain_v1", "threshold_attested"]
+    agent_wallet:      str
+    epoch:             int
+    taxonomy_version:  int                                 # u8 — Day-38 field
+    signer_count:      int                                 # cluster signers
+    payload_canonical_json: str                            # exact ASCII bytes
+    payload_hash_hex:       str                            # sha256 hex of above
+    on_chain_hash_hex:      str | None                     # cert v2 hex (or None)
+    verification:           EvidenceVerificationRecipe
+    computed_at:            datetime
 
     model_config = ConfigDict(populate_by_name=True)
 
