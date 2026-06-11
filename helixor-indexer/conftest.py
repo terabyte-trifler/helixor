@@ -13,7 +13,8 @@ from pathlib import Path
 
 _INDEXER_ROOT = Path(__file__).resolve().parent
 _ORACLE_ROOT = _INDEXER_ROOT.parent / "helixor-oracle"
+_API_ROOT = _INDEXER_ROOT.parent / "helixor-api"
 
-for root in (_INDEXER_ROOT, _ORACLE_ROOT):
+for root in (_INDEXER_ROOT, _ORACLE_ROOT, _API_ROOT):
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
