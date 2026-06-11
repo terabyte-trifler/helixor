@@ -652,6 +652,37 @@
           "CLEAR_AGENT_MEMORY"
         ]
       }
+    },
+    {
+      "name": "RAPID_DRAIN",
+      "bit": 63,
+      "value": 9223372036854775808,
+      "description": "outbound value flow accelerated past the agent's declared envelope within a sub-epoch window",
+      "severity": "HIGH",
+      "owasp_refs": ["LLM06", "LLM10"],
+      "default_remediation": {
+        "value": 1027,
+        "codes": [
+          "PAUSE_AGENT",
+          "ISOLATE_AGENT",
+          "ROTATE_API_KEYS"
+        ]
+      }
+    },
+    {
+      "name": "COUNTERPARTY_CONCENTRATION",
+      "bit": 64,
+      "value": 18446744073709551616,
+      "description": "trade counterparties collapsed to a narrow set, breaking the agent's diversification claim",
+      "severity": "MED",
+      "owasp_refs": ["LLM09"],
+      "default_remediation": {
+        "value": 524800,
+        "codes": [
+          "DECREASE_RATE_LIMITS",
+          "AUDIT_RECENT_OUTPUTS"
+        ]
+      }
     }
   ],
   "remediation_codes": [

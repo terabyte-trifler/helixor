@@ -1,7 +1,8 @@
 import { ArrowUpRight } from "lucide-react";
-import { getByzantineRecent, getStrikeSummary } from "@/lib/api";
+import { getByzantineRecent, getLabelDeviations, getStrikeSummary } from "@/lib/api";
 import { truncateWallet } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { failureModeByBit, severityClass } from "@/lib/taxonomy";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -10,9 +11,10 @@ export const metadata: Metadata = {
 };
 
 export default async function TransparencyPage() {
-  const [byz, strikes] = await Promise.all([
+  const [byz, strikes, labelDeviations] = await Promise.all([
     getByzantineRecent(),
     getStrikeSummary(),
+    getLabelDeviations(),
   ]);
 
   const strikeRows = Object.entries(strikes.summary);
@@ -80,6 +82,79 @@ export default async function TransparencyPage() {
         </div>
       </section>
 
+      {/* Day-41: label-deviation events. Score-level disagreement is
+          published above; this surface shows which oracle disagreed on
+          which LABELS, for which agent, in which epoch. */}
+      <section className="mt-20">
+        <span className="eyebrow">Label-level disagreement</span>
+        <h2 className="mt-2 text-[22px] text-ink-12 tracking-tight">
+          Where the cluster split on the diagnosis
+        </h2>
+        <p className="mt-2 text-[13px] text-ink-8 max-w-[60ch]">
+          A node may agree on the score but miss a label, or call a
+          label the rest of the cluster dropped. Either way it&apos;s
+          public.
+        </p>
+        <div className="mt-6 rounded-2xl border border-ink-3 bg-ink-1 overflow-hidden">
+          {labelDeviations.length === 0 ? (
+            <div className="p-12 text-center text-[14px] text-ink-9">
+              No label deviations recorded in the current window.
+            </div>
+          ) : (
+            labelDeviations.map((ev, i) => {
+              const missed = ev.majority_bits.filter(
+                (b) => !ev.minority_bits.includes(b),
+              );
+              const overcalled = ev.minority_bits.filter(
+                (b) => !ev.majority_bits.includes(b),
+              );
+              return (
+                <div
+                  key={`${ev.node}-${ev.epoch}-${i}`}
+                  className={cn(
+                    "p-6",
+                    i !== labelDeviations.length - 1 && "border-b border-ink-3",
+                  )}
+                >
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="font-mono text-[14px] text-tier-yellow">
+                      {ev.node}
+                    </span>
+                    <span className="text-[12px] text-ink-7">
+                      diverged on
+                    </span>
+                    <span className="font-mono text-[14px] text-ink-12">
+                      epoch {ev.epoch}
+                    </span>
+                    <span className="text-[12px] text-ink-7">·</span>
+                    <span className="text-[12px] text-ink-9">
+                      agent{" "}
+                      <span className="font-mono text-ink-10">
+                        {truncateWallet(ev.subject_agent, 6, 6)}
+                      </span>
+                    </span>
+                  </div>
+                  {missed.length > 0 && (
+                    <DeviationRow
+                      kind="missed"
+                      bits={missed}
+                      blurb="cluster called, this node missed"
+                    />
+                  )}
+                  {overcalled.length > 0 && (
+                    <DeviationRow
+                      kind="overcalled"
+                      bits={overcalled}
+                      blurb="this node called, cluster dropped"
+                    />
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
+
       <section className="mt-20">
         <span className="eyebrow">Detection events</span>
         <h2 className="mt-2 text-[22px] text-ink-12 tracking-tight">
@@ -141,6 +216,49 @@ export default async function TransparencyPage() {
           )}
         </div>
       </section>
+    </div>
+  );
+}
+
+function DeviationRow({
+  kind,
+  bits,
+  blurb,
+}: {
+  kind: "missed" | "overcalled";
+  bits: number[];
+  blurb: string;
+}) {
+  return (
+    <div className="mt-3">
+      <span className="font-mono text-[10px] tracking-eyebrow uppercase text-ink-7">
+        {blurb}
+      </span>
+      <ul className="mt-2 flex flex-wrap gap-2">
+        {bits.map((bit) => {
+          const mode = failureModeByBit(bit);
+          const label = mode?.name ?? `bit ${bit}`;
+          return (
+            <li key={bit}>
+              <span
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-full border px-2.5 py-1",
+                  "font-mono text-[11px]",
+                  mode
+                    ? severityClass(mode.severity)
+                    : "text-ink-9 border-ink-4 bg-ink-2",
+                )}
+                title={mode?.description ?? `bit ${bit}`}
+              >
+                <span>{label}</span>
+                <span className="text-[10px] opacity-70">
+                  {kind === "missed" ? "−" : "+"}
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

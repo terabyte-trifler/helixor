@@ -12,14 +12,18 @@
  */
 
 import type {
+  AppliedRemediation,
   ByzantineRecentResponse,
   ChallengesResponse,
   ClusterHealthResponse,
   DecodedFlagLabel,
+  DiagnosisAttestation,
   DiagnosisResponse,
   DimensionBreakdownEntry,
+  EvidenceSpan,
   HealthResponse,
   HistoryResponse,
+  LabelDeviationEvent,
   RemediationHint,
   Severity,
   StrikeSummaryResponse,
@@ -281,6 +285,33 @@ export const mockApi = {
     if (wallet === "404" || wallet === "not-found") return null;
     return buildSyntheticDiagnosis(wallet);
   },
+
+  // Day-41: label-level deviations for the transparency page. Same
+  // shape the future API endpoint would carry. Two scripted events
+  // pinned to FEATURED_AGENTS[2] (drift) and [3] (compromised) so the
+  // narrative on /transparency lines up with the agent stories.
+  async getLabelDeviations(): Promise<LabelDeviationEvent[]> {
+    return [
+      {
+        node: "oracle-node-2",
+        epoch: CURRENT_EPOCH - 2,
+        subject_agent: FEATURED_AGENTS[3].wallet,
+        majority_bits: [35, 63, 34], // TOOL_LOOP, RAPID_DRAIN, TOOL_MISUSE
+        minority_bits: [],            // node-2 missed all three
+        label_names: ["TOOL_LOOP", "RAPID_DRAIN", "TOOL_MISUSE"],
+        computed_at: epochAt(CURRENT_EPOCH - 2),
+      },
+      {
+        node: "oracle-node-2",
+        epoch: CURRENT_EPOCH - 3,
+        subject_agent: FEATURED_AGENTS[2].wallet,
+        majority_bits: [64],          // COUNTERPARTY_CONCENTRATION
+        minority_bits: [],
+        label_names: ["COUNTERPARTY_CONCENTRATION"],
+        computed_at: epochAt(CURRENT_EPOCH - 3),
+      },
+    ];
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -301,6 +332,27 @@ interface DiagnosisScript {
   confidence: number;
   gaming_detected: boolean;
   gaming_drop_fraction: number;
+  /** Day-41: optional per-label evidence spans keyed by label NAME.
+   *  Resolved through the taxonomy at build time. */
+  evidence?: Record<string, ScriptedSpan[]>;
+  /** Day-41: optional remediation ledger — past actions, not hints. */
+  applied_remediations?: ScriptedAppliedRemediation[];
+  /** Day-41: which Phase the attestation reflects. */
+  attestation?: DiagnosisAttestation;
+}
+
+interface ScriptedSpan {
+  slot: number;
+  tx_signature: string | null;
+  evidence_kind: "trace" | "trade" | "tool_call" | "model_output";
+  summary: string;
+}
+
+interface ScriptedAppliedRemediation {
+  name: string;
+  applied_at_epoch: number;
+  outcome: "in_progress" | "succeeded" | "rolled_back";
+  note: string;
 }
 
 const DIMENSION_CAPS: Array<readonly [string, number]> = [
@@ -324,32 +376,88 @@ const STABLE_TRADER_DIAG: DiagnosisScript = {
   confidence: 962,
   gaming_detected: false,
   gaming_drop_fraction: 0.0,
+  attestation: "cert_v2",
 };
 
+// Recovering-agent story (Day-41): a couple of residual labels from the
+// dip earlier in April, but the headline is the remediation HISTORY —
+// the operator already applied four codes, three succeeded, one rolled
+// back. The point: this agent isn't bad, it's healing in public.
 const RECOVERING_YIELD_DIAG: DiagnosisScript = {
   failure_modes: [
     "DEGRADED_BASELINE",
-    "OUTPUT_DISTRIBUTION_DRIFT",
     "LATENCY_DEGRADATION",
   ],
   undecoded_bits: [16, 18],
   dimensions: {
-    drift:       { raw: 122, max: 200, sub: { jensen_shannon: 0.28, kl: 0.22 } },
-    anomaly:     { raw: 160, max: 200, sub: { mahalanobis: 0.18, iforest: 0.12 } },
-    performance: { raw: 130, max: 200, sub: { sharpe: 0.41, drawdown: 0.18 } },
-    consistency: { raw: 158, max: 200, sub: { sortino: 0.52, autocorr: 0.66 } },
-    security:    { raw: 142, max: 150, sub: { tool_audit: 0.93, identity: 1.0 } },
+    drift:       { raw: 152, max: 200, sub: { jensen_shannon: 0.18, kl: 0.14 } },
+    anomaly:     { raw: 170, max: 200, sub: { mahalanobis: 0.14, iforest: 0.09 } },
+    performance: { raw: 138, max: 200, sub: { sharpe: 0.49, drawdown: 0.15 } },
+    consistency: { raw: 162, max: 200, sub: { sortino: 0.57, autocorr: 0.71 } },
+    security:    { raw: 144, max: 150, sub: { tool_audit: 0.95, identity: 1.0 } },
   },
-  confidence: 740,
+  confidence: 798,
   gaming_detected: false,
   gaming_drop_fraction: 0.0,
+  attestation: "cert_v2",
+  applied_remediations: [
+    {
+      name: "RUN_FRESH_BASELINE",
+      applied_at_epoch: CURRENT_EPOCH - 3,
+      outcome: "succeeded",
+      note: "Rebuilt baseline distribution from the post-incident window. Drift d-score dropped from 0.34 to 0.18 over two epochs.",
+    },
+    {
+      name: "TIGHTEN_RETRIEVAL_FILTER",
+      applied_at_epoch: CURRENT_EPOCH - 5,
+      outcome: "succeeded",
+      note: "Tightened retrieval relevance threshold from 0.62 to 0.78. Stale-context citations dropped to zero across the next epoch.",
+    },
+    {
+      name: "DECREASE_RATE_LIMITS",
+      applied_at_epoch: CURRENT_EPOCH - 7,
+      outcome: "succeeded",
+      note: "Halved per-agent call rate during the rollback window so operators could observe baseline rebuild without compounding noise.",
+    },
+    {
+      name: "ROLLBACK_MODEL_VERSION",
+      applied_at_epoch: CURRENT_EPOCH - 9,
+      outcome: "rolled_back",
+      note: "Pinned to the previous model build for two epochs. Reverted after baseline rebuild succeeded and the newer build cleared its drift signal.",
+    },
+  ],
+  evidence: {
+    DEGRADED_BASELINE: [
+      {
+        slot: 273_840_112,
+        tx_signature: null,
+        evidence_kind: "trace",
+        summary:
+          "Post-incident baseline distance still 1.4σ from the pre-incident reference; closing but not yet flat.",
+      },
+    ],
+    LATENCY_DEGRADATION: [
+      {
+        slot: 273_840_207,
+        tx_signature: null,
+        evidence_kind: "trace",
+        summary:
+          "p95 inference latency at 1.8x pre-incident baseline. Trending down; attributed to the rate-limit safety margin.",
+      },
+    ],
+  },
 };
 
+// Drift-agent story (Day-41): a single, focused label —
+// COUNTERPARTY_CONCENTRATION — backed by three trade-level evidence
+// spans showing trades clustered on a single counterparty across a
+// 48-slot window. The narrative for the YC demo: drift isn't drift in
+// the abstract; it's "this agent is now trading with mostly one
+// venue, here are the trades".
 const DRIFTING_MM_DIAG: DiagnosisScript = {
   failure_modes: [
+    "COUNTERPARTY_CONCENTRATION",
     "OUTPUT_DISTRIBUTION_DRIFT",
-    "ALIGNMENT_REGRESSION",
-    "MISINFORMATION",
     "DIMENSION_CLAMPED",
   ],
   undecoded_bits: [11, 13],
@@ -363,16 +471,55 @@ const DRIFTING_MM_DIAG: DiagnosisScript = {
   confidence: 612,
   gaming_detected: false,
   gaming_drop_fraction: 0.0,
+  attestation: "cert_v2",
+  evidence: {
+    COUNTERPARTY_CONCENTRATION: [
+      {
+        slot: 297_402_118,
+        tx_signature: "5f9aGnYP8WzQK4cJ2xJ7tHkR3vL8jM2nQ5wD6eC9pA1uB7sR4kF",
+        evidence_kind: "trade",
+        summary:
+          "Trade #214: 78% of post-rebalance flow routed to venue J9q4…vW2x. Pre-rebalance baseline was 22%.",
+      },
+      {
+        slot: 297_402_134,
+        tx_signature: "3sH7nKX1RcD8wM5pQv6BkY4tL9eA2jR1uG3oN6vC8bF7sP4eQ2y",
+        evidence_kind: "trade",
+        summary:
+          "Trade #221: same venue, 6.3x typical size. Pair selection no longer matches the declared envelope.",
+      },
+      {
+        slot: 297_402_181,
+        tx_signature: "8qWx3RnBkP2vJ7sL4eMz5oC1uG6tF9aD3kY8eA2bR5wH7sP4eQ2",
+        evidence_kind: "trade",
+        summary:
+          "Trade #229: counterparty selection same as 214 + 221. Three consecutive trades, single venue — Herfindahl rose from 0.18 to 0.62 in this epoch.",
+      },
+    ],
+    OUTPUT_DISTRIBUTION_DRIFT: [
+      {
+        slot: 297_402_212,
+        tx_signature: null,
+        evidence_kind: "trace",
+        summary:
+          "Decision-vector JS divergence vs 14-day baseline = 0.42. Threshold is 0.30; sustained for 6 consecutive epochs.",
+      },
+    ],
+  },
 };
 
+// Compromised-agent story (Day-41 headline): TOOL_LOOP + RAPID_DRAIN
+// with concrete trade and tool-call evidence. This is the YC demo
+// inflection point — "the score is 184" gives way to "tool #payment-
+// gateway was called 47 times in 4 seconds and value flowed at 6x the
+// agent's declared envelope, here are the slots".
 const FLAGGED_EXFIL_DIAG: DiagnosisScript = {
   failure_modes: [
     "IMMEDIATE_RED",
-    "SENSITIVE_INFO_DISCLOSURE",
-    "DATA_LEAKAGE",
+    "TOOL_LOOP",
+    "RAPID_DRAIN",
     "TOOL_MISUSE",
     "EXCESSIVE_AGENCY",
-    "ENSEMBLE_INCOMPLETE",
   ],
   undecoded_bits: [9, 14, 19],
   dimensions: {
@@ -385,6 +532,73 @@ const FLAGGED_EXFIL_DIAG: DiagnosisScript = {
   confidence: 488,
   gaming_detected: true,
   gaming_drop_fraction: 0.34,
+  attestation: "threshold_attested",
+  evidence: {
+    TOOL_LOOP: [
+      {
+        slot: 297_401_044,
+        tx_signature: null,
+        evidence_kind: "tool_call",
+        summary:
+          "Tool #payment_gateway invoked 47 times in 4.1 seconds with near-identical arguments — classic retry-loop signature.",
+      },
+      {
+        slot: 297_401_047,
+        tx_signature: null,
+        evidence_kind: "tool_call",
+        summary:
+          "Same tool, same args, 12 consecutive calls in a sub-second window. No backoff applied between failures.",
+      },
+      {
+        slot: 297_401_051,
+        tx_signature: null,
+        evidence_kind: "model_output",
+        summary:
+          "Model output across the loop window cited only its own prior failure as reason to retry — no new information per iteration.",
+      },
+    ],
+    RAPID_DRAIN: [
+      {
+        slot: 297_401_062,
+        tx_signature: "Hxr4DrnAgT8Px9JqW7vL4eM2zCnVbF6sR3kY1eD8pA5uB7sR4kF",
+        evidence_kind: "trade",
+        summary:
+          "Outflow #1 of 6: 14.2 SOL routed to fresh address. Agent's declared per-epoch envelope is 8.0 SOL total.",
+      },
+      {
+        slot: 297_401_071,
+        tx_signature: "Hxr4DrnAgT8Px9JqW7vL4eM2zCnVbF6sR3kY1eD8pA5uB7sR4kG",
+        evidence_kind: "trade",
+        summary:
+          "Outflow #2: 18.7 SOL to same address family. Cumulative drain past envelope by 4.1x.",
+      },
+      {
+        slot: 297_401_088,
+        tx_signature: "Hxr4DrnAgT8Px9JqW7vL4eM2zCnVbF6sR3kY1eD8pA5uB7sR4kH",
+        evidence_kind: "trade",
+        summary:
+          "Outflow #6: cumulative 96.4 SOL out in 44 seconds — 6.0x the declared envelope. Confidence interval excludes any honest mode of operation.",
+      },
+    ],
+    TOOL_MISUSE: [
+      {
+        slot: 297_401_044,
+        tx_signature: null,
+        evidence_kind: "tool_call",
+        summary:
+          "Payment tool invoked without the operator-required two-step confirmation token. Same call pattern across all 47 invocations.",
+      },
+    ],
+    IMMEDIATE_RED: [
+      {
+        slot: 297_402_000,
+        tx_signature: null,
+        evidence_kind: "trace",
+        summary:
+          "Immediate-red predicate matched: TOOL_LOOP ∧ RAPID_DRAIN simultaneously within a 60s window. Cluster bypasses the gradual decay and emits a RED cert.",
+      },
+    ],
+  },
 };
 
 function diagnosisScriptFor(wallet: string): DiagnosisScript {
@@ -482,9 +696,49 @@ function buildSyntheticDiagnosis(wallet: string): DiagnosisResponse {
     if (bit < 32) flags |= 1 << bit;
   }
 
+  // Day-41: evidence spans, resolved from the scripted spans + the
+  // decoded label list. Spans for labels that didn't actually decode
+  // (e.g. taxonomy gap) are dropped silently so the UI never shows an
+  // orphan span.
+  const evidence_spans: EvidenceSpan[] = [];
+  if (script.evidence) {
+    for (const label of decoded_labels) {
+      const scripted = script.evidence[label.name];
+      if (!scripted) continue;
+      scripted.forEach((sp, i) => {
+        evidence_spans.push({
+          label_bit: label.bit,
+          label_name: label.name,
+          span_index: i,
+          slot: sp.slot,
+          tx_signature: sp.tx_signature,
+          evidence_kind: sp.evidence_kind,
+          summary: sp.summary,
+          // Deterministic synthetic digest so the demo doesn't shift
+          // every render. Real spans carry the SHA-256 of their bytes;
+          // here we hash the script fields for stable visual identity.
+          digest_hex: syntheticDigest(
+            `${wallet}:${label.bit}:${i}:${sp.slot}:${sp.summary}`,
+          ),
+        });
+      });
+    }
+  }
+
+  // Day-41: applied-remediation ledger for the recovering-agent story.
+  const applied_remediations: AppliedRemediation[] | undefined =
+    script.applied_remediations?.map((r) => ({
+      name: r.name,
+      bit: remediationByName(r.name)?.bit ?? -1,
+      applied_at_epoch: r.applied_at_epoch,
+      applied_at: epochAt(r.applied_at_epoch),
+      outcome: r.outcome,
+      note: r.note,
+    }));
+
   return {
     _v: 1,
-    attestation: "off_chain_v1",
+    attestation: script.attestation ?? "off_chain_v1",
     agent_wallet: wallet,
     epoch: CURRENT_EPOCH,
     score: s.score,
@@ -509,7 +763,27 @@ function buildSyntheticDiagnosis(wallet: string): DiagnosisResponse {
     baseline_stats_hash:
       "b81e2c46a9f1d3520c87b4691f2e0a35d8c41b7f02e9aa64db3852c1e7409f6c",
     computed_at: epochAt(CURRENT_EPOCH),
+    evidence_spans: evidence_spans.length > 0 ? evidence_spans : undefined,
+    applied_remediations,
   };
+}
+
+// 64-hex synthetic digest derived from a seed string. Deterministic and
+// stable across renders — the demo's hashes don't shift each refresh.
+function syntheticDigest(seed: string): string {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = (Math.imul(h, 16777619)) >>> 0;
+  }
+  // Expand 32-bit FNV to a 64-hex string by walking 8 derived hashes.
+  let out = "";
+  let acc = h;
+  for (let i = 0; i < 8; i++) {
+    acc = (Math.imul(acc ^ (i + 1), 2654435761)) >>> 0;
+    out += acc.toString(16).padStart(8, "0");
+  }
+  return out;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -53,7 +53,33 @@ export interface HistoryResponse {
 // downstream consumers branch on Phase-1 vs Phase-2 (cert v2) trust.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type DiagnosisAttestation = "off_chain_v1";
+// Phase-1: oracle-emitted, not threshold-signed.
+// cert_v2: threshold-signed (Day-38/40 path).
+// threshold_attested: evidence-side DA attestation (Day-39).
+export type DiagnosisAttestation =
+  | "off_chain_v1"
+  | "cert_v2"
+  | "threshold_attested";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Evidence spans (Day 41) — per-label citations the UI's EvidenceViewer
+// expands. Each span has a slot anchor (Solana slot the evaluator
+// observed it on) and an optional explorer link. Optional on the wire
+// today; rendered only when present so the legacy /diagnosis shape is
+// still valid.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface EvidenceSpan {
+  label_bit: number;          // taxonomy bit this span explains
+  label_name: string;         // duplicated for offline rendering
+  span_index: number;         // ordering within the label's span list
+  slot: number;               // Solana slot
+  tx_signature: string | null;// nullable when the evidence is observational, not txn
+  evidence_kind: "trace" | "trade" | "tool_call" | "model_output";
+  summary: string;            // one-line operator-readable
+  digest_hex: string;         // sha256 over the span's raw bytes
+}
+
+export type LabelEvidenceMap = Record<number, EvidenceSpan[]>; // keyed by label_bit
 
 export type Severity = "INFO" | "LOW" | "MED" | "HIGH" | "CRITICAL";
 
@@ -110,6 +136,41 @@ export interface DiagnosisResponse {
   scoring_schema_fingerprint: string;
   baseline_stats_hash: string;
 
+  computed_at: string;
+
+  // Day-41 additions — optional so the legacy diagnosis shape still validates.
+  evidence_spans?: EvidenceSpan[];
+  applied_remediations?: AppliedRemediation[];
+}
+
+// AppliedRemediation: a remediation that was ACTUALLY enacted by the
+// operator in a prior epoch, surfaced on the recovering-agent story so
+// the panel reads as "here is the remediation history, not a hint".
+export interface AppliedRemediation {
+  name: string;
+  bit: number;
+  applied_at_epoch: number;
+  applied_at: string; // ISO 8601
+  outcome: "in_progress" | "succeeded" | "rolled_back";
+  note: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Label deviation events (Day 41 transparency surface) — which oracle
+// node disagreed on which label bits in which epoch. This is the
+// label-level analogue of the score-level Byzantine flag, and is what
+// /transparency newly shows so a partner can see WHERE consensus split.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface LabelDeviationEvent {
+  node: string;
+  epoch: number;
+  subject_agent: string;
+  // Bits the cluster majority believed fired; this node's view
+  // diverged — either missing a bit the majority called, or calling a
+  // bit the majority dropped.
+  majority_bits: number[];
+  minority_bits: number[];
+  label_names: string[]; // names corresponding to the symmetric difference
   computed_at: string;
 }
 

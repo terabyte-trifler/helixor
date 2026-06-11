@@ -23,6 +23,7 @@ import type {
   DiagnosisResponse,
   HealthResponse,
   HistoryResponse,
+  LabelDeviationEvent,
   StrikeSummaryResponse,
   VersionResponse,
 } from "@/types/api";
@@ -128,6 +129,18 @@ export async function getChallenges(
 export async function getVersion(): Promise<VersionResponse> {
   if (isMock()) return mockApi.getVersion();
   return fetchJson<VersionResponse>("/version");
+}
+
+// Day-41: label-level deviation events for the transparency page. The
+// real API endpoint hasn't shipped yet — when it does, swap the mock
+// branch for an `await fetchJson<...>("/byzantine/label-deviations")`.
+export async function getLabelDeviations(): Promise<LabelDeviationEvent[]> {
+  if (isMock()) return mockApi.getLabelDeviations();
+  try {
+    return await fetchJson<LabelDeviationEvent[]>("/byzantine/label-deviations");
+  } catch {
+    return [];
+  }
 }
 
 export async function getAgentDiagnosis(
