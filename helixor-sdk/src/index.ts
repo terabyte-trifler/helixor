@@ -150,6 +150,52 @@ export {
   type ParsedBaselinePayload,
 } from "./baseline_provenance";
 
+// Day-40 — Consumer surfaces v2. The diagnosis surface decodes the
+// threshold-attested cert v2 fields (per-dimension breakdown, label
+// names from the local taxonomy mirror, remediation hints). The evidence
+// surface fetches the canonical-JSON payload bound to the on-chain
+// `diagnosis_payload_hash` and lets the consumer locally verify
+// sha256(payload) == on-chain hash — the "verify without trusting any
+// vendor" recipe, in 5 lines.
+export {
+  getDiagnosis,
+  getEvidence,
+  verifyEvidenceHash,
+  DiagnosisError,
+  DiagnosisNotFoundError,
+  EvidenceNotFoundError,
+  type Diagnosis,
+  type DiagnosisAttestation,
+  type Evidence,
+  type EvidenceAttestation,
+  type EvidenceVerification,
+  type EvidenceVerificationRecipe,
+  type DimensionBreakdown,
+  type DecodedLabel,
+  type RemediationHint,
+  type AlertTierName,
+  type DiagnosisFetchOptions,
+} from "./diagnosis";
+
+// Day-40 — Generated TS mirror of `helixor-oracle/diagnosis/taxonomy.json`.
+// A consumer that decodes a Diagnosis can resolve label names without a
+// network call — the bit→name lookup lives in-process. The
+// `TAXONOMY_SCHEMA_VERSION` constant lets a strict consumer assert their
+// SDK is at the same taxonomy revision the cluster signed against.
+export {
+  FAILURE_MODES,
+  REMEDIATION_CODES,
+  TAXONOMY_SCHEMA_VERSION,
+  failureModeByBit,
+  failureModeByName,
+  failureModeName,
+  remediationByBit,
+  remediationByName,
+  type FailureModeEntry,
+  type RemediationEntry,
+  type SeverityName,
+} from "./taxonomy_generated";
+
 // AW-04 scoring-provenance verification — fetch the on-chain
 // ScoreComponentsAccount, recompute sha256(payload), parse the canonical
 // JSON, and re-execute the documented scoring formula

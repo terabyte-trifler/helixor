@@ -17,7 +17,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "tsx test/decode.test.ts && tsx test/getscore_shape.test.ts && tsx test/safe_reader.test.ts && tsx test/input_provenance.test.ts && tsx test/advance_epoch.test.ts && tsx test/baseline_provenance.test.ts && tsx test/scoring_provenance.test.ts && tsx test/verified_consumer.test.ts && tsx test/unsafe_surface.test.ts && tsx test/sec1_advisory_disclaimer.test.ts && tsx test/aml1_kyc_disclaimer.test.ts"
+    "test": "tsx test/decode.test.ts && tsx test/getscore_shape.test.ts && tsx test/safe_reader.test.ts && tsx test/input_provenance.test.ts && tsx test/advance_epoch.test.ts && tsx test/baseline_provenance.test.ts && tsx test/scoring_provenance.test.ts && tsx test/verified_consumer.test.ts && tsx test/unsafe_surface.test.ts && tsx test/sec1_advisory_disclaimer.test.ts && tsx test/aml1_kyc_disclaimer.test.ts && tsx test/diagnosis.test.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.95.0"

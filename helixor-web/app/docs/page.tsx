@@ -72,7 +72,7 @@ console.log(score);
           code={`curl https://api.helixor.xyz/agents/<wallet>/health
 
 {
-  "_v":              1,
+  "_v":              2,
   "agent_wallet":    "Hxr1Demo01StableTrader1111111111111111111111",
   "epoch":           287,
   "score":           941,
@@ -120,6 +120,87 @@ console.log(score);
         <CertDiagram />
       </Section>
 
+      <Section id="diagnosis" eyebrow="06" title="Diagnosis: why this score, with proof">
+        <p>
+          A score is a number; a <Mark>diagnosis</Mark> is the why. Cert v2
+          extends the on-chain attestation with five sub-scores
+          (correctness, robustness, calibration, drift, coverage), the
+          failure-mode bits that fired, and the remediation bits a
+          well-behaved operator would address. All of it is canonical-JSON
+          hashed and threshold-signed — the same trust model as the score.
+        </p>
+
+        <CodeBlock
+          lang="bash"
+          code={`curl https://api.helixor.xyz/agents/<wallet>/diagnosis/287
+
+{
+  "_v":           2,
+  "agent_wallet": "Hxr1Demo01StableTrader1111111111111111111111",
+  "epoch":        287,
+  "dimensions": {
+    "correctness": 0.94, "robustness": 0.81, "calibration": 0.88,
+    "drift":       0.72, "coverage":   0.79
+  },
+  "labels": [
+    { "bit": 3,  "name": "PROMPT_INJECTION_LEAK", "fired": true },
+    { "bit": 17, "name": "OUTPUT_SCHEMA_DRIFT",   "fired": true }
+  ],
+  "remediations": [
+    { "bit": 1, "name": "TIGHTEN_SYSTEM_PROMPT" },
+    { "bit": 4, "name": "ADD_OUTPUT_VALIDATOR"  }
+  ],
+  "attestation": { "kind": "cert_v2", "digest_hex": "8f3c…", "signers": 4 }
+}`}
+        />
+
+        <p>
+          The SDK decodes the wire shape into a typed object and tags each
+          label with <Code>taxonomyKnown</Code> — if a server-side rename
+          ever drifts from the SDK's bundled taxonomy mirror, your code
+          sees it instead of silently misnaming a finding.
+        </p>
+
+        <CodeBlock
+          lang="ts"
+          code={`import { getDiagnosis } from "@helixor/sdk";
+
+const d = await getDiagnosis("https://api.helixor.xyz", agentWallet, 287);
+
+for (const label of d.labels.filter(l => l.fired)) {
+  console.log(label.bit, label.name, label.taxonomyKnown ? "✓" : "drift");
+}
+// 3  PROMPT_INJECTION_LEAK ✓
+// 17 OUTPUT_SCHEMA_DRIFT   ✓`}
+        />
+
+        <p>
+          For the high-stakes cases (insurance underwriting, contract
+          gating), the diagnosis is backed by a <Mark>threshold-attested
+          evidence blob</Mark> — the raw evaluator outputs the oracle saw,
+          stored on the DA layer and bound to the cert by SHA-256. The
+          verify-without-trust recipe is five lines:
+        </p>
+
+        <CodeBlock
+          lang="ts"
+          code={`import { getEvidence, verifyEvidenceHash } from "@helixor/sdk";
+
+const ev   = await getEvidence("https://api.helixor.xyz", agentWallet, 287);
+const v    = await verifyEvidenceHash(ev);
+if (!v.bytesMatchHash) throw new Error("evidence tampered");
+// v.recomputedHashHex === v.serverAttestation.digest_hex (threshold-signed)`}
+        />
+
+        <Callout>
+          <Code>verifyEvidenceHash</Code> recomputes SHA-256 over the
+          evidence bytes in your process and compares to the threshold-signed
+          digest. A failed check means the DA layer returned something the
+          oracle quorum never signed — not a bug in the SDK, an integrity
+          violation worth alerting on.
+        </Callout>
+      </Section>
+
       <div className="mt-20 pt-10 border-t border-ink-3">
         <p className="text-[14px] text-ink-9">
           Question we haven't answered?{" "}
@@ -142,6 +223,7 @@ function Toc() {
     ["api",           "Read a score via REST"],
     ["architecture",  "What you're actually reading"],
     ["schema",        "The cert, in one diagram"],
+    ["diagnosis",     "Diagnosis: why this score, with proof"],
   ];
   return (
     <nav className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-y-1 gap-x-6 border-y border-ink-3 py-6">

@@ -166,7 +166,7 @@ class TestAgentDiagnosisCurrent:
 
     def test_schema_version_field_present(self, client):
         body = client.get(f"/agents/{WALLET_A}/diagnosis").json()
-        assert body["_v"] == 1
+        assert body["_v"] == 2
 
     def test_dimensions_cover_all_five(self, client):
         body = client.get(f"/agents/{WALLET_A}/diagnosis").json()

@@ -34,7 +34,7 @@ class TestAgentHealthCurrent:
 
     def test_schema_version_field_present(self, client):
         body = client.get(f"/agents/{WALLET_A}/health").json()
-        assert body["_v"] == 1                      # SCHEMA_VERSION
+        assert body["_v"] == 2                      # SCHEMA_VERSION (Day-40 bump)
 
     def test_immediate_red_propagates(self, client):
         body = client.get(f"/agents/{WALLET_B}/health").json()
@@ -255,12 +255,12 @@ class TestMetaEndpoints:
         assert body["network_is_production"] is False
         assert body["scoring_algo_version"] == "v2.7"
         assert body["scoring_weights_version"] == "w1"
-        assert body["_v"] == 1
+        assert body["_v"] == 2
 
     def test_health_liveness_is_fast(self, client):
         # The k8s/systemd liveness probe — must be fast + dependency-free.
         body = client.get("/health").json()
-        assert body == {"status": "ok", "schema_version": 1}
+        assert body == {"status": "ok", "schema_version": 2}
 
     def test_metrics_endpoint_returns_prometheus_text(self, client):
         # Hit a route first so there's something to observe.
@@ -273,7 +273,7 @@ class TestMetaEndpoints:
         assert "helixor_api_requests_total" in body
         assert "helixor_api_request_seconds" in body
         assert "helixor_api_is_production 0.0" in body
-        assert "helixor_api_schema_version 1.0" in body
+        assert "helixor_api_schema_version 2.0" in body
 
     def test_metric_labels_use_route_template_not_literal_path(self, client):
         # Critical: per-agent cardinality would blow up the metric. The

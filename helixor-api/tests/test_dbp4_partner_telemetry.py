@@ -333,7 +333,7 @@ class TestIntegrationsLeaderboard:
         r = client.get("/integrations/leaderboard")
         assert r.status_code == 200
         body = r.json()
-        assert body["_v"] == 1
+        assert body["_v"] == 2
         assert "ranking" in body
 
     def test_idle_partners_listed_with_safe_share_none(

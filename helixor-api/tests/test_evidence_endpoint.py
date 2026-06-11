@@ -223,7 +223,7 @@ class TestEvidenceRoundTrip:
         body = evidence_client.get(
             f"/agents/{WALLET_A}/diagnosis/29/evidence"
         ).json()
-        assert body["_v"] == 1
+        assert body["_v"] == 2
 
 
 # =============================================================================

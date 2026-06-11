@@ -25,7 +25,14 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-SCHEMA_VERSION = 1
+# Day-40 — Consumer surfaces v2. The wire surface for diagnosis +
+# evidence is now stable enough for insurers/marketplaces to depend on,
+# and the SDK consumes _v as a forward-compat gate. The bump is
+# strictly additive: every Day-34/Day-39 field is preserved; clients
+# pinned to v1 still receive the same field set. Any consumer that
+# branches on `_v` should treat `>=1` as "diagnosis + evidence shape is
+# stable" and reserve a future `>=3` bump for the next breaking change.
+SCHEMA_VERSION = 2
 
 # Phase-1 diagnosis attestation tag. Day-34 surfaces a non-threshold-
 # attested diagnosis, so we mark every response with this literal — the
