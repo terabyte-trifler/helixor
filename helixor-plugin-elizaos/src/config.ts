@@ -39,6 +39,13 @@ export interface HelixorPluginConfig {
 
   // VULN-12 — last-known-good score cache TTL (ms). 0 disables the cache.
   cacheTtlMs:         number;
+
+  // Day-42 — sticky auto-pause on RED. Different from the per-action gate:
+  // once paused, the agent stays paused until it sees `autoResumeEpochs`
+  // consecutive healthy score updates (default 2). Hysteresis prevents
+  // single-epoch score noise from flapping the runtime open.
+  autoPauseEnabled:   boolean;
+  autoResumeEpochs:   number;
 }
 
 const DEFAULT_FINANCIAL_ACTIONS = [
@@ -157,6 +164,19 @@ export function loadConfig(runtime: IAgentRuntime): HelixorPluginConfig {
   const telemetryEnabled = !boolish(runtime.getSetting("HELIXOR_TELEMETRY_DISABLED"), false);
   const apiKey           = runtime.getSetting("HELIXOR_API_KEY") || undefined;
 
+  // Day-42 sticky auto-pause. Default on (the YC pitch for the plugin is
+  // "an agent runtime that consumes its own trust score") but operators
+  // can disable it during dry-runs by setting HELIXOR_AUTO_PAUSE=false.
+  const autoPauseEnabled = boolish(runtime.getSetting("HELIXOR_AUTO_PAUSE"), true);
+  const autoResumeEpochs = parseIntOr(
+    runtime.getSetting("HELIXOR_RECOVER_EPOCHS"), 2,
+  );
+  if (autoResumeEpochs < 1) {
+    throw new HelixorConfigError(
+      `HELIXOR_RECOVER_EPOCHS must be >= 1 (got ${autoResumeEpochs}).`,
+    );
+  }
+
   const customActions    = runtime.getSetting("HELIXOR_FINANCIAL_ACTIONS");
   const financialActions = customActions
     ? customActions.split(",").map((s: string) => s.trim().toUpperCase()).filter(Boolean)
@@ -176,6 +196,7 @@ export function loadConfig(runtime: IAgentRuntime): HelixorPluginConfig {
     telemetryEnabled,
     telemetryEndpoint,
     cacheTtlMs,
+    autoPauseEnabled, autoResumeEpochs,
   };
 }
 

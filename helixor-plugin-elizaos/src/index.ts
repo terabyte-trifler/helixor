@@ -12,9 +12,11 @@
 import { type IAgentRuntime, type Plugin } from "@elizaos/core";
 import { AgentNotFoundError, HelixorError } from "@helixor/client";
 
+import { autoPauseStatusAction } from "./actions/auto_pause_status";
 import { checkTrustScoreAction } from "./actions/check_score";
 import { prepareRegistrationAction } from "./actions/prepare_registration";
 import { HelixorConfigError, loadConfig } from "./config";
+import { autoPauseEvaluator } from "./evaluators/auto_pause";
 import { trustGateEvaluator } from "./evaluators/trust_gate";
 import { scoreContextProvider } from "./providers/score_context";
 import { disposeState, getOrInitState } from "./state";
@@ -35,8 +37,8 @@ export const helixorPlugin: InitializablePlugin = {
     "Helixor trust scoring — keeps a real-time score for the agent and " +
     "blocks financial actions when score falls below the configured minimum.",
 
-  actions:    [checkTrustScoreAction, prepareRegistrationAction],
-  evaluators: [trustGateEvaluator],
+  actions:    [checkTrustScoreAction, prepareRegistrationAction, autoPauseStatusAction],
+  evaluators: [trustGateEvaluator, autoPauseEvaluator],
   providers:  [scoreContextProvider],
 
   initialize: async (runtime: IAgentRuntime): Promise<void> => {
@@ -164,8 +166,10 @@ export const helixorPlugin: InitializablePlugin = {
 };
 
 // Re-exports
+export { autoPauseStatusAction } from "./actions/auto_pause_status";
 export { checkTrustScoreAction } from "./actions/check_score";
 export { prepareRegistrationAction } from "./actions/prepare_registration";
+export { autoPauseEvaluator } from "./evaluators/auto_pause";
 export { trustGateEvaluator } from "./evaluators/trust_gate";
 export { scoreContextProvider } from "./providers/score_context";
 export { loadConfig, type HelixorPluginConfig } from "./config";
@@ -173,7 +177,7 @@ export { PLUGIN_VERSION } from "./version";
 export {
   derivePdas, prepareRegistration, submitRegistrationWithKeypair, RegistrationError,
 } from "./registration";
-export { getOrInitState, disposeState } from "./state";
+export { getOrInitState, disposeState, type PauseSnapshot } from "./state";
 export { TelemetryBeaconClient } from "./telemetry/beacon";
 
 export default helixorPlugin;
