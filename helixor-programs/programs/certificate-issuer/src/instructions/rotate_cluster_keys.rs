@@ -106,6 +106,30 @@ pub fn handler(
         CertificateError::InvalidThreshold,
     );
 
+    // ── 2a. H-2: BFT no-downgrade floor ─────────────────────────────────────
+    // The strict-majority + `!= 2` checks above still permit collapsing a
+    // BFT cluster all the way to a SINGLE key (size 1, threshold 1) — and the
+    // M-06 proof-of-possession is trivially satisfiable by the attacker's own
+    // key. A compromised `authority` could therefore rotate a 3-of-5 quorum
+    // to 1-of-1 and forge every certificate with one signature. Forbid it:
+    // once the CURRENT cluster is BFT (>= MIN_BFT_CLUSTER_KEYS), the NEW
+    // cluster must remain BFT. `config.cluster_keys` still holds the OLD set
+    // here (the commit at step 6 has not run yet).
+    //
+    // initialize_config may legitimately bootstrap a degenerate single-issuer
+    // cluster (size 1); such a sub-BFT cluster may still rotate in place
+    // (1 -> 1 key swap) or PROMOTE to BFT (1 -> {3,4,5}). It simply cannot be
+    // the *source* of a downgrade, because it was never BFT to begin with.
+    // Shrinking WITHIN the BFT range (e.g. 5 -> 3 to decommission nodes) stays
+    // allowed — only dropping below the floor is refused.
+    require!(
+        IssuerConfig::rotation_preserves_bft_floor(
+            config.cluster_keys.len(),
+            new_cluster_keys.len(),
+        ),
+        CertificateError::ClusterBftFloorViolation,
+    );
+
     // ── 3. Reject no-op rotations ───────────────────────────────────────────
     // A rotation that changes neither keys nor threshold is operationally
     // pointless AND would consume a config_version slot without buying any

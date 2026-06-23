@@ -105,6 +105,14 @@ impl IssuerConfig {
     /// pubkeys.
     pub const MAX_CLUSTER_KEYS: usize = 5;
 
+    /// H-2: the BFT floor. A cluster at or above this size is a Byzantine
+    /// fault-tolerant quorum; `rotate_cluster_keys` refuses to rotate such a
+    /// cluster BELOW this floor, so a 3-of-5 quorum can never be collapsed to
+    /// a single attacker key. `initialize_config` may still bootstrap a
+    /// degenerate single-issuer cluster (size 1) below this floor — see
+    /// `is_strict_majority_threshold`.
+    pub const MIN_BFT_CLUSTER_KEYS: usize = 3;
+
     /// AW-01-EXT.6: maximum challenge-attester cluster size. Same
     /// magnitude as the cert-signing cluster — operationally these are
     /// independent third-party validators (a friendly L2 team, a
@@ -190,5 +198,19 @@ impl IssuerConfig {
             2 => false,
             n => (threshold as usize) > n / 2 && (threshold as usize) <= n,
         }
+    }
+
+    /// H-2: the single source of truth for the rotation BFT-floor rule.
+    /// A rotation is permitted (by this rule) iff it does not DOWNGRADE a
+    /// Byzantine fault-tolerant cluster below the BFT floor:
+    ///   * if the current cluster is already BFT (>= MIN_BFT_CLUSTER_KEYS),
+    ///     the new cluster must remain BFT;
+    ///   * a sub-BFT (single-issuer) cluster may rotate to any otherwise-valid
+    ///     size — it was never BFT, so there is no quorum to collapse.
+    ///
+    /// This is intentionally independent of the strict-majority + `!= 2`
+    /// shape checks, which the caller still applies.
+    pub fn rotation_preserves_bft_floor(current_len: usize, new_len: usize) -> bool {
+        current_len < Self::MIN_BFT_CLUSTER_KEYS || new_len >= Self::MIN_BFT_CLUSTER_KEYS
     }
 }

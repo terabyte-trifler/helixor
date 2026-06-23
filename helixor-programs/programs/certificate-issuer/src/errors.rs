@@ -193,6 +193,15 @@ pub enum CertificateError {
            one key or threshold to be meaningful (and to consume a \
            config_version bump)")]
     RotationNoOpRejected = 6122,
+    #[msg("H-2: cluster rotation refused — a Byzantine fault-tolerant cluster \
+           (>= MIN_BFT_CLUSTER_KEYS) may not be rotated BELOW the BFT floor. \
+           Without this, a compromised issuer authority could collapse a \
+           3-of-5 quorum down to a single attacker key and forge every \
+           certificate with one signature. A degenerate single-issuer cluster \
+           (bootstrapped at size 1 via initialize_config) may still rotate in \
+           place or PROMOTE to a BFT cluster; it just cannot be the target of \
+           a downgrade once it is BFT.")]
+    ClusterBftFloorViolation = 6123,
 
     // ── M-09: canonical PDA bind on `get_certificate` ─────────────────────────
     #[msg("get_certificate refused — the supplied certificate account is \
