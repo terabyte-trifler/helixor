@@ -145,6 +145,10 @@ pub struct SubmitScore<'info> {
     pub system_program: Program<'info, System>,
 }
 
+// Anchor instruction handler: each cluster-supplied field is forwarded 1:1
+// into the certificate-issuer CPI, so the long arg list mirrors the callee's
+// signature by design.
+#[allow(clippy::too_many_arguments)]
 pub fn handler(
     ctx:                      Context<SubmitScore>,
     epoch:                    u64,
@@ -169,6 +173,14 @@ pub fn handler(
     // the paired ScoreComponentsAccount.
     scoring_code_hash:        [u8; 32],
     score_components_payload: Vec<u8>,
+    // Day 38: cluster-diagnosis fields. Forwarded verbatim into the
+    // certificate-issuer CPI; the cert-issuer enforces the legacy invariant
+    // (`failure_mode_bitmask & 0xFFFF_FFFF == flags`), folds all four into
+    // the cluster-signed cert digest, and writes them onto the certificate.
+    failure_mode_bitmask:     u64,
+    remediation_codes:        u32,
+    diagnosis_payload_hash:   [u8; 32],
+    taxonomy_version:         u8,
 ) -> Result<()> {
     // ── 2. precondition checks ──────────────────────────────────────────────
     require!(
@@ -288,6 +300,10 @@ pub fn handler(
         slot_anchor_hash,
         scoring_code_hash,         // AW-04: scoring-kernel bundle hash
         score_components_payload,  // AW-04: raw canonical components payload
+        failure_mode_bitmask,      // Day 38: u64 failure-mode bitmask
+        remediation_codes,         // Day 38: u32 remediation codes
+        diagnosis_payload_hash,    // Day 38: diagnosis payload hash
+        taxonomy_version,          // Day 38: taxonomy schema version
     )?;
 
     // ── emit the oracle-side event ──────────────────────────────────────────

@@ -179,4 +179,33 @@ pub enum SlashError {
            the account type. Refusing to CPI into an attacker-controlled \
            program for the staker -> vault transfer.")]
     SystemProgramIdMismatch = 6100,
+
+    // ── H-1: on-chain slash-evidence binding ────────────────────────────────
+    // execute_slash no longer trusts the executor's opaque evidence_hash.
+    // It now requires a certificate-issuer-owned HealthCertificate that
+    // PROVES the slashed agent is unhealthy. These errors gate that proof.
+    #[msg("H-1: the evidence HealthCertificate is for a different agent than \
+           the escrow vault being slashed.")]
+    SlashEvidenceAgentMismatch = 6110,
+
+    #[msg("H-1: the evidence HealthCertificate does not justify the requested \
+           offense tier. Minor/Major require at least a YELLOW certificate; \
+           Compromise (terminal burn) requires a RED certificate or the \
+           IMMEDIATE_RED fast-path. A GREEN (healthy) certificate can never \
+           justify a slash.")]
+    SlashEvidenceTierUnjustified = 6111,
+
+    #[msg("H-1: the evidence HealthCertificate is stale (older than the cert \
+           freshness ceiling). A slash must rest on a recent certificate.")]
+    SlashEvidenceStale = 6112,
+
+    #[msg("H-1: the evidence HealthCertificate has been repudiated (its \
+           slot-anchor challenge was Upheld) and is no longer valid evidence.")]
+    SlashEvidenceRepudiated = 6113,
+
+    #[msg("H-1: the supplied evidence_hash does not equal the on-chain digest \
+           recomputed from the evidence HealthCertificate. The recorded \
+           evidence must be a deterministic commitment to the certificate \
+           that justified the slash.")]
+    SlashEvidenceHashMismatch = 6114,
 }

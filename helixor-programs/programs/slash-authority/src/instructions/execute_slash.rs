@@ -32,6 +32,14 @@
 // =============================================================================
 
 use anchor_lang::prelude::*;
+use solana_program::hash::hashv;
+
+// H-1: the certificate-issuer's HealthCertificate is the ON-CHAIN proof that
+// an agent is unhealthy. execute_slash deserializes it (read-only) to verify
+// the slash is justified. `Account<'info, HealthCertificate>` enforces
+// `owner == certificate_issuer::ID` at the deserialize gate — a forged /
+// substituted evidence account cannot pass.
+use certificate_issuer::state::{AlertTier, ChallengeState, HealthCertificate};
 
 use crate::errors::SlashError;
 use crate::events::SlashExecuted;
@@ -39,6 +47,53 @@ use crate::state::{
     compute_slash_amount, EscrowVault, OffenseTier, SlashConfig,
     SlashRecord, SlashStatus, APPEAL_WINDOW_SECONDS,
 };
+
+/// H-1: domain tag for the on-chain evidence digest. Distinct from every
+/// other hashed payload in the protocol so an evidence digest can never be
+/// confused with a cert-payload / challenge / rotation digest.
+pub const SLASH_EVIDENCE_DOMAIN_TAG: &[u8] = b"helixor:slash-evidence:v1";
+
+/// H-1: recompute the canonical evidence digest from the certificate that
+/// justifies a slash. The recorded `evidence_hash` MUST equal this, so the
+/// SlashRecord carries a deterministic, auditable commitment to the exact
+/// certificate (and its decision-relevant fields) that grounded the slash.
+/// An off-chain auditor re-derives it from the on-chain cert and the cert PDA.
+pub fn slash_evidence_digest(cert_key: &Pubkey, cert: &HealthCertificate) -> [u8; 32] {
+    hashv(&[
+        SLASH_EVIDENCE_DOMAIN_TAG,
+        cert_key.as_ref(),
+        cert.agent_wallet.as_ref(),
+        &cert.epoch.to_le_bytes(),
+        &cert.score.to_le_bytes(),
+        &[cert.alert_tier],
+        &[cert.immediate_red as u8],
+        &cert.flags.to_le_bytes(),
+        &cert.issued_at.to_le_bytes(),
+    ])
+    .to_bytes()
+}
+
+/// H-1: does this certificate justify the requested offense tier?
+///
+///   * GREEN  certificate → justifies NOTHING. A healthy agent cannot be
+///     slashed at any tier. This is the core invariant the fix restores.
+///   * YELLOW/RED         → justifies Minor / Major (a documented health
+///     concern exists).
+///   * Compromise (terminal, 100% burn) additionally requires a RED tier
+///     OR the IMMEDIATE_RED security fast-path — matching the SlashRecord
+///     doc-comment ("a CONFIRMED compromise (the security layer's
+///     IMMEDIATE_RED, verified)").
+pub fn certificate_justifies_tier(tier: OffenseTier, cert: &HealthCertificate) -> bool {
+    let alert = AlertTier::from_u8(cert.alert_tier);
+    let at_least_yellow =
+        matches!(alert, Some(AlertTier::Yellow) | Some(AlertTier::Red));
+    match tier {
+        OffenseTier::Minor | OffenseTier::Major => at_least_yellow,
+        OffenseTier::Compromise => {
+            cert.immediate_red || alert == Some(AlertTier::Red)
+        }
+    }
+}
 
 #[derive(Accounts)]
 #[instruction(index: u64)]
@@ -75,6 +130,36 @@ pub struct ExecuteSlash<'info> {
     )]
     pub slash_config: Account<'info, SlashConfig>,
 
+    /// H-1: the ON-CHAIN evidence that justifies this slash — the agent's
+    /// HealthCertificate on the certificate-issuer program.
+    ///
+    /// SECURITY (the whole point of the H-1 fix):
+    ///   * `Account<'info, HealthCertificate>` enforces the account is owned
+    ///     by `certificate_issuer::ID` and carries the correct discriminator
+    ///     — a forged or substituted evidence account is rejected at the
+    ///     deserialize gate.
+    ///   * The `seeds = ["cert", agent, epoch]` + `seeds::program` constraint
+    ///     re-derives the canonical certificate PDA on the certificate-issuer
+    ///     program and proves THIS account is the real certificate for the
+    ///     vault's agent (the agent seed is the vault's agent_wallet, so the
+    ///     cert cannot belong to a different agent). The epoch seed reads the
+    ///     cert's own stored `epoch`, so any in-range epoch is accepted but it
+    ///     must be the canonical cert for that (agent, epoch).
+    ///   * The handler additionally checks freshness, repudiation, tier
+    ///     justification, and binds `evidence_hash` to the cert digest.
+    #[account(
+        seeds = [
+            HealthCertificate::SEED_PREFIX,
+            escrow_vault.agent_wallet.as_ref(),
+            &health_certificate.epoch.to_le_bytes(),
+        ],
+        bump = health_certificate.bump,
+        seeds::program = certificate_issuer::ID,
+        constraint = health_certificate.agent_wallet == escrow_vault.agent_wallet
+            @ SlashError::SlashEvidenceAgentMismatch,
+    )]
+    pub health_certificate: Account<'info, HealthCertificate>,
+
     /// The slash executor — signs the slash and pays the SlashRecord rent.
     #[account(
         mut,
@@ -105,6 +190,50 @@ pub fn handler(
     let tier = OffenseTier::from_u8(offense_tier)
         .ok_or(SlashError::InvalidOffenseTier)?;
     require!(evidence_hash != [0u8; 32], SlashError::ZeroEvidence);
+
+    // -- H-1: VERIFY THE SLASH IS JUSTIFIED BY ON-CHAIN EVIDENCE ------------
+    // Before this fix, `execute_slash` destroyed collateral on the executor's
+    // word plus an opaque `evidence_hash` that nothing on chain checked. A
+    // compromised/malicious slash_executor could slash any vault arbitrarily.
+    //
+    // Now the slash MUST cite a certificate-issuer-owned HealthCertificate
+    // (account-level owner + canonical-PDA checks are in the Accounts struct)
+    // and that certificate must actually justify destroying funds:
+    let cert = &ctx.accounts.health_certificate;
+
+    //   1. FRESHNESS — a slash cannot rest on a stale certificate. Uses the
+    //      certificate's own published freshness ceiling (TA-6, 48h). A cert
+    //      from the future also reads as stale (clock-skew safe).
+    require!(
+        cert.is_fresh_default(now),
+        SlashError::SlashEvidenceStale,
+    );
+
+    //   2. NOT REPUDIATED — a certificate whose slot-anchor challenge was
+    //      Upheld is invalid and cannot ground a slash.
+    require!(
+        ChallengeState::from_u8(cert.challenge_state) != Some(ChallengeState::Upheld),
+        SlashError::SlashEvidenceRepudiated,
+    );
+
+    //   3. TIER JUSTIFICATION — the certificate's severity must support the
+    //      requested tier. A GREEN (healthy) certificate justifies NOTHING;
+    //      Compromise requires RED / IMMEDIATE_RED. This is the invariant
+    //      that makes "slash any vault you like" impossible.
+    require!(
+        certificate_justifies_tier(tier, cert),
+        SlashError::SlashEvidenceTierUnjustified,
+    );
+
+    //   4. EVIDENCE BINDING — the recorded `evidence_hash` must be the
+    //      deterministic digest of THIS certificate, so the SlashRecord is a
+    //      forensically meaningful, re-derivable commitment to the proof —
+    //      not an arbitrary 32 bytes the executor invented.
+    let expected_evidence = slash_evidence_digest(&cert.key(), cert);
+    require!(
+        evidence_hash == expected_evidence,
+        SlashError::SlashEvidenceHashMismatch,
+    );
 
     // The SlashRecord index must be the vault's NEXT slash index -- keeps
     // the ["slash", agent, count] history strictly append-only.
@@ -199,4 +328,100 @@ pub fn handler(
         vault.agent_wallet, tier, slash_amount,
     );
     Ok(())
+}
+
+// =============================================================================
+// H-1 tests — the slash-evidence decision logic, runtime-free.
+//
+// The account-level guards (owner == certificate_issuer::ID, canonical cert
+// PDA, agent binding) are enforced by Anchor at the deserialize gate and are
+// exercised by the TypeScript integration suite. These tests pin the PURE
+// decision helpers that gate whether a given certificate may ground a slash.
+// =============================================================================
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use certificate_issuer::state::AlertTier;
+
+    /// Build a HealthCertificate with the fields the H-1 logic reads; every
+    /// other field is a deterministic filler (no randomness — the digest
+    /// tests rely on stable bytes).
+    fn cert(alert_tier: AlertTier, immediate_red: bool) -> HealthCertificate {
+        HealthCertificate {
+            agent_wallet:          Pubkey::new_from_array([7u8; 32]),
+            epoch:                 42,
+            score:                 123,
+            alert_tier:            alert_tier.as_u8(),
+            flags:                 0xABCD,
+            issued_at:             1_000_000,
+            issuer:                Pubkey::new_from_array([9u8; 32]),
+            baseline_hash:         [1u8; 32],
+            immediate_red,
+            bump:                  254,
+            layout_version:        HealthCertificate::CURRENT_LAYOUT_VERSION,
+            signer_count:          3,
+            input_commitment:      [2u8; 32],
+            slot_anchor_slot:      555,
+            slot_anchor_hash:      [3u8; 32],
+            challenge_state:       ChallengeState::None.as_u8(),
+            baseline_commit_nonce: 11,
+            scoring_code_hash:     [4u8; 32],
+            issuer_config_version: 1,
+            taxonomy_version:      1,
+            failure_mode_bitmask:  0xABCD,
+            remediation_codes:     0,
+            diagnosis_payload_hash: [5u8; 32],
+            _reserved:             [0u8; 1],
+        }
+    }
+
+    #[test]
+    fn green_certificate_justifies_no_tier() {
+        let c = cert(AlertTier::Green, false);
+        assert!(!certificate_justifies_tier(OffenseTier::Minor, &c));
+        assert!(!certificate_justifies_tier(OffenseTier::Major, &c));
+        assert!(!certificate_justifies_tier(OffenseTier::Compromise, &c));
+    }
+
+    #[test]
+    fn yellow_justifies_minor_and_major_but_not_compromise() {
+        let c = cert(AlertTier::Yellow, false);
+        assert!(certificate_justifies_tier(OffenseTier::Minor, &c));
+        assert!(certificate_justifies_tier(OffenseTier::Major, &c));
+        assert!(!certificate_justifies_tier(OffenseTier::Compromise, &c));
+    }
+
+    #[test]
+    fn red_justifies_every_tier_including_compromise() {
+        let c = cert(AlertTier::Red, false);
+        assert!(certificate_justifies_tier(OffenseTier::Minor, &c));
+        assert!(certificate_justifies_tier(OffenseTier::Major, &c));
+        assert!(certificate_justifies_tier(OffenseTier::Compromise, &c));
+    }
+
+    #[test]
+    fn immediate_red_justifies_compromise_even_on_yellow() {
+        // The IMMEDIATE_RED security fast-path can trip while the composite
+        // tier is still YELLOW — it must still ground a terminal Compromise.
+        let c = cert(AlertTier::Yellow, true);
+        assert!(certificate_justifies_tier(OffenseTier::Compromise, &c));
+    }
+
+    #[test]
+    fn evidence_digest_is_deterministic_and_field_sensitive() {
+        let key = Pubkey::new_from_array([1u8; 32]);
+        let c = cert(AlertTier::Red, false);
+        // Deterministic for identical inputs.
+        assert_eq!(slash_evidence_digest(&key, &c), slash_evidence_digest(&key, &c));
+        // A different cert key changes the digest.
+        let key2 = Pubkey::new_from_array([2u8; 32]);
+        assert_ne!(slash_evidence_digest(&key, &c), slash_evidence_digest(&key2, &c));
+        // A change to a decision-relevant field changes the digest.
+        let mut c2 = cert(AlertTier::Red, false);
+        c2.score = c.score + 1;
+        assert_ne!(slash_evidence_digest(&key, &c), slash_evidence_digest(&key, &c2));
+        let mut c3 = cert(AlertTier::Red, false);
+        c3.alert_tier = AlertTier::Yellow.as_u8();
+        assert_ne!(slash_evidence_digest(&key, &c), slash_evidence_digest(&key, &c3));
+    }
 }

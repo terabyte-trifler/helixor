@@ -1327,6 +1327,7 @@ name = "slash-authority"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",
+ "certificate-issuer",
  "solana-program",
 ]
 

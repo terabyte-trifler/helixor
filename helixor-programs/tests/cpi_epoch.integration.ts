@@ -105,6 +105,12 @@ describe("health-oracle <-> certificate-issuer CPI (Day 19)", () => {
         [...inputCommitment],            // AW-01
         new BN(slotAnchor.slot.toString()),   // AW-01-EXT slot
         [...slotAnchor.hash],                 // AW-01-EXT block hash
+        [...Buffer.alloc(32, 0xab)],          // AW-04: scoringCodeHash (non-zero)
+        Buffer.from(JSON.stringify({ v: 1 })),// AW-04: scoreComponentsPayload
+        new BN(0),                            // Day 38: failureModeBitmask (flags=0 ⇒ 0)
+        0,                                    // Day 38: remediationCodes
+        [...Buffer.alloc(32, 0)],             // Day 38: diagnosisPayloadHash
+        0,                                    // Day 38: taxonomyVersion
       )
       .accounts({
         agentRegistration: /* derived elsewhere */ undefined as any,
@@ -172,6 +178,12 @@ describe("health-oracle <-> certificate-issuer CPI (Day 19)", () => {
         [...inputCommitment],            // AW-01
         new BN(slotAnchor2.slot.toString()),  // AW-01-EXT slot
         [...slotAnchor2.hash],                // AW-01-EXT block hash
+        [...Buffer.alloc(32, 0xab)],          // AW-04: scoringCodeHash (non-zero)
+        Buffer.from(JSON.stringify({ v: 1 })),// AW-04: scoreComponentsPayload
+        new BN(0),                            // Day 38: failureModeBitmask (flags=0 ⇒ 0)
+        0,                                    // Day 38: remediationCodes
+        [...Buffer.alloc(32, 0)],             // Day 38: diagnosisPayloadHash
+        0,                                    // Day 38: taxonomyVersion
       )
       .accounts({
         agentRegistration: undefined as any,

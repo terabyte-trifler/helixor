@@ -124,6 +124,10 @@ pub mod health_oracle {
     /// to the certificate-issuer CPI which verifies it against the
     /// SlotHashes sysvar — Solana itself becomes a third source of truth
     /// beyond the cluster's RPC fleet.
+    // Anchor instruction handler: every cluster-supplied field is a distinct
+    // pass-through param forwarded to the certificate-issuer CPI; grouping
+    // them into a struct would only obscure the 1:1 mapping to the callee.
+    #[allow(clippy::too_many_arguments)]
     pub fn submit_score(
         ctx:                      Context<SubmitScore>,
         epoch:                    u64,
@@ -139,11 +143,21 @@ pub mod health_oracle {
         // the payload on chain and folds both into the cert digest.
         scoring_code_hash:        [u8; 32],
         score_components_payload: Vec<u8>,
+        // Day 38: cluster-diagnosis fields. Forwarded verbatim to the
+        // certificate-issuer CPI, which enforces the legacy invariant
+        // `failure_mode_bitmask & 0xFFFF_FFFF == flags` and folds all four
+        // into the cluster-signed cert digest.
+        failure_mode_bitmask:     u64,
+        remediation_codes:        u32,
+        diagnosis_payload_hash:   [u8; 32],
+        taxonomy_version:         u8,
     ) -> Result<()> {
         instructions::submit_score::handler(
             ctx, epoch, score, alert_tier, flags, immediate_red,
             input_commitment, slot_anchor_slot, slot_anchor_hash,
             scoring_code_hash, score_components_payload,
+            failure_mode_bitmask, remediation_codes,
+            diagnosis_payload_hash, taxonomy_version,
         )
     }
 
