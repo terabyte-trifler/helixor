@@ -211,3 +211,41 @@ pub struct VerifiedConsumerRevoked {
     pub revoke_reason:     u8,
     pub revoked_at_unix:   i64,
 }
+
+/// H-3: emitted when the current authority PROPOSES a successor via
+/// `propose_authority_transfer`. The handoff is NOT yet effective — the
+/// successor must `accept_authority_transfer` after `eta`. A monitoring
+/// operator watches this event to detect (and `cancel`) an unexpected
+/// authority handoff during the timelock window.
+#[event]
+pub struct AuthorityTransferProposed {
+    /// The current authority that proposed the transfer.
+    pub current_authority: Pubkey,
+    /// The proposed successor — must accept to take over.
+    pub pending_authority: Pubkey,
+    /// Earliest unix time the successor may accept.
+    pub eta:               i64,
+    pub proposed_at_unix:  i64,
+}
+
+/// H-3: emitted when the pending successor ACCEPTS, completing the
+/// two-step transfer. `issuer_config.authority` is now the new key.
+#[event]
+pub struct AuthorityTransferAccepted {
+    /// The authority that was retired.
+    pub old_authority: Pubkey,
+    /// The new, now-effective authority.
+    pub new_authority: Pubkey,
+    pub accepted_at_unix: i64,
+}
+
+/// H-3: emitted when the current authority CANCELS a pending transfer
+/// before it is accepted (the veto path during the timelock window).
+#[event]
+pub struct AuthorityTransferCancelled {
+    /// The current authority that cancelled.
+    pub authority:           Pubkey,
+    /// The successor proposal that was cancelled.
+    pub cancelled_pending:   Pubkey,
+    pub cancelled_at_unix:   i64,
+}

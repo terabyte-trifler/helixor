@@ -335,8 +335,9 @@ fn issuer_config_space_reserves_room_for_the_max_cluster() {
     // + 4 challenge Vec prefix + 32 * MAX_CHALLENGE_ATTESTER_KEYS (5)
     // + 1 challenge_threshold                    (AW-01-EXT.6) = 165
     // + 4 config_version                         (M-05)        =   4
-    // = 439
-    assert_eq!(IssuerConfig::SPACE, 439);
+    // + 32 pending_authority + 8 authority_transfer_eta (H-3)  =  40
+    // = 479
+    assert_eq!(IssuerConfig::SPACE, 479);
     assert_eq!(IssuerConfig::MAX_CLUSTER_KEYS, 5);
     assert_eq!(IssuerConfig::MAX_CHALLENGE_ATTESTER_KEYS, 5);
 }
@@ -363,6 +364,9 @@ fn is_cluster_key_recognises_members() {
         challenge_threshold: 0,
         // M-05: genesis snapshot.
         config_version: 1,
+        // H-3: no authority transfer pending.
+        pending_authority: Pubkey::default(),
+        authority_transfer_eta: 0,
     };
     assert!(config.is_cluster_key(&k0));
     assert!(config.is_cluster_key(&k1));

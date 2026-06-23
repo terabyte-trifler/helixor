@@ -237,4 +237,28 @@ pub enum CertificateError {
            the off-chain submitter computed them independently — both indicate \
            a bug that must surface, not be silently accepted.")]
     LegacyFlagsBitmaskMismatch = 6140,
+
+    // ── H-3: two-step authority transfer ────────────────────────────────────
+    #[msg("H-3: propose_authority_transfer refused — the proposed new \
+           authority is the all-zero default pubkey. Refusing to schedule a \
+           handoff to an unspendable address, which would brick the cert \
+           system's admin authority forever.")]
+    ZeroPendingAuthority = 6150,
+    #[msg("H-3: propose_authority_transfer refused — the proposed new \
+           authority equals the CURRENT authority. A transfer must change \
+           the key to be meaningful.")]
+    PendingAuthorityIsCurrent = 6151,
+    #[msg("H-3: authority-transfer action refused — no transfer is currently \
+           pending (pending_authority is the all-zero default). Propose one \
+           first.")]
+    NoPendingAuthorityTransfer = 6152,
+    #[msg("H-3: accept_authority_transfer refused — the signer is not the \
+           pending_authority recorded by propose_authority_transfer. Only the \
+           proposed successor may accept (this proves it controls the key).")]
+    NotPendingAuthority = 6153,
+    #[msg("H-3: accept_authority_transfer refused — the 48h transfer timelock \
+           has not elapsed. The successor may accept only after \
+           authority_transfer_eta, giving a monitoring operator a window to \
+           cancel a malicious or mistaken proposal.")]
+    AuthorityTransferTimelockNotElapsed = 6154,
 }

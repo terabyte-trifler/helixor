@@ -60,18 +60,21 @@ fn issuer_config_size_is_correct() {
     // AW-01-EXT.6 extends it again with challenge_attester_keys + threshold.
     // M-05 appends config_version (u32) to bind the cluster signatures to
     // a specific IssuerConfig snapshot — every cert-write stamps the
-    // current value and folds it into the digest:
+    // current value and folds it into the digest.
+    // H-3 appends pending_authority (32) + authority_transfer_eta (i64, 8)
+    // for the two-step admin-authority transfer:
     //   8 disc + 32 authority + 32 issuer_node
     // + 4 Vec prefix + 32*5 cluster_keys reserved + 1 threshold + 1 bump
     // + 32 health_oracle_program_id
     // + 4 Vec prefix + 32*5 challenge_attester_keys reserved + 1 challenge_threshold
     // + 4 config_version                                              (M-05)
-    // = 439
+    // + 32 pending_authority + 8 authority_transfer_eta               (H-3)
+    // = 479
     assert_eq!(
         IssuerConfig::SPACE,
-        8 + 32 + 32 + 4 + (32 * 5) + 1 + 1 + 32 + 4 + (32 * 5) + 1 + 4,
+        8 + 32 + 32 + 4 + (32 * 5) + 1 + 1 + 32 + 4 + (32 * 5) + 1 + 4 + 32 + 8,
     );
-    assert_eq!(IssuerConfig::SPACE, 439);
+    assert_eq!(IssuerConfig::SPACE, 479);
 }
 
 #[test]
@@ -201,6 +204,9 @@ fn cfg_with(cluster_keys: Vec<Pubkey>) -> IssuerConfig {
         // M-05: baseline-writer tests don't exercise the digest path; pin
         // to the genesis snapshot.
         config_version:           1,
+        // H-3: no authority transfer pending.
+        pending_authority:        Pubkey::default(),
+        authority_transfer_eta:   0,
     }
 }
 

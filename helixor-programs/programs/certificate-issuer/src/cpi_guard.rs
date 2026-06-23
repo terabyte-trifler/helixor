@@ -169,6 +169,9 @@ mod tests {
             // M-05: CPI-guard tests are orthogonal to the config-snapshot
             // version; pin the genesis value.
             config_version: 1,
+            // H-3: no authority transfer pending.
+            pending_authority: Pubkey::default(),
+            authority_transfer_eta: 0,
         }
     }
 

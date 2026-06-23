@@ -134,6 +134,10 @@ pub fn handler(
     // `update_issuer_config` ix MUST strictly increment this field so a
     // verifier walking historical certs can fetch the correct snapshot.
     config.config_version           = 1;
+    // H-3: no authority transfer is pending at genesis. A successor is
+    // installed only via the two-step propose/accept ceremony.
+    config.pending_authority        = Pubkey::default();
+    config.authority_transfer_eta   = 0;
 
     msg!(
         "certificate-issuer config initialised: {}-key cluster, threshold {}-of-{}, \

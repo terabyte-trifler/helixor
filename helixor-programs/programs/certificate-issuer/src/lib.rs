@@ -249,4 +249,34 @@ pub mod certificate_issuer {
     ) -> Result<()> {
         instructions::rotate_cluster_keys::handler(ctx, new_cluster_keys, new_threshold)
     }
+
+    /// H-3: two-step, time-locked transfer of the IssuerConfig admin
+    /// authority. The current authority PROPOSES a successor; after a 48h
+    /// timelock the successor ACCEPTS (proving it controls the key); the
+    /// current authority may CANCEL a pending proposal in the window.
+    /// Pre-H-3 `authority` was set once at init and could never change —
+    /// a single compromised admin key had no remedy and a lost key bricked
+    /// cluster rotation. See `transfer_authority.rs`.
+    pub fn propose_authority_transfer(
+        ctx:           Context<ProposeAuthorityTransfer>,
+        new_authority: Pubkey,
+    ) -> Result<()> {
+        instructions::transfer_authority::propose_handler(ctx, new_authority)
+    }
+
+    /// H-3: the pending successor accepts the transfer after the timelock,
+    /// atomically becoming the new `issuer_config.authority`.
+    pub fn accept_authority_transfer(
+        ctx: Context<AcceptAuthorityTransfer>,
+    ) -> Result<()> {
+        instructions::transfer_authority::accept_handler(ctx)
+    }
+
+    /// H-3: the current authority cancels a pending transfer before it is
+    /// accepted (the veto path during the timelock window).
+    pub fn cancel_authority_transfer(
+        ctx: Context<CancelAuthorityTransfer>,
+    ) -> Result<()> {
+        instructions::transfer_authority::cancel_handler(ctx)
+    }
 }

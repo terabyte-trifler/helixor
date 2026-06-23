@@ -450,6 +450,9 @@ mod tests {
             // M-05: challenge-tally tests don't exercise the cert-issuance
             // digest path; pin the genesis snapshot.
             config_version:           1,
+            // H-3: no authority transfer pending.
+            pending_authority:        Pubkey::default(),
+            authority_transfer_eta:   0,
         }
     }
 

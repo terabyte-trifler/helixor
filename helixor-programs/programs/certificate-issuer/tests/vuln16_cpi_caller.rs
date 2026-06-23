@@ -50,6 +50,9 @@ fn cfg_with_oracle(health_oracle_program_id: Pubkey) -> IssuerConfig {
         // M-05: CPI-caller tests don't exercise the digest path; pin to
         // the genesis snapshot.
         config_version:           1,
+        // H-3: no authority transfer pending.
+        pending_authority:        Pubkey::default(),
+        authority_transfer_eta:   0,
     }
 }
 

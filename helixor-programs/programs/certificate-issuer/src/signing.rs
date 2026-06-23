@@ -470,6 +470,9 @@ mod tests {
             // precompile instructions, not the config snapshot. Use the
             // genesis value 1 so the helper matches a fresh deployment.
             config_version: 1,
+            // H-3: no authority transfer pending.
+            pending_authority: Pubkey::default(),
+            authority_transfer_eta: 0,
         }
     }
 

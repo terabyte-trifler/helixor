@@ -98,6 +98,24 @@ pub struct IssuerConfig {
     /// coordinated deploy: chain field bumps, off-chain signer reads
     /// the new value, cluster keeps signing.
     pub config_version:           u32,
+    /// H-3: the PROPOSED next authority in a two-step transfer. The
+    /// all-zero default means "no transfer pending". The current
+    /// `authority` proposes a successor here; the successor must then
+    /// ACCEPT (sign `accept_authority_transfer`) after the timelock to
+    /// take over. Requiring the successor to actively accept proves it
+    /// controls the key (no fat-fingered transfer to an unspendable
+    /// address) and gives the cert system a recovery path it previously
+    /// lacked — pre-H-3 `authority` was set once at init and could never
+    /// change, so a lost admin key meant cluster keys were permanently
+    /// un-rotatable and a compromised admin key had no on-chain remedy.
+    pub pending_authority:        Pubkey,
+    /// H-3: the earliest unix timestamp at which `pending_authority` may
+    /// accept the transfer (= propose time + AUTHORITY_TRANSFER_TIMELOCK_
+    /// SECONDS). Zero when no transfer is pending. The timelock makes an
+    /// authority handoff an on-chain-observable, delayed event so a
+    /// monitoring operator can `cancel` a malicious/erroneous proposal
+    /// before it is accepted.
+    pub authority_transfer_eta:   i64,
 }
 
 impl IssuerConfig {
@@ -133,13 +151,30 @@ impl IssuerConfig {
     /// + 32 * MAX_CHALLENGE_ATTESTER_KEYS  (reserved slots)    (AW-01-EXT.6)
     /// + 1  challenge_threshold                                (AW-01-EXT.6)
     /// + 4  config_version                                     (M-05)
+    /// + 32 pending_authority                                  (H-3)
+    /// + 8  authority_transfer_eta                             (H-3)
     pub const SPACE: usize =
         8 + 32 + 32 + 4 + (32 * Self::MAX_CLUSTER_KEYS) + 1 + 1 + 32
         + 4 + (32 * Self::MAX_CHALLENGE_ATTESTER_KEYS) + 1
-        + 4;
+        + 4
+        + 32 + 8;
+
+    /// H-3: the timelock between PROPOSING and ACCEPTING an authority
+    /// transfer. 48h — the same window the slash-authority + oracle-key
+    /// rotation ceremonies use, long enough for a monitoring operator to
+    /// observe the on-chain `AuthorityTransferProposed` event and `cancel`
+    /// a malicious or mistaken proposal before it is accepted.
+    pub const AUTHORITY_TRANSFER_TIMELOCK_SECONDS: i64 = 48 * 60 * 60;
 
     /// The PDA seed.
     pub const SEED: &'static [u8] = b"issuer_config";
+
+    /// H-3: true iff a two-step authority transfer is currently pending
+    /// (a non-default `pending_authority` has been proposed but not yet
+    /// accepted or cancelled).
+    pub fn has_pending_authority_transfer(&self) -> bool {
+        self.pending_authority != Pubkey::default()
+    }
 
     /// True iff `key` is one of the cluster's signing keys.
     pub fn is_cluster_key(&self, key: &Pubkey) -> bool {
