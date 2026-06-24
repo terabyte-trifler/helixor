@@ -198,4 +198,21 @@ pub enum HelixorError {
            floor is the signal: a runaway oracle script that ignores it \
            burns SOL per call. Increase the deposit and resubmit.")]
     SubmitEscrowBelowFloor = 6100,
+
+    // ── M-1: bind submit_score's baseline_stats to the gated registration ───
+    #[msg("M-1: the baseline_stats account passed to submit_score belongs to a \
+           DIFFERENT agent than the gated agent_registration. The cert PDA, \
+           score-components, escrow and signed digest are all keyed on \
+           baseline_stats.agent_wallet, so an unconstrained baseline_stats \
+           would let the active/baseline_committed gate be checked against one \
+           agent while the certificate is issued for another. The two MUST \
+           refer to the same agent.")]
+    BaselineStatsAgentMismatch = 6120,
+    #[msg("M-1: the baseline_stats.baseline_hash passed to submit_score does \
+           not equal agent_registration.baseline_hash. The certified baseline \
+           must be the SAME one the agent committed on health-oracle (AW-03) — \
+           otherwise the cert could attest a score derived from a baseline the \
+           agent never committed. Re-record the cert-issuer baseline so it \
+           mirrors the committed baseline, then resubmit.")]
+    BaselineStatsHashMismatch = 6121,
 }

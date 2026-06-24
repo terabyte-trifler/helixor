@@ -117,6 +117,23 @@ pub struct SubmitScore<'info> {
     pub score_components: UncheckedAccount<'info>,
 
     /// The agent's BaselineStats on the certificate-issuer program.
+    ///
+    /// M-1: the cert PDA, score-components, M-13 escrow and the cluster-signed
+    /// digest are ALL keyed on `baseline_stats.agent_wallet` — NOT on the
+    /// gated `agent_registration` below. Without binding the two, an oracle
+    /// could pass `agent_registration` for an active, baseline-committed agent
+    /// A (passing the gate) while passing `baseline_stats` for a different
+    /// agent B, issuing B's certificate while the active/baseline_committed
+    /// checks only ever looked at A (and the escrow + ScoreSubmitted event
+    /// would point at A — an audit-trail desync). These constraints force
+    /// `baseline_stats` to describe the SAME agent the gate validated, and the
+    /// SAME baseline the agent committed (AW-03).
+    #[account(
+        constraint = baseline_stats.agent_wallet == agent_registration.agent_wallet
+            @ HelixorError::BaselineStatsAgentMismatch,
+        constraint = baseline_stats.baseline_hash == agent_registration.baseline_hash
+            @ HelixorError::BaselineStatsHashMismatch,
+    )]
     pub baseline_stats: Account<'info, BaselineStats>,
 
     /// The certificate-issuer's IssuerConfig.
