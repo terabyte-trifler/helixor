@@ -96,14 +96,26 @@ const CHALLENGE_DOMAIN_TAG: &[u8] = b"helixor-aw01-ext-challenge";
 /// Layout (fixed, public):
 ///   "helixor-aw01-ext-challenge"  (26 bytes)
 ///   cert_pubkey                   (32 bytes) — binds the attestation to THIS cert
+///   slot_anchor_slot              ( 8 bytes, BE) — M-5: the slot the hash is FOR
 ///   true_block_hash               (32 bytes) — the attester's observed truth
+///
+/// M-5: `slot_anchor_slot` is folded in so attesters cryptographically commit
+/// to WHICH slot `true_block_hash` belongs to. The repudiation decision
+/// compares `true_block_hash` against `cert.slot_anchor_hash` (the hash the
+/// cluster pinned at `cert.slot_anchor_slot`); without the slot in the signed
+/// payload, a relayer/tooling mismatch on the slot could present attester
+/// signatures over the wrong-slot hash and repudiate an honest cert — which
+/// triggers off-chain slashing of the cert-signing cluster. Binding the slot
+/// makes such a mis-bound attestation un-forgeable.
 pub fn challenge_payload_digest(
-    certificate:     &Pubkey,
-    true_block_hash: &[u8; 32],
+    certificate:      &Pubkey,
+    slot_anchor_slot: u64,
+    true_block_hash:  &[u8; 32],
 ) -> [u8; 32] {
     let h = hashv(&[
         CHALLENGE_DOMAIN_TAG,
         certificate.as_ref(),
+        &slot_anchor_slot.to_be_bytes(),
         true_block_hash,
     ]);
     h.to_bytes()
@@ -345,7 +357,8 @@ pub fn handler(
     //    digest. Same Ed25519-precompile pattern as cert-signing, but
     //    against the DISJOINT attester key set.
     let cert_key = cert.key();
-    let digest = challenge_payload_digest(&cert_key, &true_block_hash);
+    // M-5: bind the cert's slot anchor into the digest the attesters signed.
+    let digest = challenge_payload_digest(&cert_key, cert.slot_anchor_slot, &true_block_hash);
     let attester_count = verify_attester_threshold(
         &digest,
         config,
@@ -488,7 +501,7 @@ mod tests {
 
     #[test]
     fn digest_is_32_bytes() {
-        let d = challenge_payload_digest(&Pubkey::new_unique(), &[1u8; 32]);
+        let d = challenge_payload_digest(&Pubkey::new_unique(), 100, &[1u8; 32]);
         assert_eq!(d.len(), 32);
     }
 
@@ -497,27 +510,39 @@ mod tests {
         let cert = Pubkey::new_unique();
         let hash = [7u8; 32];
         assert_eq!(
-            challenge_payload_digest(&cert, &hash),
-            challenge_payload_digest(&cert, &hash),
+            challenge_payload_digest(&cert, 100, &hash),
+            challenge_payload_digest(&cert, 100, &hash),
         );
     }
 
     #[test]
     fn digest_binds_to_cert_pubkey() {
-        // Same true_block_hash, different certs → different digests.
+        // Same slot + true_block_hash, different certs → different digests.
         // This is the cross-cert replay defence.
         let h = [3u8; 32];
-        let a = challenge_payload_digest(&Pubkey::new_unique(), &h);
-        let b = challenge_payload_digest(&Pubkey::new_unique(), &h);
+        let a = challenge_payload_digest(&Pubkey::new_unique(), 100, &h);
+        let b = challenge_payload_digest(&Pubkey::new_unique(), 100, &h);
         assert_ne!(a, b);
     }
 
     #[test]
     fn digest_binds_to_true_block_hash() {
         let cert = Pubkey::new_unique();
-        let a = challenge_payload_digest(&cert, &[1u8; 32]);
-        let b = challenge_payload_digest(&cert, &[2u8; 32]);
+        let a = challenge_payload_digest(&cert, 100, &[1u8; 32]);
+        let b = challenge_payload_digest(&cert, 100, &[2u8; 32]);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn digest_binds_to_slot_anchor_slot() {
+        // M-5: same cert + same true_block_hash but DIFFERENT slots must yield
+        // different digests — attesters cryptographically commit to the slot.
+        let cert = Pubkey::new_unique();
+        let h = [5u8; 32];
+        assert_ne!(
+            challenge_payload_digest(&cert, 100, &h),
+            challenge_payload_digest(&cert, 101, &h),
+        );
     }
 
     #[test]
@@ -526,7 +551,7 @@ mod tests {
         // for any plausible inputs — distinct domain tag + distinct
         // structure ensures that. Sanity-check: the prefix bytes differ.
         let cert = Pubkey::new_from_array([0x11; 32]);
-        let challenge_d = challenge_payload_digest(&cert, &[0u8; 32]);
+        let challenge_d = challenge_payload_digest(&cert, 0, &[0u8; 32]);
         let cert_d = crate::signing::cert_payload_digest(
             &cert, 1, 0, 0, 0, &[0u8; 32], false, &[0u8; 32], 0, &[0u8; 32], 0,
             &[0u8; 32], &[0u8; 32], 0,
