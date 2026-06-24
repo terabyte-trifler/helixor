@@ -249,3 +249,18 @@ pub struct AuthorityTransferCancelled {
     pub cancelled_pending:   Pubkey,
     pub cancelled_at_unix:   i64,
 }
+
+/// M-6: emitted when the issuer authority INVALIDATES a certificate (the
+/// on-chain recovery path for a bad-score cert the slot-anchor challenge layer
+/// cannot catch). Downstream consumers must treat `certificate` as repudiated
+/// from this point; the agent's next-epoch cert supersedes it.
+#[event]
+pub struct CertificateInvalidated {
+    /// The cert PDA that was invalidated.
+    pub certificate:    Pubkey,
+    pub agent_wallet:   Pubkey,
+    pub epoch:          u64,
+    /// The issuer authority that invalidated it.
+    pub authority:      Pubkey,
+    pub invalidated_at_unix: i64,
+}

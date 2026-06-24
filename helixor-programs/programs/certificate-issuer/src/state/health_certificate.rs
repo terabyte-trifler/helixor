@@ -90,15 +90,23 @@ pub enum AlertTier {
 ///              the cert's `slot_anchor_hash`). The cert is now
 ///              PROVABLY honest at the slot-anchor layer; the ix's
 ///              init-once guard prevents re-challenges.
+///   Invalidated — M-6: the issuer authority explicitly REPUDIATED this
+///              cert via `invalidate_certificate` (e.g. a buggy/malicious
+///              oracle wrote a wrong SCORE that the slot-anchor challenge
+///              path cannot catch). Downstream consumers treat it exactly
+///              like `Upheld` (invalid); the distinct value records that
+///              the repudiation came from the authority, not an attester
+///              challenge. The agent's next-epoch cert supersedes it.
 ///
 /// Stored as a single u8 in `HealthCertificate._reserved` so the
 /// layout grows from v4 → v5 without a realloc.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[borsh(use_discriminant = true)]
 pub enum ChallengeState {
-    None     = 0,
-    Upheld   = 1,
-    Rejected = 2,
+    None        = 0,
+    Upheld      = 1,
+    Rejected    = 2,
+    Invalidated = 3,
 }
 
 impl ChallengeState {
@@ -108,10 +116,18 @@ impl ChallengeState {
             0 => Some(ChallengeState::None),
             1 => Some(ChallengeState::Upheld),
             2 => Some(ChallengeState::Rejected),
+            3 => Some(ChallengeState::Invalidated),
             _ => None,
         }
     }
     pub fn as_u8(self) -> u8 { self as u8 }
+
+    /// Whether downstream consumers must treat the cert as REPUDIATED
+    /// (invalid). Both an upheld slot-anchor challenge and an authority
+    /// invalidation (M-6) repudiate the cert.
+    pub fn is_repudiated(self) -> bool {
+        matches!(self, ChallengeState::Upheld | ChallengeState::Invalidated)
+    }
 }
 
 impl Default for ChallengeState {

@@ -302,4 +302,11 @@ pub enum CertificateError {
            call, or a single CPI hop from health-oracle — and fails closed on \
            anything deeper.")]
     NestedCpiCallerRejected = 6180,
+
+    // ── M-6: authority-gated certificate invalidation ───────────────────────
+    #[msg("M-6: invalidate_certificate refused — the certificate is not in the \
+           None challenge state, so it has already been resolved (challenged \
+           Upheld/Rejected, or already Invalidated). Only an as-yet-unresolved \
+           certificate can be authority-invalidated.")]
+    CertificateAlreadyResolved = 6190,
 }

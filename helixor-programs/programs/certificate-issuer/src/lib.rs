@@ -268,6 +268,16 @@ pub mod certificate_issuer {
         )
     }
 
+    /// M-6: authority-gated certificate invalidation — the on-chain recovery
+    /// path for a bad-score cert. Flips the cert's challenge_state to
+    /// `Invalidated` (repudiated) without mutating its signed content; the
+    /// agent's next-epoch cert supersedes it. Gated on issuer_config.authority.
+    pub fn invalidate_certificate(
+        ctx: Context<InvalidateCertificate>,
+    ) -> Result<()> {
+        instructions::invalidate_certificate::handler(ctx)
+    }
+
     /// H-3: two-step, time-locked transfer of the IssuerConfig admin
     /// authority. The current authority PROPOSES a successor; after a 48h
     /// timelock the successor ACCEPTS (proving it controls the key); the

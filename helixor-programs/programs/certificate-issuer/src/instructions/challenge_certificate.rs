@@ -427,10 +427,9 @@ pub fn handler(
                 cert_key, attester_count,
             );
         }
-        // The `prior_state == None` guard above means we never reach
-        // this branch with `None`; the match is exhaustive over the
-        // outcome enum.
-        ChallengeState::None => unreachable!(
+        // The challenge outcome is only ever Upheld or Rejected; None and the
+        // M-6 authority-set Invalidated state are never produced here.
+        ChallengeState::None | ChallengeState::Invalidated => unreachable!(
             "outcome can only be Upheld or Rejected post-verification",
         ),
     }
