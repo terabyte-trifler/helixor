@@ -292,4 +292,14 @@ pub enum CertificateError {
            cannot reach the threshold; the quorum must come from `threshold` \
            independent domains.")]
     InsufficientSignerDiversity = 6172,
+
+    // ── M-2: nested-CPI hardening of the cpi-guard ──────────────────────────
+    #[msg("M-2: certificate write refused — issue_certificate was reached via a \
+           NESTED CPI (stack height > 2). The instructions-sysvar only exposes \
+           the TOP-LEVEL instruction, which is NOT the immediate caller once \
+           there is more than one CPI hop, so the caller cannot be attributed. \
+           The protocol has exactly two legitimate paths — a direct top-level \
+           call, or a single CPI hop from health-oracle — and fails closed on \
+           anything deeper.")]
+    NestedCpiCallerRejected = 6180,
 }

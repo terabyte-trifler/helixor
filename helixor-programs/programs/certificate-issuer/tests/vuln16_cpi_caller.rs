@@ -58,25 +58,32 @@ fn cfg_with_oracle(health_oracle_program_id: Pubkey) -> IssuerConfig {
     }
 }
 
-/// Mirror of the pure decision logic in `cpi_guard::assert_trusted_caller`,
-/// extracted for runtime-free testing. The real handler reads `caller_pid`
-/// from the Instructions sysvar; everything AFTER that read is exactly this
-/// function. Keeping a copy here pins the policy independent of the helper
-/// module's internal `#[cfg(test)]` mod.
+// M-2: stack-height constants mirroring solana_program's
+// TRANSACTION_LEVEL_STACK_HEIGHT (= 1).
+const DIRECT: usize = 1;   // top-level instruction
+const ONE_HOP: usize = 2;  // single CPI hop — top-level IS the immediate caller
+const NESTED: usize = 3;   // nested CPI — top-level is NOT the immediate caller
+
+/// Mirror of the pure decision logic in `cpi_guard::is_trusted_caller`,
+/// extracted for runtime-free testing. The real handler reads the TOP-LEVEL
+/// program id from the Instructions sysvar and the depth from
+/// `get_stack_height()`; everything AFTER those reads is exactly this
+/// function. Keeping a copy here pins the policy (including the M-2
+/// stack-height attribution) independent of the lib's `pub(crate)` helper.
 fn is_trusted_caller(
-    caller_pid:      &Pubkey,
+    top_level_pid:   &Pubkey,
     self_program_id: &Pubkey,
     config:          &IssuerConfig,
+    stack_height:    usize,
 ) -> bool {
-    if caller_pid == self_program_id {
-        return true;
+    if stack_height == DIRECT {
+        return top_level_pid == self_program_id;
     }
-    if config.has_health_oracle_program()
-        && caller_pid == &config.health_oracle_program_id
-    {
-        return true;
+    if stack_height == ONE_HOP {
+        return config.has_health_oracle_program()
+            && top_level_pid == &config.health_oracle_program_id;
     }
-    false
+    false // nested CPI (or degenerate height 0) — cannot attribute the caller
 }
 
 // =============================================================================
@@ -88,7 +95,7 @@ fn direct_top_level_call_is_trusted_when_allow_list_enabled() {
     let self_pid   = Pubkey::new_unique();
     let oracle_pid = Pubkey::new_unique();
     let config     = cfg_with_oracle(oracle_pid);
-    assert!(is_trusted_caller(&self_pid, &self_pid, &config));
+    assert!(is_trusted_caller(&self_pid, &self_pid, &config, DIRECT));
 }
 
 #[test]
@@ -97,7 +104,7 @@ fn direct_top_level_call_is_trusted_when_allow_list_disabled() {
     // works — it isn't a CPI, so the allow-list is irrelevant.
     let self_pid = Pubkey::new_unique();
     let config   = cfg_with_oracle(Pubkey::default());
-    assert!(is_trusted_caller(&self_pid, &self_pid, &config));
+    assert!(is_trusted_caller(&self_pid, &self_pid, &config, DIRECT));
 }
 
 // =============================================================================
@@ -109,7 +116,7 @@ fn cpi_from_configured_health_oracle_is_trusted() {
     let self_pid   = Pubkey::new_unique();
     let oracle_pid = Pubkey::new_unique();
     let config     = cfg_with_oracle(oracle_pid);
-    assert!(is_trusted_caller(&oracle_pid, &self_pid, &config));
+    assert!(is_trusted_caller(&oracle_pid, &self_pid, &config, ONE_HOP));
 }
 
 #[test]
@@ -118,7 +125,7 @@ fn cpi_from_configured_health_oracle_is_trusted_even_if_oracle_equals_self() {
     // program ID. Both branches of the check (== self, == oracle) pass.
     let self_pid = Pubkey::new_unique();
     let config   = cfg_with_oracle(self_pid);
-    assert!(is_trusted_caller(&self_pid, &self_pid, &config));
+    assert!(is_trusted_caller(&self_pid, &self_pid, &config, DIRECT));
 }
 
 // =============================================================================
@@ -135,7 +142,7 @@ fn cpi_from_attacker_program_is_rejected() {
     let oracle_pid   = Pubkey::new_unique();
     let attacker_pid = Pubkey::new_unique();
     let config       = cfg_with_oracle(oracle_pid);
-    assert!(!is_trusted_caller(&attacker_pid, &self_pid, &config));
+    assert!(!is_trusted_caller(&attacker_pid, &self_pid, &config, ONE_HOP));
 }
 
 #[test]
@@ -148,7 +155,7 @@ fn cpi_from_attacker_program_remains_rejected_across_many_random_pids() {
     let config     = cfg_with_oracle(oracle_pid);
     for _ in 0..32 {
         let attacker_pid = Pubkey::new_unique();
-        assert!(!is_trusted_caller(&attacker_pid, &self_pid, &config));
+        assert!(!is_trusted_caller(&attacker_pid, &self_pid, &config, ONE_HOP));
     }
 }
 
@@ -165,7 +172,7 @@ fn cpi_from_any_program_is_rejected_when_oracle_disabled() {
     let config   = cfg_with_oracle(Pubkey::default());
     for _ in 0..16 {
         let cpi_pid = Pubkey::new_unique();
-        assert!(!is_trusted_caller(&cpi_pid, &self_pid, &config));
+        assert!(!is_trusted_caller(&cpi_pid, &self_pid, &config, ONE_HOP));
     }
 }
 
@@ -178,7 +185,7 @@ fn zero_caller_pid_does_not_bypass_check_when_allow_list_disabled() {
     // accept this. The guard prevents that — pin it.
     let self_pid = Pubkey::new_unique();
     let config   = cfg_with_oracle(Pubkey::default());
-    assert!(!is_trusted_caller(&Pubkey::default(), &self_pid, &config));
+    assert!(!is_trusted_caller(&Pubkey::default(), &self_pid, &config, ONE_HOP));
 }
 
 #[test]
@@ -189,7 +196,7 @@ fn zero_caller_pid_is_rejected_even_when_allow_list_enabled() {
     let self_pid   = Pubkey::new_unique();
     let oracle_pid = Pubkey::new_unique();
     let config     = cfg_with_oracle(oracle_pid);
-    assert!(!is_trusted_caller(&Pubkey::default(), &self_pid, &config));
+    assert!(!is_trusted_caller(&Pubkey::default(), &self_pid, &config, ONE_HOP));
 }
 
 // =============================================================================
@@ -218,4 +225,34 @@ fn vuln16_error_codes_are_stable() {
     // matches on these numeric codes — they must not be silently renumbered.
     assert_eq!(CertificateError::UntrustedCpiCaller        as u32, 6050);
     assert_eq!(CertificateError::CallerIntrospectionFailed as u32, 6051);
+    assert_eq!(CertificateError::NestedCpiCallerRejected   as u32, 6180);
+}
+
+// =============================================================================
+// (7) M-2 — stack-height attribution: nested CPI is rejected.
+// =============================================================================
+
+#[test]
+fn nested_cpi_is_rejected_even_from_health_oracle() {
+    // The M-2 fix: at stack height > 2 the top-level program is NOT the
+    // immediate caller (a hostile middle program could sit between the
+    // allow-listed root and us), so even the health-oracle program id — which
+    // passes at one hop — must be refused at any deeper nesting.
+    let self_pid   = Pubkey::new_unique();
+    let oracle_pid = Pubkey::new_unique();
+    let config     = cfg_with_oracle(oracle_pid);
+    assert!(!is_trusted_caller(&oracle_pid, &self_pid, &config, NESTED));
+    assert!(!is_trusted_caller(&self_pid, &self_pid, &config, NESTED));
+}
+
+#[test]
+fn role_and_depth_must_match() {
+    // self is trusted ONLY at direct height; health-oracle ONLY at one hop.
+    let self_pid   = Pubkey::new_unique();
+    let oracle_pid = Pubkey::new_unique();
+    let config     = cfg_with_oracle(oracle_pid);
+    // self at a CPI hop -> rejected (some other program is the root).
+    assert!(!is_trusted_caller(&self_pid, &self_pid, &config, ONE_HOP));
+    // health-oracle as a top-level direct call -> rejected.
+    assert!(!is_trusted_caller(&oracle_pid, &self_pid, &config, DIRECT));
 }

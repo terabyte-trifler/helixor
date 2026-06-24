@@ -51,6 +51,7 @@ use solana_instructions_sysvar::{
     load_instruction_at_checked,
     ID as INSTRUCTIONS_ID,
 };
+use solana_program::instruction::{get_stack_height, TRANSACTION_LEVEL_STACK_HEIGHT};
 
 use crate::errors::CertificateError;
 use crate::state::IssuerConfig;
@@ -59,15 +60,30 @@ use crate::state::IssuerConfig;
 /// Verify the program that CPI-invoked us — or the user that called us
 /// directly — is on the configured trust list.
 ///
-/// Allow list (any one is sufficient):
-///   * the certificate-issuer program itself (the call is top-level,
-///     i.e. NOT a CPI — gated by threshold sigs as usual);
-///   * the `health_oracle_program_id` recorded in `config` (the canonical
-///     CPI path from `health-oracle::submit_score`).
+/// M-2 — IMMEDIATE-CALLER ATTRIBUTION VIA STACK HEIGHT
+/// ---------------------------------------------------
+/// The instructions sysvar only exposes the TOP-LEVEL instruction, which is
+/// the immediate caller ONLY when there is at most one CPI hop. A nested CPI
+/// (A → B → issue_certificate, A allow-listed, B hostile) would otherwise see
+/// A (trusted) and pass, even though B is the real caller. We pin the depth
+/// with `get_stack_height()` so the top-level program is provably the
+/// immediate caller, and fail closed on anything deeper:
 ///
-/// Rejects with `UntrustedCpiCaller` for any other top-level program.
-/// Rejects with `CallerIntrospectionFailed` if the sysvar cannot be read —
-/// we refuse to issue a cert if we cannot attribute the caller, fail-closed.
+///   * stack height == TRANSACTION_LEVEL_STACK_HEIGHT (1): WE are the
+///     top-level instruction — a direct call. Permitted iff the top-level
+///     program is certificate-issuer itself (the threshold-sig check is the
+///     substantive gate for this path).
+///   * stack height == TRANSACTION_LEVEL_STACK_HEIGHT + 1 (2): exactly one CPI
+///     hop. We sit one level below the transaction root, so the top-level
+///     program IS our immediate caller. Permitted iff it is the configured
+///     `health_oracle_program_id` (the canonical submit-score CPI path).
+///   * stack height > 2: a NESTED CPI. The top-level is no longer our
+///     immediate caller and the sysvar cannot attribute who is — there is no
+///     legitimate nested path, so reject with `NestedCpiCallerRejected`.
+///
+/// Rejects with `UntrustedCpiCaller` for a single-hop CPI from any other
+/// program, `NestedCpiCallerRejected` for >1 hop, and
+/// `CallerIntrospectionFailed` if the sysvar cannot be read — all fail-closed.
 pub fn assert_trusted_caller(
     instructions_sysvar:  &AccountInfo,
     config:               &IssuerConfig,
@@ -81,35 +97,34 @@ pub fn assert_trusted_caller(
         CertificateError::WrongInstructionsSysvar,
     );
 
-    // The CURRENT top-level instruction is the OUTER ix being processed.
-    // For a direct call: program_id == self (certificate_issuer).
-    // For a CPI: program_id == the program that invoked our CPI entry.
+    let stack_height = get_stack_height();
+
+    // The CURRENT top-level instruction is the transaction-root ix.
     let current_idx = load_current_index_checked(instructions_sysvar)
         .map_err(|_| error!(CertificateError::CallerIntrospectionFailed))?;
     let top_level = load_instruction_at_checked(
         current_idx as usize, instructions_sysvar,
     ).map_err(|_| error!(CertificateError::CallerIntrospectionFailed))?;
-    let caller_pid = top_level.program_id;
+    let top_level_pid = top_level.program_id;
 
-    // Direct top-level call to certificate_issuer — always permitted.
-    // (The threshold-sig check is the substantive gate for this path.)
-    if &caller_pid == self_program_id {
+    if is_trusted_caller(&top_level_pid, self_program_id, config, stack_height) {
         return Ok(());
     }
 
-    // CPI path — only the canonical health-oracle program is permitted.
-    // A zero (Pubkey::default()) allow-list value means "no CPI caller
-    // is permitted"; the safe default for a deployment that does not
-    // use the CPI path at all.
-    if config.has_health_oracle_program()
-        && caller_pid == config.health_oracle_program_id
-    {
-        return Ok(());
+    // Distinguish the failure modes for diagnostics.
+    if stack_height > TRANSACTION_LEVEL_STACK_HEIGHT + 1 {
+        msg!(
+            "M-2: refusing NESTED CPI to issue_certificate — stack height {} > 2; \
+             the top-level program {} is not the immediate caller",
+            stack_height, top_level_pid,
+        );
+        return err!(CertificateError::NestedCpiCallerRejected);
     }
 
     msg!(
-        "VULN-16: refusing CPI caller {} — allow-list = self {} + health_oracle {}",
-        caller_pid,
+        "VULN-16: refusing caller {} (stack height {}) — allow-list = self {} + health_oracle {}",
+        top_level_pid,
+        stack_height,
         self_program_id,
         if config.has_health_oracle_program() {
             config.health_oracle_program_id.to_string()
@@ -120,6 +135,32 @@ pub fn assert_trusted_caller(
     err!(CertificateError::UntrustedCpiCaller)
 }
 
+/// M-2 — the pure trust decision, given the transaction's TOP-LEVEL program
+/// id, our own program id, the config, and the current CPI stack height.
+/// Extracted so the full decision (including the stack-height attribution
+/// that the old helper omitted) is unit-testable without a BPF runtime or a
+/// shaped AccountInfo.
+///
+/// See `assert_trusted_caller` for the rationale on each branch.
+pub(crate) fn is_trusted_caller(
+    top_level_pid:   &Pubkey,
+    self_program_id: &Pubkey,
+    config:          &IssuerConfig,
+    stack_height:    usize,
+) -> bool {
+    if stack_height == TRANSACTION_LEVEL_STACK_HEIGHT {
+        // Direct call: we ARE the top-level instruction.
+        return top_level_pid == self_program_id;
+    }
+    if stack_height == TRANSACTION_LEVEL_STACK_HEIGHT + 1 {
+        // Single CPI hop: the top-level program IS our immediate caller.
+        return config.has_health_oracle_program()
+            && top_level_pid == &config.health_oracle_program_id;
+    }
+    // Nested CPI (or a degenerate height 0): cannot attribute the caller.
+    false
+}
+
 
 // =============================================================================
 // Tests — pure, runtime-free coverage of the trust-list decision logic.
@@ -127,32 +168,17 @@ pub fn assert_trusted_caller(
 
 #[cfg(test)]
 mod tests {
-    //! These tests target the decision logic (`is_trusted_caller`) directly.
-    //! `assert_trusted_caller` is a thin wrapper that adds the sysvar read +
-    //! the error mapping; the runtime-bound paths are exercised by the
-    //! integration tests in `tests/cpi_guard_logic.rs`, which can shape an
-    //! AccountInfo without the BPF runtime.
+    //! These tests target the decision logic (`is_trusted_caller`) directly,
+    //! including the M-2 stack-height attribution. `assert_trusted_caller` is
+    //! a thin wrapper around it (sysvar read, `get_stack_height()` syscall,
+    //! error mapping); the full runtime path is exercised by the on-chain
+    //! smoke test (a direct top-level call at stack height 1).
 
     use super::*;
 
-    /// Pure decision helper — extracted so the trust check can be tested
-    /// without an AccountInfo. Mirrors the exact logic in
-    /// `assert_trusted_caller` after the sysvar has been read.
-    pub(crate) fn is_trusted_caller(
-        caller_pid:      &Pubkey,
-        self_program_id: &Pubkey,
-        config:          &IssuerConfig,
-    ) -> bool {
-        if caller_pid == self_program_id {
-            return true;
-        }
-        if config.has_health_oracle_program()
-            && caller_pid == &config.health_oracle_program_id
-        {
-            return true;
-        }
-        false
-    }
+    const DIRECT: usize = TRANSACTION_LEVEL_STACK_HEIGHT;        // 1
+    const ONE_HOP: usize = TRANSACTION_LEVEL_STACK_HEIGHT + 1;   // 2
+    const NESTED: usize = TRANSACTION_LEVEL_STACK_HEIGHT + 2;    // 3
 
     fn cfg(health_oracle_program_id: Pubkey) -> IssuerConfig {
         IssuerConfig {
@@ -182,7 +208,7 @@ mod tests {
         let self_pid = Pubkey::new_unique();
         let oracle_pid = Pubkey::new_unique();
         let config = cfg(oracle_pid);
-        assert!(is_trusted_caller(&self_pid, &self_pid, &config));
+        assert!(is_trusted_caller(&self_pid, &self_pid, &config, DIRECT));
     }
 
     #[test]
@@ -190,7 +216,7 @@ mod tests {
         let self_pid = Pubkey::new_unique();
         let oracle_pid = Pubkey::new_unique();
         let config = cfg(oracle_pid);
-        assert!(is_trusted_caller(&oracle_pid, &self_pid, &config));
+        assert!(is_trusted_caller(&oracle_pid, &self_pid, &config, ONE_HOP));
     }
 
     #[test]
@@ -199,7 +225,7 @@ mod tests {
         let oracle_pid = Pubkey::new_unique();
         let attacker_pid = Pubkey::new_unique();
         let config = cfg(oracle_pid);
-        assert!(!is_trusted_caller(&attacker_pid, &self_pid, &config));
+        assert!(!is_trusted_caller(&attacker_pid, &self_pid, &config, ONE_HOP));
     }
 
     #[test]
@@ -209,18 +235,61 @@ mod tests {
         let self_pid = Pubkey::new_unique();
         let any_pid = Pubkey::new_unique();
         let config = cfg(Pubkey::default());
-        assert!(!is_trusted_caller(&any_pid, &self_pid, &config));
+        assert!(!is_trusted_caller(&any_pid, &self_pid, &config, ONE_HOP));
         // Self is still trusted (direct call).
-        assert!(is_trusted_caller(&self_pid, &self_pid, &config));
+        assert!(is_trusted_caller(&self_pid, &self_pid, &config, DIRECT));
     }
 
     #[test]
     fn zero_caller_pid_is_rejected() {
-        // A degenerate caller_pid of Pubkey::default() must not
+        // A degenerate top_level_pid of Pubkey::default() must not
         // accidentally pass even when the allow-list is disabled (which
         // also uses Pubkey::default()).
         let self_pid = Pubkey::new_unique();
         let config = cfg(Pubkey::default());
-        assert!(!is_trusted_caller(&Pubkey::default(), &self_pid, &config));
+        assert!(!is_trusted_caller(&Pubkey::default(), &self_pid, &config, DIRECT));
+        assert!(!is_trusted_caller(&Pubkey::default(), &self_pid, &config, ONE_HOP));
+    }
+
+    // ── M-2: stack-height attribution ───────────────────────────────────────
+
+    #[test]
+    fn nested_cpi_is_rejected_even_from_health_oracle() {
+        // The core M-2 fix: at stack height > 2 the top-level program is NOT
+        // the immediate caller, so even the health-oracle program id (which
+        // would pass at one hop) must be refused.
+        let self_pid = Pubkey::new_unique();
+        let oracle_pid = Pubkey::new_unique();
+        let config = cfg(oracle_pid);
+        assert!(!is_trusted_caller(&oracle_pid, &self_pid, &config, NESTED));
+        assert!(!is_trusted_caller(&self_pid, &self_pid, &config, NESTED));
+    }
+
+    #[test]
+    fn self_at_cpi_height_is_rejected() {
+        // certificate-issuer is only trusted as the TOP-LEVEL (direct) caller.
+        // Seeing self at one CPI hop (height 2) means some other program is the
+        // root — not a legitimate path — so it must be refused.
+        let self_pid = Pubkey::new_unique();
+        let oracle_pid = Pubkey::new_unique();
+        let config = cfg(oracle_pid);
+        assert!(!is_trusted_caller(&self_pid, &self_pid, &config, ONE_HOP));
+    }
+
+    #[test]
+    fn health_oracle_at_direct_height_is_rejected() {
+        // Conversely, health-oracle is only trusted as the immediate CPI
+        // caller (height 2), never as a top-level direct call (height 1).
+        let self_pid = Pubkey::new_unique();
+        let oracle_pid = Pubkey::new_unique();
+        let config = cfg(oracle_pid);
+        assert!(!is_trusted_caller(&oracle_pid, &self_pid, &config, DIRECT));
+    }
+
+    #[test]
+    fn degenerate_zero_stack_height_is_rejected() {
+        let self_pid = Pubkey::new_unique();
+        let config = cfg(Pubkey::new_unique());
+        assert!(!is_trusted_caller(&self_pid, &self_pid, &config, 0));
     }
 }
