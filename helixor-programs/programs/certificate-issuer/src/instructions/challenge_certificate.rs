@@ -438,6 +438,7 @@ mod tests {
         challenge_attester_keys: Vec<Pubkey>,
         challenge_threshold:     u8,
     ) -> IssuerConfig {
+        let cluster_keys_len = cluster_keys.len();
         IssuerConfig {
             authority:                Pubkey::new_unique(),
             issuer_node:              Pubkey::new_unique(),
@@ -453,6 +454,8 @@ mod tests {
             // H-3: no authority transfer pending.
             pending_authority:        Pubkey::default(),
             authority_transfer_eta:   0,
+            // H-5: one domain per key (irrelevant to challenge-tally tests).
+            cluster_key_domains:      (0..cluster_keys_len as u16).collect(),
         }
     }
 

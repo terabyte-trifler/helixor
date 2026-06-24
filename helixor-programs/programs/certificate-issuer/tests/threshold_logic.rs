@@ -336,8 +336,9 @@ fn issuer_config_space_reserves_room_for_the_max_cluster() {
     // + 1 challenge_threshold                    (AW-01-EXT.6) = 165
     // + 4 config_version                         (M-05)        =   4
     // + 32 pending_authority + 8 authority_transfer_eta (H-3)  =  40
-    // = 479
-    assert_eq!(IssuerConfig::SPACE, 479);
+    // + 4 domains Vec prefix + 2*5 domain slots  (H-5)         =  14
+    // = 493
+    assert_eq!(IssuerConfig::SPACE, 493);
     assert_eq!(IssuerConfig::MAX_CLUSTER_KEYS, 5);
     assert_eq!(IssuerConfig::MAX_CHALLENGE_ATTESTER_KEYS, 5);
 }
@@ -367,6 +368,8 @@ fn is_cluster_key_recognises_members() {
         // H-3: no authority transfer pending.
         pending_authority: Pubkey::default(),
         authority_transfer_eta: 0,
+        // H-5: one domain per key (3-key cluster).
+        cluster_key_domains: vec![0u16, 1, 2],
     };
     assert!(config.is_cluster_key(&k0));
     assert!(config.is_cluster_key(&k1));

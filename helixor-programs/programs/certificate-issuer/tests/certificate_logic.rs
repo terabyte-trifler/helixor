@@ -69,12 +69,13 @@ fn issuer_config_size_is_correct() {
     // + 4 Vec prefix + 32*5 challenge_attester_keys reserved + 1 challenge_threshold
     // + 4 config_version                                              (M-05)
     // + 32 pending_authority + 8 authority_transfer_eta               (H-3)
-    // = 479
+    // + 4 cluster_key_domains Vec prefix + 2*5 domain slots (u16)     (H-5)
+    // = 493
     assert_eq!(
         IssuerConfig::SPACE,
-        8 + 32 + 32 + 4 + (32 * 5) + 1 + 1 + 32 + 4 + (32 * 5) + 1 + 4 + 32 + 8,
+        8 + 32 + 32 + 4 + (32 * 5) + 1 + 1 + 32 + 4 + (32 * 5) + 1 + 4 + 32 + 8 + 4 + (2 * 5),
     );
-    assert_eq!(IssuerConfig::SPACE, 479);
+    assert_eq!(IssuerConfig::SPACE, 493);
 }
 
 #[test]
@@ -188,6 +189,7 @@ fn threshold_boundaries_are_exact() {
 // =============================================================================
 
 fn cfg_with(cluster_keys: Vec<Pubkey>) -> IssuerConfig {
+    let cluster_keys_len = cluster_keys.len();
     IssuerConfig {
         authority:                Pubkey::new_unique(),
         issuer_node:              Pubkey::new_unique(),
@@ -207,6 +209,8 @@ fn cfg_with(cluster_keys: Vec<Pubkey>) -> IssuerConfig {
         // H-3: no authority transfer pending.
         pending_authority:        Pubkey::default(),
         authority_transfer_eta:   0,
+        // H-5: one domain per key.
+        cluster_key_domains:      (0..cluster_keys_len as u16).collect(),
     }
 }
 

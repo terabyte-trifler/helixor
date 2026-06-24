@@ -40,9 +40,10 @@ fn authority_transfer_timelock_is_48h() {
 #[test]
 fn space_reserves_room_for_the_two_h3_fields() {
     // 32 (pending_authority) + 8 (authority_transfer_eta) over the
-    // post-M-05 / pre-H-3 baseline of 439.
-    assert_eq!(IssuerConfig::SPACE, 439 + 32 + 8);
-    assert_eq!(IssuerConfig::SPACE, 479);
+    // post-M-05 / pre-H-3 baseline of 439; H-5 later appends 14 bytes
+    // (cluster_key_domains: 4 Vec prefix + 2*5 domain slots), 479 -> 493.
+    assert_eq!(IssuerConfig::SPACE, 439 + 32 + 8 + 14);
+    assert_eq!(IssuerConfig::SPACE, 493);
 }
 
 #[test]

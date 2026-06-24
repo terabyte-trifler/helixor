@@ -45,6 +45,10 @@ pub struct IssuerConfig {
     pub cluster_keys:  Vec<Pubkey>,
     /// The number of distinct cluster-key signatures a cert write must
     /// carry. 3 of 5 in production.
+    ///
+    /// H-5: this threshold is now counted over DISTINCT FAULT DOMAINS
+    /// (`cluster_key_domains`), not raw pubkeys — see `verify_threshold_
+    /// signatures`. A quorum must span at least `threshold` distinct domains.
     pub threshold:     u8,
     /// Canonical PDA bump.
     pub bump:          u8,
@@ -116,6 +120,27 @@ pub struct IssuerConfig {
     /// monitoring operator can `cancel` a malicious/erroneous proposal
     /// before it is accepted.
     pub authority_transfer_eta:   i64,
+    /// H-5: the FAULT-DOMAIN id of each cluster key, index-aligned with
+    /// `cluster_keys` (entry `i` is the domain of `cluster_keys[i]`). A
+    /// "domain" is an operator-assigned host / region / HSM-cluster
+    /// identifier — keys that share a fault domain (e.g. two HSMs in one
+    /// datacenter) carry the SAME id. The program does not interpret the id;
+    /// it only DEDUPLICATES on it.
+    ///
+    /// THE THREAT (H-5): before this, the threshold tally counted distinct
+    /// PUBKEYS, so two keys on a single compromised host both counted — a
+    /// single-host compromise holding K keys could forge a cert. With domain
+    /// tags, `verify_threshold_signatures` counts distinct DOMAINS, so a
+    /// quorum must span at least `threshold` independent fault domains; one
+    /// compromised host contributes at most one to the tally. Collusion
+    /// resistance cannot fully live on-chain, but storing bare pubkeys
+    /// foreclosed even this partial enforcement.
+    ///
+    /// Legacy (pre-H-5) configs decode this as an empty Vec; the diversity
+    /// gate then degrades to the old distinct-pubkey count (see
+    /// `distinct_domain_count`). Every config written by `initialize_config`
+    /// / `rotate_cluster_keys` post-H-5 carries one domain per key.
+    pub cluster_key_domains:      Vec<u16>,
 }
 
 impl IssuerConfig {
@@ -153,11 +178,14 @@ impl IssuerConfig {
     /// + 4  config_version                                     (M-05)
     /// + 32 pending_authority                                  (H-3)
     /// + 8  authority_transfer_eta                             (H-3)
+    /// + 4  cluster_key_domains Vec length prefix              (H-5)
+    /// + 2 * MAX_CLUSTER_KEYS  (reserved domain slots, u16)    (H-5)
     pub const SPACE: usize =
         8 + 32 + 32 + 4 + (32 * Self::MAX_CLUSTER_KEYS) + 1 + 1 + 32
         + 4 + (32 * Self::MAX_CHALLENGE_ATTESTER_KEYS) + 1
         + 4
-        + 32 + 8;
+        + 32 + 8
+        + 4 + (2 * Self::MAX_CLUSTER_KEYS);
 
     /// H-3: the timelock between PROPOSING and ACCEPTING an authority
     /// transfer. 48h — the same window the slash-authority + oracle-key
@@ -247,5 +275,52 @@ impl IssuerConfig {
     /// shape checks, which the caller still applies.
     pub fn rotation_preserves_bft_floor(current_len: usize, new_len: usize) -> bool {
         current_len < Self::MIN_BFT_CLUSTER_KEYS || new_len >= Self::MIN_BFT_CLUSTER_KEYS
+    }
+
+    /// H-5: the fault domain of a cluster key, or `None` if `key` is not a
+    /// cluster key (or the config carries no domain map — a legacy config).
+    pub fn domain_of_key(&self, key: &Pubkey) -> Option<u16> {
+        self.cluster_keys
+            .iter()
+            .position(|k| k == key)
+            .and_then(|i| self.cluster_key_domains.get(i).copied())
+    }
+
+    /// H-5: the number of DISTINCT fault domains represented by a set of
+    /// (already-distinct) cluster-key signers. This is the value the
+    /// threshold is checked against in `verify_threshold_signatures`.
+    ///
+    /// Legacy fallback: if the domain map is absent or malformed (length !=
+    /// cluster_keys), the diversity gate degrades to the distinct-pubkey
+    /// count — i.e. each key is treated as its own domain — so a pre-H-5
+    /// config keeps working exactly as before until it is rotated to carry
+    /// domain tags.
+    pub fn distinct_domain_count(&self, signer_keys: &[Pubkey]) -> usize {
+        if self.cluster_key_domains.len() != self.cluster_keys.len() {
+            return signer_keys.iter().filter(|k| self.is_cluster_key(k)).count();
+        }
+        let mut domains: Vec<u16> = Vec::with_capacity(signer_keys.len());
+        for k in signer_keys {
+            if let Some(d) = self.domain_of_key(k) {
+                if !domains.contains(&d) {
+                    domains.push(d);
+                }
+            }
+        }
+        domains.len()
+    }
+
+    /// H-5: the number of DISTINCT fault domains in the whole configured
+    /// cluster. A config is only SATISFIABLE if this is `>= threshold` —
+    /// otherwise no quorum could ever span `threshold` domains. Enforced at
+    /// `initialize_config` / `rotate_cluster_keys` write time.
+    pub fn config_distinct_domain_count(domains: &[u16]) -> usize {
+        let mut seen: Vec<u16> = Vec::with_capacity(domains.len());
+        for d in domains {
+            if !seen.contains(d) {
+                seen.push(*d);
+            }
+        }
+        seen.len()
     }
 }

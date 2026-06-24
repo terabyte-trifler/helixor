@@ -172,6 +172,8 @@ mod tests {
             // H-3: no authority transfer pending.
             pending_authority: Pubkey::default(),
             authority_transfer_eta: 0,
+            // H-5: one domain per key (irrelevant to CPI-guard tests).
+            cluster_key_domains: vec![0u16, 1, 2],
         }
     }
 

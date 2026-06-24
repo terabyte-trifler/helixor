@@ -276,4 +276,20 @@ pub enum CertificateError {
            freshness requirement. (Pass max_age_seconds = 0 to disable this \
            on-chain freshness gate.)")]
     CertificateStale = 6161,
+
+    // ── H-5: cluster-key fault-domain diversity ─────────────────────────────
+    #[msg("H-5: cluster config refused — cluster_key_domains length must equal \
+           cluster_keys length (one fault-domain id per key).")]
+    ClusterDomainsLengthMismatch = 6170,
+    #[msg("H-5: cluster config refused — the cluster spans fewer DISTINCT fault \
+           domains than the threshold, so no quorum could ever satisfy the \
+           domain-diversity rule. Spread the keys across at least `threshold` \
+           independent host/region domains.")]
+    InsufficientDomainDiversity = 6171,
+    #[msg("H-5: certificate write refused — the signing quorum spans fewer \
+           DISTINCT fault domains than the threshold. Multiple cluster keys on \
+           one host/region count ONCE, so a single compromised fault domain \
+           cannot reach the threshold; the quorum must come from `threshold` \
+           independent domains.")]
+    InsufficientSignerDiversity = 6172,
 }

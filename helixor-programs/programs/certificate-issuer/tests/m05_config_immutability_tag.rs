@@ -29,7 +29,8 @@
 // This file pins:
 //   - IssuerConfig::SPACE: the M-05 +4 (u32 config_version) delta over the
 //     pre-M-05 435 baseline (435 -> 439). H-3 later appends 40 bytes
-//     (pending_authority + authority_transfer_eta), so the live SPACE is 479.
+//     (pending_authority + authority_transfer_eta), and H-5 appends 14
+//     (cluster_key_domains), so the live SPACE is 493.
 //   - HealthCertificate::CURRENT_LAYOUT_VERSION >= 8 (M-05 landed at v8;
 //     later migrations may advance it without invalidating M-05's pin).
 //   - HealthCertificate carries `issuer_config_version: u32` at the
@@ -59,13 +60,14 @@ fn issuer_config_space_grew_by_four_bytes_for_config_version() {
     // Pre-M-05 SPACE was 435 (Day-27 cluster_keys + threshold + VULN-16
     // health_oracle_program_id + AW-01-EXT.6 challenge cluster). M-05
     // appends config_version (u32), adding 4 bytes (435 -> 439). H-3 later
-    // appends pending_authority (32) + authority_transfer_eta (8) for the
-    // two-step authority transfer, adding 40 more (439 -> 479). This test
-    // pins the M-05 +4 delta against the post-M-05/pre-H-3 baseline.
+    // appends pending_authority (32) + authority_transfer_eta (8), adding 40
+    // more (439 -> 479). H-5 appends cluster_key_domains (4 Vec prefix + 2*5
+    // domain slots = 14), adding 14 more (479 -> 493). This test pins the
+    // M-05 +4 delta against the post-M-05 baseline.
     const POST_M05_SPACE: usize = 439;
     assert_eq!(POST_M05_SPACE - 435, 4);
-    assert_eq!(IssuerConfig::SPACE, POST_M05_SPACE + 32 + 8); // + H-3 fields
-    assert_eq!(IssuerConfig::SPACE, 479);
+    assert_eq!(IssuerConfig::SPACE, POST_M05_SPACE + 32 + 8 + 4 + (2 * 5)); // + H-3 + H-5
+    assert_eq!(IssuerConfig::SPACE, 493);
 }
 
 #[test]
@@ -104,6 +106,8 @@ fn issuer_config_version_was_carved_from_reserved_at_m05() {
         // H-3: no authority transfer pending.
         pending_authority:        Pubkey::default(),
         authority_transfer_eta:   0,
+        // H-5: one domain for the single-key cluster.
+        cluster_key_domains:      vec![0u16],
     };
     let _: u32 = cfg.config_version;
 }
@@ -227,6 +231,8 @@ fn issuer_config_version_field_is_u32() {
         // H-3: no authority transfer pending.
         pending_authority:        Pubkey::default(),
         authority_transfer_eta:   0,
+        // H-5: one domain for the single-key cluster.
+        cluster_key_domains:      vec![0u16],
     };
     // Round-trip: holds the u32 we set, and is ge 1 (the genesis floor
     // `initialize_config` writes).

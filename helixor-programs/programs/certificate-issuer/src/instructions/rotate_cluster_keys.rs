@@ -67,9 +67,12 @@ pub struct RotateClusterKeys<'info> {
 }
 
 pub fn handler(
-    ctx:              Context<RotateClusterKeys>,
-    new_cluster_keys: Vec<Pubkey>,
-    new_threshold:    u8,
+    ctx:                 Context<RotateClusterKeys>,
+    new_cluster_keys:    Vec<Pubkey>,
+    new_threshold:       u8,
+    // H-5: one fault-domain id per new key (see initialize_config). The new
+    // cluster must span at least `new_threshold` distinct domains.
+    new_cluster_domains: Vec<u16>,
 ) -> Result<()> {
     let config = &mut ctx.accounts.issuer_config;
 
@@ -130,6 +133,20 @@ pub fn handler(
         CertificateError::ClusterBftFloorViolation,
     );
 
+    // ── 2b. H-5: fault-domain map for the new cluster ───────────────────────
+    // One domain id per new key, and the new cluster must span at least
+    // `new_threshold` distinct domains (else the rotation would brick cert
+    // issuance under the domain-diversity quorum rule).
+    require!(
+        new_cluster_domains.len() == new_cluster_keys.len(),
+        CertificateError::ClusterDomainsLengthMismatch,
+    );
+    require!(
+        IssuerConfig::config_distinct_domain_count(&new_cluster_domains)
+            >= new_threshold as usize,
+        CertificateError::InsufficientDomainDiversity,
+    );
+
     // ── 3. Reject no-op rotations ───────────────────────────────────────────
     // A rotation that changes neither keys nor threshold is operationally
     // pointless AND would consume a config_version slot without buying any
@@ -164,9 +181,11 @@ pub fn handler(
 
     // ── 6. Commit + audit-trail event ───────────────────────────────────────
     let new_cluster_size = new_cluster_keys.len() as u8;
-    config.cluster_keys   = new_cluster_keys;
-    config.threshold      = new_threshold;
-    config.config_version = new_config_version;
+    config.cluster_keys        = new_cluster_keys;
+    config.threshold           = new_threshold;
+    config.config_version      = new_config_version;
+    // H-5: rotate the fault-domain map alongside the keys.
+    config.cluster_key_domains = new_cluster_domains;
 
     let clock = Clock::get()?;
     emit!(ClusterKeysRotated {

@@ -56,11 +56,17 @@ pub mod certificate_issuer {
     /// permitted to CPI into `issue_certificate`. Pass `Pubkey::default()`
     /// to refuse every CPI caller (safe for cluster-direct-only
     /// deployments). The check is enforced inside `issue_certificate`.
+    #[allow(clippy::too_many_arguments)]
     pub fn initialize_config(
         ctx:                       Context<InitializeConfig>,
         issuer_node:               Pubkey,
         cluster_keys:              Vec<Pubkey>,
         threshold:                 u8,
+        // H-5: one fault-domain id per cluster key (host/region). The
+        // threshold is counted over distinct domains, so a quorum must span
+        // `threshold` independent domains. Must be one id per key and span
+        // at least `threshold` distinct domains.
+        cluster_key_domains:       Vec<u16>,
         health_oracle_program_id:  Pubkey,
         // AW-01-EXT.6: third-party challenge-attester cluster. Pass
         // empty Vec + 0 threshold at deploy time to leave the
@@ -70,8 +76,8 @@ pub mod certificate_issuer {
         challenge_threshold:       u8,
     ) -> Result<()> {
         instructions::initialize_config::handler(
-            ctx, issuer_node, cluster_keys, threshold, health_oracle_program_id,
-            challenge_attester_keys, challenge_threshold,
+            ctx, issuer_node, cluster_keys, threshold, cluster_key_domains,
+            health_oracle_program_id, challenge_attester_keys, challenge_threshold,
         )
     }
 
@@ -250,11 +256,16 @@ pub mod certificate_issuer {
     /// verify under the OLD snapshot while new certs verify under the NEW
     /// snapshot. The two are cryptographically disjoint.
     pub fn rotate_cluster_keys(
-        ctx:              Context<RotateClusterKeys>,
-        new_cluster_keys: Vec<Pubkey>,
-        new_threshold:    u8,
+        ctx:                 Context<RotateClusterKeys>,
+        new_cluster_keys:    Vec<Pubkey>,
+        new_threshold:       u8,
+        // H-5: one fault-domain id per new key; the new cluster must span at
+        // least `new_threshold` distinct domains.
+        new_cluster_domains: Vec<u16>,
     ) -> Result<()> {
-        instructions::rotate_cluster_keys::handler(ctx, new_cluster_keys, new_threshold)
+        instructions::rotate_cluster_keys::handler(
+            ctx, new_cluster_keys, new_threshold, new_cluster_domains,
+        )
     }
 
     /// H-3: two-step, time-locked transfer of the IssuerConfig admin

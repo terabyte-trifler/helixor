@@ -32,11 +32,19 @@ pub struct InitializeConfig<'info> {
     pub system_program: Program<'info, System>,
 }
 
+// Anchor instruction handler: each cluster-config field is a distinct param.
+#[allow(clippy::too_many_arguments)]
 pub fn handler(
     ctx:                       Context<InitializeConfig>,
     issuer_node:               Pubkey,
     cluster_keys:              Vec<Pubkey>,
     threshold:                 u8,
+    // H-5: the fault-domain id of each cluster key, index-aligned with
+    // `cluster_keys`. Keys on the same host/region carry the same id. The
+    // threshold is counted over distinct domains, so a quorum must span
+    // `threshold` independent fault domains. MUST be one id per key, and the
+    // cluster MUST span at least `threshold` distinct domains.
+    cluster_key_domains:       Vec<u16>,
     // VULN-16: the canonical health-oracle program ID — the only OTHER
     // program permitted to CPI into `issue_certificate`. Pass
     // `Pubkey::default()` only if the deployment never uses the CPI
@@ -82,6 +90,21 @@ pub fn handler(
         CertificateError::InvalidThreshold,
     );
 
+    // ── H-5: validate the fault-domain map ──────────────────────────────────
+    // One domain id per key, and the cluster must span at least `threshold`
+    // DISTINCT domains — otherwise no quorum could ever satisfy the
+    // diversity rule and the config would be unsatisfiable (cert issuance
+    // permanently bricked).
+    require!(
+        cluster_key_domains.len() == cluster_keys.len(),
+        CertificateError::ClusterDomainsLengthMismatch,
+    );
+    require!(
+        IssuerConfig::config_distinct_domain_count(&cluster_key_domains)
+            >= threshold as usize,
+        CertificateError::InsufficientDomainDiversity,
+    );
+
     // ── AW-01-EXT.6: validate the challenge-attester cluster ────────────────
     // Empty + threshold-0 is allowed (challenge ix disabled at deploy
     // time). Otherwise apply the same shape rules as cluster_keys.
@@ -124,6 +147,8 @@ pub fn handler(
     config.issuer_node              = issuer_node;
     config.cluster_keys             = cluster_keys;
     config.threshold                = threshold;
+    // H-5: the index-aligned fault-domain map for the cluster keys.
+    config.cluster_key_domains      = cluster_key_domains;
     config.bump                     = ctx.bumps.issuer_config;
     config.health_oracle_program_id = health_oracle_program_id;
     config.challenge_attester_keys  = challenge_attester_keys;

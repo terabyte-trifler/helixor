@@ -53,6 +53,8 @@ fn cfg_with_oracle(health_oracle_program_id: Pubkey) -> IssuerConfig {
         // H-3: no authority transfer pending.
         pending_authority:        Pubkey::default(),
         authority_transfer_eta:   0,
+        // H-5: one domain per key (5-key cluster).
+        cluster_key_domains:      vec![0u16, 1, 2, 3, 4],
     }
 }
 

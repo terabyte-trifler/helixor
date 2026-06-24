@@ -439,9 +439,21 @@ pub fn verify_threshold_signatures(
         CertificateError::InsufficientSignatures,
     );
 
+    // H-5: FAULT-DOMAIN DIVERSITY. The distinct-pubkey count above still lets
+    // a single compromised host holding K cluster keys reach the threshold by
+    // itself. Re-tally over distinct fault DOMAINS (host/region) and require
+    // the quorum to span at least `threshold` of them, so one compromised
+    // domain contributes at most one. (For a legacy config with no domain map
+    // this degrades to the distinct-pubkey count — see distinct_domain_count.)
+    let distinct_domains = config.distinct_domain_count(&signers);
+    require!(
+        distinct_domains >= config.threshold as usize,
+        CertificateError::InsufficientSignerDiversity,
+    );
+
     msg!(
-        "threshold signatures verified: {} of {} (threshold {})",
-        count, config.cluster_keys.len(), config.threshold,
+        "threshold signatures verified: {} key(s) across {} domain(s) (threshold {})",
+        count, distinct_domains, config.threshold,
     );
     Ok(count)
 }
@@ -451,12 +463,16 @@ mod tests {
     use super::*;
 
     fn config_with_keys(cluster_keys: Vec<Pubkey>, threshold: u8) -> IssuerConfig {
+        // H-5: unique domain per key, so the diversity gate behaves exactly
+        // like the legacy distinct-pubkey count in these tally tests.
+        let cluster_key_domains: Vec<u16> = (0..cluster_keys.len() as u16).collect();
         IssuerConfig {
             authority: Pubkey::new_unique(),
             issuer_node: Pubkey::new_unique(),
             cluster_keys,
             threshold,
             bump: 255,
+            cluster_key_domains,
             // VULN-16: signature-verification tests don't exercise the
             // CPI path; a zero allow-list keeps the helper purely about
             // signatures.
