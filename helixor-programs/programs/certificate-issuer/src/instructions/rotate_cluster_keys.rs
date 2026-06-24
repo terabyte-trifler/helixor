@@ -147,6 +147,22 @@ pub fn handler(
         CertificateError::InsufficientDomainDiversity,
     );
 
+    // ── 2c. M-4: re-assert cluster ∩ challenge-attester disjointness ─────────
+    // The disjointness invariant (cert-signing keys and challenge-attester
+    // keys must be DISJOINT) is the whole basis for an independent challenge
+    // layer — a fraudulent cert's signer must not be able to also "attest" the
+    // cert's slot anchor and self-clear its own challenge. initialize_config
+    // enforces it, but rotate_cluster_keys mutates ONLY cluster_keys, so a
+    // rotation could silently install a new cert key that already sits in the
+    // (unchanged) challenge-attester set. Re-check it here against the live
+    // attester set.
+    for ak in config.challenge_attester_keys.iter() {
+        require!(
+            !new_cluster_keys.contains(ak),
+            CertificateError::AttesterOverlapsCluster,
+        );
+    }
+
     // ── 3. Reject no-op rotations ───────────────────────────────────────────
     // A rotation that changes neither keys nor threshold is operationally
     // pointless AND would consume a config_version slot without buying any
