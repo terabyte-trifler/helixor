@@ -361,6 +361,18 @@ impl HealthCertificate {
     /// `is_fresh(&clock)` below.
     pub const MAX_AGE_SECONDS: i64 = 48 * 60 * 60;
 
+    /// H-4 / NSS-3: the minimum agent age (in seconds) required before a
+    /// certificate may carry a GREEN alert tier. 14 days — a brand-new wallet
+    /// cannot present a GREEN ("fully trusted") certificate, which is the
+    /// on-chain backstop against the set-up-and-borrow / score-inflation
+    /// attack class. `issue_certificate` enforces this against the agent's
+    /// tamper-proof `BaselineStats.first_recorded_at` timestamp:
+    /// `issued_at - first_recorded_at >= MIN_GREEN_AGE_SECONDS`. (Mirrors the
+    /// cluster's off-chain NSS-3 "14-day / 168-epoch" floor, but enforced
+    /// on-chain so a consumer reading the raw cert PDA is protected even if it
+    /// bypasses the off-chain SDK.)
+    pub const MIN_GREEN_AGE_SECONDS: i64 = 14 * 24 * 60 * 60;
+
     /// TA-6: pure freshness predicate. Returns true iff the certificate
     /// is at most `max_age_seconds` old at `now_unix`. A negative result
     /// (cert from the future) also reads as STALE so a clock-skew attack

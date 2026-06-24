@@ -21,6 +21,26 @@
 //
 // It is read-only: no account is `mut`, nothing is written.
 //
+// H-4 — ON-CHAIN FRESHNESS GATE (+ A HARD CONSUMER REQUIREMENT)
+// -------------------------------------------------------------
+// A certificate is a snapshot; a STALE cert is a security hazard for a
+// downstream lender (an agent that has since gone RED still presents an old
+// GREEN). On-chain freshness CANNOT be forced on a passive account read — a
+// raw `getAccountInfo(["cert", agent, epoch])` fetch runs no program code.
+// Therefore:
+//
+//   * Consumers that read the raw PDA directly MUST enforce freshness
+//     themselves: reject a cert whose `issued_at` is older than their policy
+//     window (see `HealthCertificate::is_fresh_at` / `MAX_AGE_SECONDS`). This
+//     is a HARD requirement, not advisory — Helixor cannot enforce it for a
+//     passive read.
+//   * Consumers that take the TRANSACTION-shaped `get_certificate` path get an
+//     on-chain freshness gate here: pass `max_age_seconds > 0` and the
+//     instruction fails with `CertificateStale` if the cert is older than
+//     that window (wiring the previously-unused `is_fresh_at` into the read
+//     path). Pass `max_age_seconds == 0` to disable the gate (legacy
+//     behaviour — the read always succeeds if the PDA exists).
+//
 // M-09 — CANONICAL-PDA BIND ON THE EVENT
 // --------------------------------------
 // The audit flagged the pre-M-09 event as informational only: a downstream
@@ -53,7 +73,7 @@ use crate::events::CertificateRead;
 use crate::state::HealthCertificate;
 
 #[derive(Accounts)]
-#[instruction(agent_wallet: Pubkey, epoch: u64)]
+#[instruction(agent_wallet: Pubkey, epoch: u64, max_age_seconds: i64)]
 pub struct GetCertificate<'info> {
     /// The certificate PDA being read. Anchor's seed resolution proves it
     /// is exactly the ["cert", agent_wallet, epoch] account — a non-existent
@@ -73,11 +93,25 @@ pub struct GetCertificate<'info> {
 }
 
 pub fn handler(
-    ctx:          Context<GetCertificate>,
-    agent_wallet: Pubkey,
-    epoch:        u64,
+    ctx:             Context<GetCertificate>,
+    agent_wallet:    Pubkey,
+    epoch:           u64,
+    // H-4: optional on-chain freshness gate. 0 disables the check (the cert
+    // is returned as long as the PDA exists — the legacy behaviour); a
+    // positive value requires `issued_at` to be within `max_age_seconds` of
+    // the current Clock, else `CertificateStale`.
+    max_age_seconds: i64,
 ) -> Result<()> {
     let cert = &ctx.accounts.certificate;
+
+    // ── H-4: freshness gate (opt-in via max_age_seconds > 0) ────────────────
+    if max_age_seconds > 0 {
+        let now = Clock::get()?.unix_timestamp;
+        require!(
+            cert.is_fresh_at(now, max_age_seconds),
+            CertificateError::CertificateStale,
+        );
+    }
 
     // ── M-09: explicit canonical-PDA recompute ─────────────────────────────
     // Anchor's `seeds=` constraint already validates this, but recomputing

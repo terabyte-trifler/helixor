@@ -421,6 +421,27 @@ pub fn handler(
 
     // ── Write the certificate ───────────────────────────────────────────────
     let clock = Clock::get()?;
+    let issued_at = clock.unix_timestamp;
+
+    // ── H-4 / NSS-3: agent-age floor for a GREEN tier ──────────────────────
+    // A GREEN ("fully trusted") certificate may NOT be issued for an agent
+    // younger than MIN_GREEN_AGE_SECONDS (14 days) since its FIRST recorded
+    // baseline. This is the on-chain backstop against set-up-and-borrow /
+    // score-inflation: a brand-new wallet cannot present a GREEN cert even to
+    // a consumer that reads the raw PDA and bypasses the off-chain SDK. The
+    // floor is anchored on the tamper-proof `BaselineStats.first_recorded_at`
+    // Clock timestamp, NOT on a caller-supplied epoch. (YELLOW/RED carry no
+    // age floor; the IMMEDIATE_RED fast-path forces RED, never GREEN.)
+    if tier == AlertTier::Green {
+        require!(
+            green_age_floor_satisfied(
+                ctx.accounts.baseline_stats.first_recorded_at,
+                issued_at,
+            ),
+            CertificateError::AgentTooYoungForGreen,
+        );
+    }
+
     let cert = &mut ctx.accounts.certificate;
 
     cert.agent_wallet      = ctx.accounts.baseline_stats.agent_wallet;
@@ -428,7 +449,7 @@ pub fn handler(
     cert.score             = score;
     cert.alert_tier        = tier.as_u8();
     cert.flags             = flags;
-    cert.issued_at         = clock.unix_timestamp;
+    cert.issued_at         = issued_at;
     cert.issuer            = ctx.accounts.issuer.key();
     cert.baseline_hash     = ctx.accounts.baseline_stats.baseline_hash;
     cert.immediate_red     = immediate_red;
@@ -550,4 +571,25 @@ pub fn validate_score_alert(
     };
     require!(consistent, CertificateError::InconsistentScoreAlert);
     Ok(())
+}
+
+/// H-4 / NSS-3 — pure agent-age floor predicate for a GREEN certificate.
+///
+/// Returns true iff a GREEN tier is permitted for an agent whose FIRST
+/// baseline was recorded at `first_recorded_at` (unix seconds), for a cert
+/// being issued at `issued_at` (unix seconds). Split out so it is
+/// unit-testable without an Anchor `Context`.
+///
+///   * `first_recorded_at == 0` is the legacy / grandfather sentinel (pre-H-4
+///     accounts, or the zeroed reserve): the floor is SKIPPED. This is safe
+///     because a fresh post-H-4 agent always receives a real Clock timestamp
+///     on its first `record_baseline`, so an attacker's new wallet can never
+///     present 0.
+///   * `saturating_sub` makes a pathological future `first_recorded_at` read
+///     as age 0 — fail-closed for GREEN.
+pub fn green_age_floor_satisfied(first_recorded_at: i64, issued_at: i64) -> bool {
+    if first_recorded_at == 0 {
+        return true;
+    }
+    issued_at.saturating_sub(first_recorded_at) >= HealthCertificate::MIN_GREEN_AGE_SECONDS
 }

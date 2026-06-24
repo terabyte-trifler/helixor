@@ -158,6 +158,14 @@ pub fn handler(
     stats.layout_version        = BaselineStats::CURRENT_LAYOUT_VERSION;
     // AW-03: link this baseline record to its on-chain DA account.
     stats.baseline_commit_nonce = baseline_commit_nonce;
+    // H-4: stamp the agent's FIRST-baseline timestamp exactly once, from the
+    // tamper-proof on-chain Clock. On a rotation `first_recorded_at` is
+    // already non-zero and is PRESERVED, so it remains a sound age anchor for
+    // the NSS-3 GREEN-tier floor enforced in `issue_certificate`. (We cannot
+    // anchor on `epoch`, which is caller-supplied and could be backdated.)
+    if stats.first_recorded_at == 0 {
+        stats.first_recorded_at = clock.unix_timestamp;
+    }
 
     emit!(BaselineRecorded {
         agent_wallet,

@@ -261,4 +261,19 @@ pub enum CertificateError {
            authority_transfer_eta, giving a monitoring operator a window to \
            cancel a malicious or mistaken proposal.")]
     AuthorityTransferTimelockNotElapsed = 6154,
+
+    // ── H-4: on-chain certificate freshness + agent-age GREEN floor ─────────
+    #[msg("H-4 / NSS-3: issue_certificate refused — a GREEN certificate may \
+           not be issued for an agent younger than MIN_GREEN_AGE_SECONDS \
+           (14 days) since its FIRST recorded baseline. This is the on-chain \
+           backstop against the set-up-and-borrow / score-inflation class: a \
+           brand-new wallet cannot present a fully-trusted GREEN certificate. \
+           Issue a YELLOW (or lower) cert until the agent ages past the floor.")]
+    AgentTooYoungForGreen = 6160,
+    #[msg("H-4 / TA-6: get_certificate refused — the certificate is older than \
+           the caller-supplied max_age_seconds. The certificate exists and is \
+           the canonical PDA, but it is STALE relative to the caller's \
+           freshness requirement. (Pass max_age_seconds = 0 to disable this \
+           on-chain freshness gate.)")]
+    CertificateStale = 6161,
 }

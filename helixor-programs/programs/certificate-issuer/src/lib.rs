@@ -157,12 +157,19 @@ pub mod certificate_issuer {
     /// Read a HealthCertificate, surfacing its contents as a structured
     /// `CertificateRead` event. (Off-chain callers can also just fetch the
     /// PDA directly — this instruction is for CPI / transaction-shaped reads.)
+    /// H-4: `max_age_seconds` adds an OPTIONAL on-chain freshness gate. Pass
+    /// 0 to disable (legacy behaviour — the read succeeds if the PDA exists);
+    /// pass a positive window to require the cert's `issued_at` be within it,
+    /// else the read fails with `CertificateStale`. (Raw-PDA readers that skip
+    /// this instruction MUST still enforce freshness themselves — see the
+    /// `get_certificate` module docs.)
     pub fn get_certificate(
-        ctx:          Context<GetCertificate>,
-        agent_wallet: Pubkey,
-        epoch:        u64,
+        ctx:             Context<GetCertificate>,
+        agent_wallet:    Pubkey,
+        epoch:           u64,
+        max_age_seconds: i64,
     ) -> Result<()> {
-        instructions::get_certificate::handler(ctx, agent_wallet, epoch)
+        instructions::get_certificate::handler(ctx, agent_wallet, epoch, max_age_seconds)
     }
 
     /// AW-01-EXT.6 — file a challenge against a certificate's slot anchor.

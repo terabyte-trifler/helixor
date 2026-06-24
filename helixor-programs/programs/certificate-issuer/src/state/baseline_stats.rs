@@ -32,7 +32,10 @@
 //   layout_version           1   (u8)
 //   --- AW-03 (carved from _reserved, layout-compatible) ----
 //   baseline_commit_nonce    8   (u64 — links to AgentRegistration.commit_nonce)
-//   _reserved               24   (zeroed cushion; was 32 pre-AW-03)
+//   --- H-4 (carved from _reserved, layout-compatible) ----
+//   first_recorded_at        8   (i64 — unix seconds the agent's FIRST baseline
+//                                 was recorded; set once, never overwritten)
+//   _reserved               16   (zeroed cushion; was 24 pre-H-4)
 //   TOTAL (without discriminator): 147 bytes (UNCHANGED)
 //
 // AW-03 BACKWARDS COMPATIBILITY
@@ -73,9 +76,25 @@ pub struct BaselineStats {
     /// from `["baseline_data", agent_wallet, baseline_commit_nonce_le]`,
     /// fetch the account, and verify `sha256(payload) == baseline_hash`.
     pub baseline_commit_nonce: u64,
-    /// Zero-padded reserve (was 32 bytes pre-AW-03; 8 bytes are now
-    /// `baseline_commit_nonce`).
-    pub _reserved:             [u8; 24],
+    /// H-4: unix seconds at which the agent's FIRST baseline was recorded.
+    /// Set once (on the first `record_baseline`) from the on-chain Clock and
+    /// NEVER overwritten on subsequent rotations — so it is a tamper-proof
+    /// anchor for the agent's age. `issue_certificate` enforces the NSS-3
+    /// 14-day agent-age floor for a GREEN tier against this field
+    /// (`issued_at - first_recorded_at >= MIN_GREEN_AGE_SECONDS`).
+    ///
+    /// WHY A TIMESTAMP, NOT `epoch_recorded`: the `epoch` passed to
+    /// `record_baseline` is caller-supplied (an agent may self-record its own
+    /// baseline per VULN-06), so an attacker could backdate it to fake age.
+    /// `Clock::get()` cannot be forged by the caller, so this field is a sound
+    /// age anchor. Carved from `_reserved`; legacy accounts decode it as 0
+    /// (the sentinel meaning "unknown first-record time" — grandfathered:
+    /// the floor is skipped, which is safe because a fresh post-H-4 agent
+    /// ALWAYS gets a real timestamp here and so can never present 0).
+    pub first_recorded_at:     i64,
+    /// Zero-padded reserve (was 32 bytes pre-AW-03, 24 pre-H-4; 8 bytes are
+    /// `baseline_commit_nonce`, 8 are `first_recorded_at`).
+    pub _reserved:             [u8; 16],
 }
 
 impl BaselineStats {
@@ -84,10 +103,11 @@ impl BaselineStats {
     /// Data size WITHOUT the 8-byte Anchor discriminator.
     ///   32 + 32 + 1 + 8 + 32 + 8 + 1 + 1 = 115
     /// +  8 baseline_commit_nonce         =   8   (AW-03)
-    /// + 24 reserved                      =  24   (was 32 pre-AW-03)
+    /// +  8 first_recorded_at             =   8   (H-4, carved from reserve)
+    /// + 16 reserved                      =  16   (was 24 pre-H-4)
     ///   = 147 (unchanged)
     pub const SIZE_WITHOUT_DISCRIMINATOR: usize =
-        32 + 32 + 1 + 8 + 32 + 8 + 1 + 1 + 8 + 24;
+        32 + 32 + 1 + 8 + 32 + 8 + 1 + 1 + 8 + 8 + 16;
 
     /// Total account size INCLUDING the 8-byte Anchor discriminator.
     pub const SPACE: usize = 8 + Self::SIZE_WITHOUT_DISCRIMINATOR;
