@@ -379,9 +379,19 @@ pub enum SettleTimingBoundsError {
     SettleGraceOutOfBounds,
 }
 
-/// Validate the three role keys are all distinct and all non-default.
-/// Returns Ok(()) iff they form a valid separated-authority set.
+/// Validate the three role keys are all distinct, all non-default, AND all
+/// distinct from `admin`. Returns Ok(()) iff they form a valid
+/// separated-authority set.
+///
+/// M-3: `admin` is now part of the distinctness set. The SPOF-#2 rotation
+/// ceremony rests on "admin may PROPOSE but not ATTEST" — but attestation
+/// authority is keyed on role membership (executor/resolver/pauser). If admin
+/// equalled a role key, that single key could both propose (auto-attesting as
+/// a role) AND attest, voiding the rule and degrading the 2-of-3 ceremony
+/// toward 1-of-2. Excluding admin from every role key keeps admin and the
+/// operational counterweight genuinely separate.
 pub fn validate_authority_separation(
+    admin:           &Pubkey,
     slash_executor:  &Pubkey,
     appeal_resolver: &Pubkey,
     pause_authority: &Pubkey,
@@ -399,6 +409,13 @@ pub fn validate_authority_separation(
     {
         return Err(AuthoritySeparationError::NotDistinct);
     }
+    // M-3: admin must not double as any role key.
+    if admin == slash_executor
+        || admin == appeal_resolver
+        || admin == pause_authority
+    {
+        return Err(AuthoritySeparationError::AdminCollidesWithRole);
+    }
     Ok(())
 }
 
@@ -410,4 +427,6 @@ pub enum AuthoritySeparationError {
     DefaultPubkey,
     /// Two or more of the role keys collide.
     NotDistinct,
+    /// M-3: the admin key doubles as one of the three role keys.
+    AdminCollidesWithRole,
 }

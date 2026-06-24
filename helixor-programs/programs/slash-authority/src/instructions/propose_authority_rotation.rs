@@ -70,7 +70,10 @@ pub fn handler(
     // Re-runs validate_authority_separation so a malformed proposal is
     // rejected at PROPOSE time (operators reviewing the open proposal
     // in the 48h window can trust that what would land is well-formed).
+    // M-3: the proposed role set must also be distinct from the (unchanged)
+    // admin — a rotation must not install a role key equal to admin.
     match validate_authority_separation(
+        &cfg.admin,
         &new_slash_executor,
         &new_appeal_resolver,
         &new_pause_authority,
@@ -81,6 +84,9 @@ pub fn handler(
         }
         Err(AuthoritySeparationError::NotDistinct) => {
             return err!(SlashError::AuthoritiesMustDiffer);
+        }
+        Err(AuthoritySeparationError::AdminCollidesWithRole) => {
+            return err!(SlashError::AdminMustDifferFromRoles);
         }
     }
 

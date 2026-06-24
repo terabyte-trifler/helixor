@@ -75,6 +75,7 @@ pub fn handler(ctx: Context<EnactAuthorityRotation>) -> Result<()> {
     // malformed PendingAuthorityRotation (somehow written by a future
     // buggy instruction) cannot land an invalid role set.
     match validate_authority_separation(
+        &ctx.accounts.slash_config.admin,
         &new_slash_executor,
         &new_appeal_resolver,
         &new_pause_authority,
@@ -85,6 +86,9 @@ pub fn handler(ctx: Context<EnactAuthorityRotation>) -> Result<()> {
         }
         Err(AuthoritySeparationError::NotDistinct) => {
             return err!(SlashError::AuthoritiesMustDiffer);
+        }
+        Err(AuthoritySeparationError::AdminCollidesWithRole) => {
+            return err!(SlashError::AdminMustDifferFromRoles);
         }
     }
     require!(

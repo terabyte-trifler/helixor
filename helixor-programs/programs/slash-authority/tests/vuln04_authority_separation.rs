@@ -55,10 +55,18 @@ fn p(n: u8) -> Pubkey {
     Pubkey::new_from_array(b)
 }
 
+// `ADMIN` is a distinct admin key (p(9)) for the role-distinctness tests, so
+// the M-3 admin check never fires and these pin the original 3-role semantics.
+const fn admin() -> Pubkey {
+    let mut b = [0u8; 32];
+    b[0] = 9;
+    Pubkey::new_from_array(b)
+}
+
 #[test]
 fn three_distinct_non_default_keys_accepted() {
     assert_eq!(
-        validate_authority_separation(&p(1), &p(2), &p(3)),
+        validate_authority_separation(&admin(), &p(1), &p(2), &p(3)),
         Ok(()),
     );
 }
@@ -66,7 +74,7 @@ fn three_distinct_non_default_keys_accepted() {
 #[test]
 fn executor_equal_to_resolver_rejected() {
     assert_eq!(
-        validate_authority_separation(&p(1), &p(1), &p(3)),
+        validate_authority_separation(&admin(), &p(1), &p(1), &p(3)),
         Err(AuthoritySeparationError::NotDistinct),
     );
 }
@@ -74,7 +82,7 @@ fn executor_equal_to_resolver_rejected() {
 #[test]
 fn executor_equal_to_pauser_rejected() {
     assert_eq!(
-        validate_authority_separation(&p(1), &p(2), &p(1)),
+        validate_authority_separation(&admin(), &p(1), &p(2), &p(1)),
         Err(AuthoritySeparationError::NotDistinct),
     );
 }
@@ -82,7 +90,7 @@ fn executor_equal_to_pauser_rejected() {
 #[test]
 fn resolver_equal_to_pauser_rejected() {
     assert_eq!(
-        validate_authority_separation(&p(1), &p(2), &p(2)),
+        validate_authority_separation(&admin(), &p(1), &p(2), &p(2)),
         Err(AuthoritySeparationError::NotDistinct),
     );
 }
@@ -90,7 +98,7 @@ fn resolver_equal_to_pauser_rejected() {
 #[test]
 fn default_executor_rejected() {
     assert_eq!(
-        validate_authority_separation(&Pubkey::default(), &p(2), &p(3)),
+        validate_authority_separation(&admin(), &Pubkey::default(), &p(2), &p(3)),
         Err(AuthoritySeparationError::DefaultPubkey),
     );
 }
@@ -98,7 +106,7 @@ fn default_executor_rejected() {
 #[test]
 fn default_resolver_rejected() {
     assert_eq!(
-        validate_authority_separation(&p(1), &Pubkey::default(), &p(3)),
+        validate_authority_separation(&admin(), &p(1), &Pubkey::default(), &p(3)),
         Err(AuthoritySeparationError::DefaultPubkey),
     );
 }
@@ -106,7 +114,7 @@ fn default_resolver_rejected() {
 #[test]
 fn default_pauser_rejected() {
     assert_eq!(
-        validate_authority_separation(&p(1), &p(2), &Pubkey::default()),
+        validate_authority_separation(&admin(), &p(1), &p(2), &Pubkey::default()),
         Err(AuthoritySeparationError::DefaultPubkey),
     );
 }
@@ -116,11 +124,58 @@ fn all_three_default_rejected_for_zero_not_distinct() {
     // Even though the keys collide, the DefaultPubkey check fires first.
     assert_eq!(
         validate_authority_separation(
+            &admin(),
             &Pubkey::default(),
             &Pubkey::default(),
             &Pubkey::default(),
         ),
         Err(AuthoritySeparationError::DefaultPubkey),
+    );
+}
+
+// ── M-3: admin must not double as any role key ──────────────────────────────
+
+#[test]
+fn admin_equal_to_executor_rejected() {
+    // The headline M-3 case: admin == slash_executor would let one key both
+    // propose (auto-attesting as a role) and attest.
+    assert_eq!(
+        validate_authority_separation(&p(1), &p(1), &p(2), &p(3)),
+        Err(AuthoritySeparationError::AdminCollidesWithRole),
+    );
+}
+
+#[test]
+fn admin_equal_to_resolver_rejected() {
+    assert_eq!(
+        validate_authority_separation(&p(2), &p(1), &p(2), &p(3)),
+        Err(AuthoritySeparationError::AdminCollidesWithRole),
+    );
+}
+
+#[test]
+fn admin_equal_to_pauser_rejected() {
+    assert_eq!(
+        validate_authority_separation(&p(3), &p(1), &p(2), &p(3)),
+        Err(AuthoritySeparationError::AdminCollidesWithRole),
+    );
+}
+
+#[test]
+fn admin_distinct_from_all_roles_accepted() {
+    assert_eq!(
+        validate_authority_separation(&p(9), &p(1), &p(2), &p(3)),
+        Ok(()),
+    );
+}
+
+#[test]
+fn role_collision_takes_precedence_over_admin_collision() {
+    // When the role keys themselves collide AND admin collides, the role
+    // distinctness check fires first (it precedes the admin check).
+    assert_eq!(
+        validate_authority_separation(&p(1), &p(1), &p(1), &p(3)),
+        Err(AuthoritySeparationError::NotDistinct),
     );
 }
 

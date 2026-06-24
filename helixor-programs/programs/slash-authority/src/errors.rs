@@ -208,4 +208,13 @@ pub enum SlashError {
            evidence must be a deterministic commitment to the certificate \
            that justified the slash.")]
     SlashEvidenceHashMismatch = 6114,
+
+    // ── M-3: admin must not double as a role key ────────────────────────────
+    #[msg("M-3: the admin key may not also be one of the three role keys \
+           (slash_executor / appeal_resolver / pause_authority). The SPOF-#2 \
+           rotation ceremony lets admin PROPOSE but not ATTEST; if admin \
+           doubled as a role key it could both propose (auto-attesting as that \
+           role) and attest, degrading the 2-of-3 ceremony toward 1-of-2. \
+           Admin and the role keys must be genuinely separate identities.")]
+    AdminMustDifferFromRoles = 6115,
 }

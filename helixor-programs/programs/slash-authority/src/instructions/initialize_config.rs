@@ -47,8 +47,11 @@ pub fn handler(
     treasury:                    Pubkey,
     settlement_timelock_seconds: i64,
 ) -> Result<()> {
-    // Authority separation: all three role keys must be distinct + non-zero.
+    // Authority separation: all three role keys must be distinct + non-zero,
+    // and (M-3) distinct from the admin being installed.
+    let admin_key = ctx.accounts.admin.key();
     match validate_authority_separation(
+        &admin_key,
         &slash_executor,
         &appeal_resolver,
         &pause_authority,
@@ -59,6 +62,9 @@ pub fn handler(
         }
         Err(AuthoritySeparationError::NotDistinct) => {
             return err!(SlashError::AuthoritiesMustDiffer);
+        }
+        Err(AuthoritySeparationError::AdminCollidesWithRole) => {
+            return err!(SlashError::AdminMustDifferFromRoles);
         }
     }
 
