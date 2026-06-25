@@ -1,0 +1,38 @@
+name: Deploy phylanx-web
+
+# Vercel's native git build can't compile the Next 16 canary inside this
+# monorepo, so we build in a clean CI runner and upload the prebuilt output
+# (`vercel deploy --prebuilt`). This is true git -> auto-deploy that bypasses
+# Vercel's server-side build.
+#
+# Requires one repo secret: VERCEL_TOKEN (create at
+# https://vercel.com/account/tokens). ORG/PROJECT ids are non-secret.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "phylanx-web/**"
+      - ".github/workflows/deploy-phylanx-web.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: team_irUxrAnIahotWDAwjrH14n0w
+      VERCEL_PROJECT_ID: prj_iuOpX4HeHzXiFMvYwnbJnxwZjC71
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Vercel CLI
+        run: npm i -g vercel@latest
+      - name: Pull Vercel project settings
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - name: Build (in CI, clean environment)
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+      - name: Deploy prebuilt to production
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
