@@ -2,7 +2,7 @@
 
 > **Status:** ACTIVE. DBP-1 (consumer integration linter + reference safe
 > reader + manifest schema) ships in this commit; DBP-2 (on-chain
-> `VerifiedConsumer` PDA), DBP-3 (flip `@helixor/sdk` default export), and
+> `VerifiedConsumer` PDA), DBP-3 (flip `@phylanx/sdk` default export), and
 > DBP-4 (telemetry + freshness webhooks) land in follow-up commits and are
 > the revenue surface for the "Verified Integrator" tier.
 
@@ -11,22 +11,22 @@
 From the red-team review:
 
 ```
-ROOT: Drain DeFi Protocol Integrated with Helixor
-└── Path 4: DeFi Bypass (exploit DeFi, not Helixor)
+ROOT: Drain DeFi Protocol Integrated with Phylanx
+└── Path 4: DeFi Bypass (exploit DeFi, not Phylanx)
     ├── DeFi protocol uses cert without freshness check
     ├── DeFi protocol uses cert without score threshold validation
     └── DeFi protocol's cert-reading code has bugs
 ```
 
-Paths 1, 2, 3 (`FHS`, `ILS`, `FRP`) attack Helixor's own substrate and have
+Paths 1, 2, 3 (`FHS`, `ILS`, `FRP`) attack Phylanx's own substrate and have
 been closed by per-path orthogonal mitigations. Path 4 lives ENTIRELY in
-the consumer's code. Helixor cannot close it from its own substrate — the
+the consumer's code. Phylanx cannot close it from its own substrate — the
 only durable mitigation is to make the safe path the *easy* path and reward
 partners who provably adopt it.
 
 ### What's already in place (necessary but not sufficient)
 
-| Leaf | Helixor-side defence already shipped |
+| Leaf | Phylanx-side defence already shipped |
 |---|---|
 | 4a freshness | `SafeCertReader.CERT_MAX_AGE_SECONDS = 48 * 60 * 60` (VULN-23) + `is_fresh_default` (TA-6) + `verify_operation_freshness` (SOL-3) + cert-reissue cadence floor (FRP-3) |
 | 4b threshold | `SafeCertReader` velocity check (VULN-23) + agent-registration-age floor (NSS-3) + score-velocity contract (PDS-2) |
@@ -39,13 +39,13 @@ surface. Path 4's residual is the gap between "safe surfaces exist" and
 ## 2 — The closure: three orthogonal substrates + a revenue line
 
 The closure mirrors the FHS / ILS / FRP three-substrate pattern but the
-substrates are *integration substrates*, not Helixor-internal subsystems:
+substrates are *integration substrates*, not Phylanx-internal subsystems:
 
 | Family | Substrate | Concrete deliverable | Status |
 |---|---|---|---|
 | **DBP-1** | Audit gate | `audit/consumer_integration_check.py` + reference manifest + safe-reader reference implementation | ✅ this commit |
 | **DBP-2** | On-chain badge | `programs/health-oracle/src/state/verified_consumer.rs` PDA + `register_verified_consumer` ix | 🔜 follow-up |
-| **DBP-3** | SDK default | Flip `@helixor/sdk` default export to `SafeCertReader`; raw `getScore()` behind `@helixor/sdk/unsafe` | 🔜 follow-up |
+| **DBP-3** | SDK default | Flip `@phylanx/sdk` default export to `SafeCertReader`; raw `getScore()` behind `@phylanx/sdk/unsafe` | 🔜 follow-up |
 | **DBP-4** | Telemetry + revenue | `safe_reader_share` metric per partner + `/integrations/leaderboard` + SLA-backed freshness webhooks | 🔜 follow-up |
 
 ### DBP-1 — Consumer integration linter (this commit)
@@ -78,13 +78,13 @@ fork, fixes the findings, and opens a PR adding their manifest under
 
 - **VULN-23 anchor** — `SafeCertReader` + `CERT_MAX_AGE_SECONDS = 48 * 60 *
   60` + `MAX_SCORE_VELOCITY = 200` + `VELOCITY_WINDOW_EPOCHS = 3` +
-  `MIN_HISTORY_REQUIRED = 2` in `helixor-sdk/src/safe_reader.ts`.
+  `MIN_HISTORY_REQUIRED = 2` in `phylanx-sdk/src/safe_reader.ts`.
 - **SOL-3 anchor** — `class Operation(str, Enum)` + every per-op constant
   (`LOAN_ISSUE_MAX_AGE_SECONDS = 4 * 3600`, etc.) in
-  `helixor-oracle/oracle/operation_freshness.py`.
+  `phylanx-oracle/oracle/operation_freshness.py`.
 - **AW-01-EXT anchor** — `verifyAgainstSolanaLedger` +
-  `verifyInputProvenance` in `helixor-sdk/src/input_provenance.ts` and the
-  re-export from `helixor-sdk/src/index.ts`.
+  `verifyInputProvenance` in `phylanx-sdk/src/input_provenance.ts` and the
+  re-export from `phylanx-sdk/src/index.ts`.
 
 If any anchor is renamed or removed without updating every existing
 partner manifest, the gate lights red here BEFORE the refactor reaches
@@ -92,7 +92,7 @@ mainnet.
 
 **Reference implementation.** `launch/integrations/example_safe_partner/
 reader.ts` is the canonical safe reader. A partner who copy-pastes it is
-by construction safe along every axis Helixor cares about. The reference
+by construction safe along every axis Phylanx cares about. The reference
 manifest at `launch/integrations/example_safe_partner.json` points at it
 and IS the linter's primary green target.
 
@@ -116,18 +116,18 @@ recognizable marker.
 
 ### DBP-3 — Safe default SDK (follow-up)
 
-Flip `@helixor/sdk`'s default exports. After DBP-3:
+Flip `@phylanx/sdk`'s default exports. After DBP-3:
 
-- `import { ... } from '@helixor/sdk'` ONLY exposes `SafeCertReader`,
+- `import { ... } from '@phylanx/sdk'` ONLY exposes `SafeCertReader`,
   `verifyAgainstSolanaLedger`, `verifyInputProvenance`, the SOL-3
   `Operation` helpers, and the structurally-safe surfaces.
-- `import { rawGetScore, ... } from '@helixor/sdk/unsafe'` exposes the
+- `import { rawGetScore, ... } from '@phylanx/sdk/unsafe'` exposes the
   raw cert-reader primitives. Importing from `/unsafe` should require
   an explicit eslint-disable comment in the consumer's repo — the
   reference linter (DBP-1) flags imports from `/unsafe` outside an
   audit-annotated allowlist.
 
-This is the **friction-killer**: a `npm install @helixor/sdk` followed by
+This is the **friction-killer**: a `npm install @phylanx/sdk` followed by
 the simplest possible "get the score" call is by construction safe.
 Misuse becomes opt-in, not opt-out.
 
@@ -136,17 +136,17 @@ Misuse becomes opt-in, not opt-out.
 Three deliverables stacked:
 
 1. **Per-partner safe-reader share metric.** The read API at
-   `helixor-api/api/telemetry.py` tracks the ratio of `safe_score`
+   `phylanx-api/api/telemetry.py` tracks the ratio of `safe_score`
    calls to raw `score` calls per partner (keyed by API token).
 2. **Public leaderboard.** `/integrations/leaderboard` JSON endpoint
    surfaces every Verified Integrator's `safe_reader_share`, their
    on-chain `VerifiedConsumer` PDA, and a 30-day uptime / freshness
    score. Becomes a marketing surface and a recruiting tool.
-3. **SLA-backed freshness webhooks.** A paid tier ("Helixor Insured")
+3. **SLA-backed freshness webhooks.** A paid tier ("Phylanx Insured")
    where Verified Integrators subscribe to `cert_degrading(agent)`
    webhooks BEFORE a cert hits the SOL-3 ceilings (e.g. notify at
    `LOAN_ISSUE_MAX_AGE_SECONDS - 60min`). Mirrors the Stripe Radar
-   pattern — Helixor underwrites a refund/indemnity tier for
+   pattern — Phylanx underwrites a refund/indemnity tier for
    integrators who adopt the full stack. **This is the revenue line.**
 
 ## 3 — Why this shape (vs the alternatives)
@@ -156,7 +156,7 @@ Three deliverables stacked:
 "Refuse to issue an API token unless the partner ships a green manifest."
 
 - ✗ Kills self-serve onboarding (the #1 GTM moat for an oracle).
-- ✗ Helixor becomes a gatekeeper for adoption velocity — Cloudflare /
+- ✗ Phylanx becomes a gatekeeper for adoption velocity — Cloudflare /
   Stripe / Plaid all explicitly chose NOT to do this.
 - ✗ A token-gate is an arms race with motivated bypassers anyway —
   they'll script around it.
@@ -165,9 +165,9 @@ Three deliverables stacked:
 
 "Publish the safe pattern in docs. Hope partners read them."
 
-- ✗ The first big drain from a sloppy integration becomes "Helixor's
+- ✗ The first big drain from a sloppy integration becomes "Phylanx's
   fault" in headlines, regardless of who actually wrote the broken code.
-- ✗ No revenue surface — Helixor has nothing to charge for beyond raw
+- ✗ No revenue surface — Phylanx has nothing to charge for beyond raw
   cert reads, which is a commodity.
 
 ### Alternative C (chosen): Self-serve safe-by-default + verified-integrator tier
@@ -188,12 +188,12 @@ A regression that does any of the following lights `consumer_integration_check`
 RED BEFORE the change reaches mainnet:
 
 1. Removes `SafeCertReader` or any of its four pinned constants from
-   `helixor-sdk/src/safe_reader.ts`.
-2. Stops re-exporting `SafeCertReader` from `helixor-sdk/src/index.ts`.
+   `phylanx-sdk/src/safe_reader.ts`.
+2. Stops re-exporting `SafeCertReader` from `phylanx-sdk/src/index.ts`.
 3. Removes the `Operation` enum or any of the four `*_MAX_AGE_SECONDS`
-   constants from `helixor-oracle/oracle/operation_freshness.py`.
+   constants from `phylanx-oracle/oracle/operation_freshness.py`.
 4. Removes `verifyAgainstSolanaLedger` or `verifyInputProvenance` from
-   `helixor-sdk/src/input_provenance.ts`.
+   `phylanx-sdk/src/input_provenance.ts`.
 5. Mutates the reference `example_safe_partner.json` without
    recomputing its `integration_hash`.
 6. Removes a marker (SafeCertReader / verifyInputProvenance /

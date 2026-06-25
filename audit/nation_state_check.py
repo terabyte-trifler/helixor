@@ -121,14 +121,14 @@ def check_nss1_cloud_diversity(report: Report) -> None:
     report.checked.append("NSS-1 cluster cloud-provider diversity")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "cloud_diversity.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "cloud_diversity.py"
     )
     _require(
         report, nss="NSS-1",
         rule="cloud-diversity-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/cloud_diversity.py is missing — the "
+            "phylanx-oracle/oracle/cloud_diversity.py is missing — the "
             "NSS-1 cluster cloud-provider diversity gate has been removed."
         ),
     )
@@ -203,14 +203,14 @@ def check_nss2_signer_enforcement(report: Report) -> None:
     report.checked.append("NSS-2 mainnet HSM-only signing enforcement")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "signer_enforcement.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "signer_enforcement.py"
     )
     _require(
         report, nss="NSS-2",
         rule="signer-enforcement-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/signer_enforcement.py is missing — the "
+            "phylanx-oracle/oracle/signer_enforcement.py is missing — the "
             "NSS-2 mainnet HSM-only signing enforcement has been removed."
         ),
     )
@@ -249,10 +249,10 @@ def check_nss2_signer_enforcement(report: Report) -> None:
     _require(
         report, nss="NSS-2",
         rule="env-opt-in-name-pinned",
-        condition='ENV_INPROCESS_SIGNER_OK = "HELIXOR_INPROCESS_SIGNER_OK"' in src,
+        condition='ENV_INPROCESS_SIGNER_OK = "PHYLANX_INPROCESS_SIGNER_OK"' in src,
         detail=(
             "signer_enforcement.py no longer pins the opt-in env var name "
-            "as HELIXOR_INPROCESS_SIGNER_OK — the documented HSM-outage "
+            "as PHYLANX_INPROCESS_SIGNER_OK — the documented HSM-outage "
             "opt-in path is broken."
         ),
     )
@@ -285,7 +285,7 @@ def check_nss2_signer_enforcement(report: Report) -> None:
     # Cross-check: the VULN-25 signer surface still exists. Without it,
     # the enforcement module has nothing to classify.
     signer_src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "cluster" / "signer.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "cluster" / "signer.py"
     )
     _require(
         report, nss="NSS-2",
@@ -296,7 +296,7 @@ def check_nss2_signer_enforcement(report: Report) -> None:
             and "class HSMSigner" in signer_src
         ),
         detail=(
-            "helixor-oracle/oracle/cluster/signer.py no longer defines "
+            "phylanx-oracle/oracle/cluster/signer.py no longer defines "
             "both InProcessSigner and HSMSigner — the NSS-2 classifier "
             "has nothing to discriminate."
         ),
@@ -308,14 +308,14 @@ def check_nss3_agent_age_gate(report: Report) -> None:
     report.checked.append("NSS-3 cluster-side agent-age floor for GREEN")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "agent_age_gate.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "agent_age_gate.py"
     )
     _require(
         report, nss="NSS-3",
         rule="agent-age-gate-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/agent_age_gate.py is missing — the "
+            "phylanx-oracle/oracle/agent_age_gate.py is missing — the "
             "NSS-3 cluster-side agent-age floor for GREEN certs has been "
             "removed."
         ),
@@ -389,7 +389,7 @@ def check_nss3_agent_age_gate(report: Report) -> None:
     # designed to be applied in lockstep — losing the consumer gate
     # turns NSS-3 into a single point of enforcement.
     reader_src = _read(
-        REPO_ROOT / "helixor-sdk" / "src" / "lib" / "cert_reader.ts"
+        REPO_ROOT / "phylanx-sdk" / "src" / "lib" / "cert_reader.ts"
     )
     if reader_src is not None:
         # Soft check — VULN-23 lives in another repo subtree, so we only
@@ -401,7 +401,7 @@ def check_nss3_agent_age_gate(report: Report) -> None:
                 severity="SOFT",
                 rule="vuln23-consumer-freshness-present",
                 detail=(
-                    "helixor-sdk/src/lib/cert_reader.ts no longer "
+                    "phylanx-sdk/src/lib/cert_reader.ts no longer "
                     "references MIN_HISTORY_REQUIRED — the consumer-side "
                     "VULN-23 freshness contract that complements NSS-3 "
                     "appears to have shifted. Cluster-side NSS-3 still "

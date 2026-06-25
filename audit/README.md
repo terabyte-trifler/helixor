@@ -1,7 +1,7 @@
-# Helixor V2 — Day 29 Audit Readiness
+# Phylanx V2 — Day 29 Audit Readiness
 
 This directory is the audit-readiness package. It bundles everything an
-external security auditor needs to verify the Helixor on-chain programs
+external security auditor needs to verify the Phylanx on-chain programs
 before mainnet: programmatic hardening checks, fuzz harnesses, load
 tests, CVE scans, deployed-artifact verification, and the upgrade
 authority transfer runbook.
@@ -88,7 +88,7 @@ audit/reports/
 
 ```bash
 # 1. local clean checkout
-git clone <repo> && cd helixor
+git clone <repo> && cd phylanx
 
 # 2. programmatic gates (no external services)
 bash audit/run_all.sh
@@ -97,9 +97,9 @@ bash audit/run_all.sh
 bash audit/trident/run_fuzz.sh
 
 # 4. load tests against staging deployment
-export HELIXOR_API_URL=https://api.staging.helixor.xyz
+export PHYLANX_API_URL=https://api.staging.phylanx.xyz
 export DATABASE_URL=postgres://...
-python3 audit/load_tests/api_load.py --base-url "$HELIXOR_API_URL" \
+python3 audit/load_tests/api_load.py --base-url "$PHYLANX_API_URL" \
     --rate 4 --duration 3600              # 1-hour full load
 python3 audit/load_tests/db_stress.py --rows 50_000_000
 
@@ -111,7 +111,7 @@ npx ts-node audit/multisig/transfer_upgrade_authority.ts \
     --execute
 
 # 6. verify deployed .so matches local build
-cd helixor-programs && anchor build --verifiable
+cd phylanx-programs && anchor build --verifiable
 cd ../audit/artifact_verification && \
     npx ts-node verify_so_match.ts --cluster mainnet-beta
 

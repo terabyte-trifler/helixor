@@ -22,7 +22,7 @@ home jurisdiction.
 
 A data subject is exercising a statutory right against the
 operator-of-record. The DP-1 substrate
-(`helixor-oracle/oracle/data_protection_policy.py`) has already
+(`phylanx-oracle/oracle/data_protection_policy.py`) has already
 classified every per-agent store the protocol writes to as either
 ERASABLE or CARVED OUT, and the public privacy notice
 (`launch/legal/privacy_notice.md`) has disclosed the carve-outs
@@ -88,13 +88,13 @@ the CLI entry.
 
 ```bash
 # Repo root, with operator's production DB DSN in env.
-cd /helixor && source helixor-api/.venv/bin/activate
-cd helixor-oracle
+cd /phylanx && source phylanx-api/.venv/bin/activate
+cd phylanx-oracle
 
-export HELIXOR_DB_DSN='postgres://...prod...'
+export PHYLANX_DB_DSN='postgres://...prod...'
 
 python -m oracle.data_subject_request query <agent_wallet> \
-    > /var/log/helixor/dsar/<ticket_id>.access.json
+    > /var/log/phylanx/dsar/<ticket_id>.access.json
 ```
 
 The output is one line of canonical JSON. The schema:
@@ -153,11 +153,11 @@ the CLI entry.
 **Procedure:**
 
 ```bash
-export HELIXOR_DB_DSN='postgres://...prod...'
+export PHYLANX_DB_DSN='postgres://...prod...'
 
 python -m oracle.data_subject_request erase <agent_wallet> \
     --justification "<ticket_id> + <Art./section reference>" \
-    > /var/log/helixor/dsar/<ticket_id>.erase.json
+    > /var/log/phylanx/dsar/<ticket_id>.erase.json
 ```
 
 The `--justification` flag is REQUIRED — the CLI rejects an empty
@@ -228,7 +228,7 @@ erasure), the operator-of-record:
   1. Runs the §3 erasure flow with `--justification` including
      "OBJECTION" verbatim.
   2. Adds the wallet to the operator-local objection list
-     (`/etc/helixor/objections.txt`, one wallet per line). The
+     (`/etc/phylanx/objections.txt`, one wallet per line). The
      indexer ingest path reads this file at startup and skips
      transactions whose `agent_wallet` matches.
   3. Confirms via `query` after the next epoch that no new rows
@@ -248,12 +248,12 @@ erasure), the operator-of-record:
 ## Step 5 — Audit log
 
 **Substrate:** `serialize_dsar_audit_event(...)` +
-`/var/log/helixor/dsar/`.
+`/var/log/phylanx/dsar/`.
 
 Every DSAR (access OR erasure OR objection) emits one canonical-
 JSON line. The operator-of-record runbook pins:
 
-  - **Path:** `/var/log/helixor/dsar/<ticket_id>.<op>.json`
+  - **Path:** `/var/log/phylanx/dsar/<ticket_id>.<op>.json`
     where `<op>` is `access` or `erase`.
   - **Retention:** indefinite at the operator. The audit-log
     file is the only permanent record of a DSAR; regulators may
@@ -269,7 +269,7 @@ operators given the same input (sorted keys, UTC-normalised
 `detected_at`, wire-versioned). Two operators running the same
 DSAR independently produce verifiable parallel audit logs.
 
-**Test pin:** `helixor-oracle/tests/oracle/
+**Test pin:** `phylanx-oracle/tests/oracle/
 test_dp1_data_subject_request.py::test_audit_event_is_canonical_json`.
 
 ---
@@ -292,7 +292,7 @@ with their carve-out reasons — that is correct, NOT a regression.
 For an objection, additionally verify the objection list:
 
 ```bash
-grep -x <agent_wallet> /etc/helixor/objections.txt
+grep -x <agent_wallet> /etc/phylanx/objections.txt
 ```
 
 ---

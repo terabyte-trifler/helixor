@@ -1,0 +1,83 @@
+import { cn } from "@/lib/cn";
+
+/**
+ * PhylanxMark — the "Signal Shield" brand mark.
+ *
+ * A generative phalanx-field: 14 concentric hexagons rotate inward toward
+ * a vermillion glowing core — many independent validators converging on one
+ * threshold-signed verdict. Cream line-work (#f4efe6) on the warm-ink canvas,
+ * with the brand accent (#ff4f2e) reserved for the live core only.
+ *
+ * Self-scoped gradient ids (`phx-*`) so multiple instances on one page never
+ * collide. Decorative by default (aria-hidden); pass a `title` to label it.
+ */
+export function PhylanxMark({
+  size = 28,
+  className,
+  title,
+}: {
+  size?: number;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 100 100"
+      width={size}
+      height={size}
+      className={className}
+      role={title ? "img" : undefined}
+      aria-hidden={title ? undefined : true}
+    >
+      {title ? <title>{title}</title> : null}
+      <defs>
+        <radialGradient id="phx-coreGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#ff8a63" stopOpacity="0.92" />
+          <stop offset="32%" stopColor="#ff4f2e" stopOpacity="0.6" />
+          <stop offset="100%" stopColor="#ff4f2e" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id="phx-core" cx="50%" cy="45%" r="60%">
+          <stop offset="0%" stopColor="#fff1ea" />
+          <stop offset="42%" stopColor="#ff8a63" />
+          <stop offset="100%" stopColor="#ff4f2e" />
+        </radialGradient>
+        <filter id="phx-soft" x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur stdDeviation="1.4" />
+        </filter>
+      </defs>
+      <g stroke="#f4efe6" strokeWidth="0.32" opacity="0.22">
+        <line x1="50.00" y1="41.00" x2="50.00" y2="4.46" />
+        <line x1="54.50" y1="42.21" x2="72.77" y2="10.56" />
+        <line x1="57.79" y1="45.50" x2="89.44" y2="27.23" />
+        <line x1="59.00" y1="50.00" x2="95.54" y2="50.00" />
+        <line x1="57.79" y1="54.50" x2="89.44" y2="72.77" />
+        <line x1="54.50" y1="57.79" x2="72.77" y2="89.44" />
+        <line x1="50.00" y1="59.00" x2="50.00" y2="95.54" />
+        <line x1="45.50" y1="57.79" x2="27.23" y2="89.44" />
+        <line x1="42.21" y1="54.50" x2="10.56" y2="72.77" />
+        <line x1="41.00" y1="50.00" x2="4.46" y2="50.00" />
+        <line x1="42.21" y1="45.50" x2="10.56" y2="27.23" />
+        <line x1="45.50" y1="42.21" x2="27.23" y2="10.56" />
+      </g>
+      <polygon points="50.84,50.34 50.13,50.90 49.29,50.56 49.16,49.66 49.87,49.10 50.71,49.44" fill="none" stroke="#ff6a45" strokeWidth="0.49" opacity="0.528" />
+      <polygon points="52.40,50.60 50.68,52.38 48.28,51.78 47.60,49.40 49.32,47.62 51.72,48.22" fill="none" stroke="#ff6a45" strokeWidth="0.52" opacity="0.576" />
+      <polygon points="54.43,50.47 51.81,54.07 47.38,53.61 45.57,49.53 48.19,45.93 52.62,46.39" fill="none" stroke="#ff6a45" strokeWidth="0.56" opacity="0.624" />
+      <polygon points="56.76,49.76 53.59,55.74 46.82,55.98 43.24,50.24 46.41,44.26 53.18,44.02" fill="none" stroke="#ff6a45" strokeWidth="0.60" opacity="0.672" />
+      <polygon points="59.21,48.38 56.01,57.16 46.80,58.79 40.79,51.62 43.99,42.84 53.20,41.21" fill="none" stroke="#f4efe6" strokeWidth="0.63" opacity="0.400" />
+      <polygon points="61.59,46.24 59.05,58.15 47.47,61.92 38.41,53.76 40.95,41.85 52.53,38.08" fill="none" stroke="#f4efe6" strokeWidth="0.67" opacity="0.448" />
+      <polygon points="63.69,43.32 62.63,58.52 48.94,65.20 36.31,56.68 37.37,41.48 51.06,34.80" fill="none" stroke="#f4efe6" strokeWidth="0.71" opacity="0.496" />
+      <polygon points="65.33,39.66 66.62,58.10 51.29,68.44 34.67,60.34 33.38,41.90 48.71,31.56" fill="none" stroke="#f4efe6" strokeWidth="0.74" opacity="0.544" />
+      <polygon points="66.30,35.32 70.86,56.78 54.56,71.45 33.70,64.68 29.14,43.22 45.44,28.55" fill="none" stroke="#f4efe6" strokeWidth="0.78" opacity="0.592" />
+      <polygon points="66.42,30.43 75.16,54.44 58.74,74.01 33.58,69.57 24.84,45.56 41.26,25.99" fill="none" stroke="#f4efe6" strokeWidth="0.82" opacity="0.640" />
+      <polygon points="65.55,25.12 79.32,51.02 63.77,75.90 34.45,74.88 20.68,48.98 36.23,24.10" fill="none" stroke="#f4efe6" strokeWidth="0.85" opacity="0.688" />
+      <polygon points="63.54,19.59 83.10,46.52 69.56,76.93 36.46,80.41 16.90,53.48 30.44,23.07" fill="none" stroke="#f4efe6" strokeWidth="0.89" opacity="0.736" />
+      <polygon points="60.30,14.07 86.27,40.96 75.97,76.89 39.70,85.93 13.73,59.04 24.03,23.11" fill="none" stroke="#f4efe6" strokeWidth="0.93" opacity="0.784" />
+      <polygon points="55.79,8.78 88.59,34.41 82.80,75.62 44.21,91.22 11.41,65.59 17.20,24.38" fill="none" stroke="#f4efe6" strokeWidth="0.96" opacity="0.832" />
+      <polygon points="50.00,4.00 89.84,27.00 89.84,73.00 50.00,96.00 10.16,73.00 10.16,27.00" fill="none" stroke="#f4efe6" strokeWidth="1.00" opacity="0.880" />
+      <circle cx="50" cy="50" r="30" fill="url(#phx-coreGlow)" opacity="0.5" />
+      <circle cx="50" cy="50" r="23" fill="url(#phx-coreGlow)" />
+      <circle cx="50" cy="50" r="7.6" fill="url(#phx-core)" filter="url(#phx-soft)" />
+      <circle cx="50" cy="50" r="2.6" fill="#fff3ee" />
+    </svg>
+  );
+}

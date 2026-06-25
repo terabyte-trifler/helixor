@@ -12,7 +12,7 @@ epoch.
 
 The mitigations this sweep pins:
 
-  1. EVERY helixor-* package has a `requirements.in` source-pin file
+  1. EVERY phylanx-* package has a `requirements.in` source-pin file
      where every direct dep is `pkg==X.Y.Z` (never a range, never a
      bare name).
 
@@ -30,7 +30,7 @@ The mitigations this sweep pins:
      process memory entirely.
 
   5. The systemd unit retains its supply-chain hardening — read-only
-     `/opt/helixor`, dropped capabilities, syscall filter, namespace
+     `/opt/phylanx`, dropped capabilities, syscall filter, namespace
      restrictions. If a future PR loosens any of these, the sweep
      fails.
 
@@ -58,9 +58,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # at release time, gated separately in LAUNCH_CHECKLIST. Default mode
 # exits 0 if only these fire; `--strict` (release-gate) fails on them.
 _EXPECTED_PRE_RELEASE_RULES = frozenset({
-    "helixor-oracle-requirements-txt-missing",
-    "helixor-api-requirements-txt-missing",
-    "helixor-indexer-requirements-txt-missing",
+    "phylanx-oracle-requirements-txt-missing",
+    "phylanx-api-requirements-txt-missing",
+    "phylanx-indexer-requirements-txt-missing",
 })
 
 
@@ -68,10 +68,10 @@ _EXPECTED_PRE_RELEASE_RULES = frozenset({
 # Targets
 # =============================================================================
 
-PYTHON_PACKAGES = ("helixor-oracle", "helixor-api", "helixor-indexer")
+PYTHON_PACKAGES = ("phylanx-oracle", "phylanx-api", "phylanx-indexer")
 
-CARGO_LOCK_PATH        = REPO_ROOT / "helixor-programs" / "Cargo.lock"
-ORACLE_SIGNER_PY       = REPO_ROOT / "helixor-oracle" / "oracle" / "cluster" / "signer.py"
+CARGO_LOCK_PATH        = REPO_ROOT / "phylanx-programs" / "Cargo.lock"
+ORACLE_SIGNER_PY       = REPO_ROOT / "phylanx-oracle" / "oracle" / "cluster" / "signer.py"
 ORACLE_SYSTEMD_UNIT    = REPO_ROOT / "launch" / "deploy" / "systemd" / "oracle-node@.service"
 REGEN_SCRIPT           = REPO_ROOT / "scripts" / "regen_requirements.sh"
 
@@ -85,7 +85,7 @@ COMMENT_OR_BLANK_RE = re.compile(r"^\s*(?:#.*)?$")
 REQUIRED_SYSTEMD_HARDENING = (
     "NoNewPrivileges=true",
     "ProtectSystem=strict",
-    "ReadOnlyPaths=/opt/helixor",
+    "ReadOnlyPaths=/opt/phylanx",
     "SystemCallFilter=@system-service",
     "CapabilityBoundingSet=",
     "MemoryDenyWriteExecute=true",
@@ -257,7 +257,7 @@ def _check_cargo_lock(report: Report) -> None:
             severity="HARD", rule="cargo-lock-missing",
             path=_display(CARGO_LOCK_PATH),
             detail=(
-                "helixor-programs/Cargo.lock is not committed — Rust "
+                "phylanx-programs/Cargo.lock is not committed — Rust "
                 "builds will resolve transitive crates fresh and a "
                 "registered ghost version can sneak in. Commit the lock."
             ),

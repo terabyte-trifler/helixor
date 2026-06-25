@@ -2,7 +2,7 @@
 """
 audit/data_protection_check.py — DP-1 data-protection compliance gate.
 
-The substrate is `helixor-oracle/oracle/data_protection_policy.py`,
+The substrate is `phylanx-oracle/oracle/data_protection_policy.py`,
 which declares the `DataCategory × StorageLocation → RetentionPolicy`
 table the privacy notice + DSAR handlers consume. This gate is the
 mechanical regression alarm: if a refactor quietly drops a category,
@@ -97,7 +97,7 @@ class Report:
 
 def _check_substrate_present(report: Report) -> None:
     """The DP-1 policy module must exist."""
-    path = REPO_ROOT / "helixor-oracle" / "oracle" / "data_protection_policy.py"
+    path = REPO_ROOT / "phylanx-oracle" / "oracle" / "data_protection_policy.py"
     report.checked.append(str(path.relative_to(REPO_ROOT)))
     if not path.is_file():
         report.findings.append(Finding(
@@ -114,7 +114,7 @@ def _check_oracle_public_surface(report: Report) -> None:
     """The policy module must export the audit-pinned symbols."""
     import importlib
     import sys as _sys
-    oracle_root = REPO_ROOT / "helixor-oracle"
+    oracle_root = REPO_ROOT / "phylanx-oracle"
     if str(oracle_root) not in _sys.path:
         _sys.path.insert(0, str(oracle_root))
     try:
@@ -208,7 +208,7 @@ def _check_oracle_public_surface(report: Report) -> None:
 def _check_timescale_retention_matches(report: Report) -> None:
     """The TimescaleDB migration must still pin 180 days for agent_transactions."""
     path = (
-        REPO_ROOT / "helixor-oracle" / "db" / "migrations"
+        REPO_ROOT / "phylanx-oracle" / "db" / "migrations"
         / "0009_timescaledb.sql"
     )
     report.checked.append(str(path.relative_to(REPO_ROOT)))

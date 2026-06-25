@@ -9,13 +9,13 @@
 - `programs/certificate-issuer/src/signing.rs` (`cert_payload_digest` — 64 new AW-04 bytes)
 - `programs/certificate-issuer/src/instructions/issue_certificate.rs` (init the components PDA + fold the hashes)
 - `programs/health-oracle/src/instructions/submit_score.rs` (CPI forwarding)
-- `helixor-oracle/scoring/bundle_hash.py` (`compute_scoring_bundle_hash`, `bundle_members`)
-- `helixor-oracle/oracle/score_components.py` (canonical-JSON serializer + sha256)
-- `helixor-oracle/oracle/cluster/cert_signing.py` (`scoring_code_hash=` + `score_components_hash=` kwargs)
-- `helixor-oracle/oracle/cluster/pipeline.py` (threads both through to the digest + on-chain write)
-- `helixor-sdk/src/scoring_provenance.ts` (`verifyScoreComputation`, `verifyScoringCodeHash`, `replayScoreFromComponents`)
-- `helixor-sdk/src/decode.ts` (`decodeScoreComponentsAccount`, v7 cert decode)
-- `helixor-sdk/src/pdas.ts` (`scoreComponentsPda`)
+- `phylanx-oracle/scoring/bundle_hash.py` (`compute_scoring_bundle_hash`, `bundle_members`)
+- `phylanx-oracle/oracle/score_components.py` (canonical-JSON serializer + sha256)
+- `phylanx-oracle/oracle/cluster/cert_signing.py` (`scoring_code_hash=` + `score_components_hash=` kwargs)
+- `phylanx-oracle/oracle/cluster/pipeline.py` (threads both through to the digest + on-chain write)
+- `phylanx-sdk/src/scoring_provenance.ts` (`verifyScoreComputation`, `verifyScoringCodeHash`, `replayScoreFromComponents`)
+- `phylanx-sdk/src/decode.ts` (`decodeScoreComponentsAccount`, v7 cert decode)
+- `phylanx-sdk/src/pdas.ts` (`scoreComponentsPda`)
 - `audit/scoring_provenance_check.py`
 - `audit/test_scoring_provenance_check.py`
 - `launch/runbooks/score_provenance.md`
@@ -32,7 +32,7 @@ on-chain consumer reading the cert had no mechanism to:
 
 1. **Audit which scoring kernel the number came from.** The dimension
    weights, normalisation curves, and the composite formula live in
-   `helixor-oracle/scoring/`. A compromised cluster could ship an
+   `phylanx-oracle/scoring/`. A compromised cluster could ship an
    adversarial fork that re-weights `flow_health` to favour a
    captured agent — every cert still threshold-signed, still
    verifiable as "from the cluster", and the on-chain bytes would be
@@ -69,12 +69,12 @@ binds to.
 
 ### 1. Code-bundle hash, folded into the digest
 
-`helixor-oracle/scoring/bundle_hash.py` computes a deterministic
+`phylanx-oracle/scoring/bundle_hash.py` computes a deterministic
 SHA-256 over the canonical scoring-kernel source bytes:
 
 ```python
 sha256(
-    b"helixor-scoring-bundle-v1\n" ||
+    b"phylanx-scoring-bundle-v1\n" ||
     for each sorted path:
         path_bytes || b"\n" || sha256(file_bytes) || b"\n"
     ||
@@ -145,7 +145,7 @@ possible from any deserialiser.
 
 ### 3. SDK replay verifier
 
-`@helixor/sdk` exports `verifyScoreComputation(connection,
+`@phylanx/sdk` exports `verifyScoreComputation(connection,
 certificateIssuer, cert)`. The flow:
 
 1. `scoreComponentsPda(certificateIssuer, agent, epoch)` → PDA.
@@ -185,7 +185,7 @@ sha256(
 
 The Python `cert_payload_digest`, the Rust on-chain
 `cert_payload_digest`, and the TS test helper in
-`helixor-programs/tests/certificate_issuer.integration.ts` all
+`phylanx-programs/tests/certificate_issuer.integration.ts` all
 reproduce these bytes byte-for-byte — the integration test is the
 canonical fixture for the three-way byte parity.
 
@@ -260,11 +260,11 @@ Two reasons:
 - [x] Python `cert_payload_digest(... , scoring_code_hash=,
       score_components_hash=)` keyword-only kwargs with
       32-zero defaults for legacy compatibility.
-- [x] `helixor-oracle/scoring/bundle_hash.py` —
+- [x] `phylanx-oracle/scoring/bundle_hash.py` —
       `compute_scoring_bundle_hash()` returns 32 deterministic
       bytes; `bundle_members()` returns the sorted canonical
       tuple. Five members pinned today.
-- [x] `helixor-oracle/oracle/score_components.py` —
+- [x] `phylanx-oracle/oracle/score_components.py` —
       `build_components_and_hash(score_result, baseline,
       previous_score)` returns `(payload_bytes,
       components_hash)`; `serialise_canonical(payload_dict)`
@@ -275,7 +275,7 @@ Two reasons:
       to `cert_payload_digest`.
 - [x] Audit sweep `audit/scoring_provenance_check.py` flags any
       production callsite that drops the binding. PYTHON_ROOTS
-      scoped to `helixor-oracle/oracle/...`. 5 pins:
+      scoped to `phylanx-oracle/oracle/...`. 5 pins:
       `cert_payload_digest-missing-scoring_code_hash`,
       `cert_payload_digest-missing-score_components_hash`,
       `certPayloadDigest-missing-scoringCodeHash`,
@@ -306,7 +306,7 @@ Two reasons:
       `tests/oracle/test_cert_signing.py` (36, of which 7
       are new AW-04 fold tests).
 - [x] SDK tests: 28 cases in
-      `helixor-sdk/test/scoring_provenance.test.ts` covering
+      `phylanx-sdk/test/scoring_provenance.test.ts` covering
       pure helpers, replay math, OK path, every rejection
       reason, code-hash check variants, decode round-trip.
       Total 102 SDK tests.
@@ -329,7 +329,7 @@ import {
   verifyScoreComputation,
   verifyScoringCodeHash,
   CodeHashCheckResult,
-} from "@helixor/sdk";
+} from "@phylanx/sdk";
 
 const replay = await verifyScoreComputation(connection, certIssuer, cert);
 if (!replay.ok) {

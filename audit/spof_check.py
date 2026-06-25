@@ -2,7 +2,7 @@
 """
 audit/spof_check.py — the unified single-point-of-failure audit gate.
 
-The Helixor SPOF table (launch/design/spof_resolution.md) enumerates 9
+The Phylanx SPOF table (launch/design/spof_resolution.md) enumerates 9
 SPOFs. Six were closed by code or deployment work; this script is the
 mechanical proof that the mitigations are STILL in place. It is a
 regression alarm — if a refactor accidentally undoes one of the fixes,
@@ -122,7 +122,7 @@ def check_spof2_slash_authority_rotation(report: Report) -> None:
     report.checked.append("SPOF-#2 slash_authority")
 
     pending = _read(
-        REPO_ROOT / "helixor-programs" / "programs" / "slash-authority"
+        REPO_ROOT / "phylanx-programs" / "programs" / "slash-authority"
         / "src" / "state" / "pending_authority_rotation.rs"
     )
     _require(
@@ -157,7 +157,7 @@ def check_spof2_slash_authority_rotation(report: Report) -> None:
         )
 
     update_authorities = _read(
-        REPO_ROOT / "helixor-programs" / "programs" / "slash-authority"
+        REPO_ROOT / "phylanx-programs" / "programs" / "slash-authority"
         / "src" / "instructions" / "update_authorities.rs"
     )
     _require(
@@ -399,14 +399,14 @@ def check_spof8_geyser_consensus(report: Report) -> None:
     report.checked.append("SPOF-#8 geyser")
 
     prod_cfg = _read(
-        REPO_ROOT / "helixor-indexer" / "indexer" / "production_config.py"
+        REPO_ROOT / "phylanx-indexer" / "indexer" / "production_config.py"
     )
     _require(
         report, spof="SPOF-#8",
         rule="production_config-present",
         condition=prod_cfg is not None,
         detail=(
-            "helixor-indexer/indexer/production_config.py is missing — the "
+            "phylanx-indexer/indexer/production_config.py is missing — the "
             "SPOF-#8 mainnet floor is no longer enforceable."
         ),
     )

@@ -2,7 +2,7 @@
 """
 audit/securities_compliance_check.py — SEC-1 securities-posture gate.
 
-The substrate is `helixor-oracle/oracle/securities_compliance.py`,
+The substrate is `phylanx-oracle/oracle/securities_compliance.py`,
 which declares the closed-enum `CompensationModel`, the
 `ConflictDisclosure` shape, and `verify_compensation_independence`.
 The `OperatorAttestation` dataclass in `oracle/operator_manifest.py`
@@ -115,7 +115,7 @@ class Report:
 # =============================================================================
 
 def _check_substrate_present(report: Report) -> None:
-    path = REPO_ROOT / "helixor-oracle" / "oracle" / "securities_compliance.py"
+    path = REPO_ROOT / "phylanx-oracle" / "oracle" / "securities_compliance.py"
     report.checked.append(str(path.relative_to(REPO_ROOT)))
     if not path.is_file():
         report.findings.append(Finding(
@@ -132,7 +132,7 @@ def _check_substrate_present(report: Report) -> None:
 def _check_oracle_public_surface(report: Report) -> None:
     import importlib
     import sys as _sys
-    oracle_root = REPO_ROOT / "helixor-oracle"
+    oracle_root = REPO_ROOT / "phylanx-oracle"
     if str(oracle_root) not in _sys.path:
         _sys.path.insert(0, str(oracle_root))
     try:
@@ -208,7 +208,7 @@ def _check_oracle_public_surface(report: Report) -> None:
 def _check_attestation_carries_sec1_fields(report: Report) -> None:
     import importlib
     import sys as _sys
-    oracle_root = REPO_ROOT / "helixor-oracle"
+    oracle_root = REPO_ROOT / "phylanx-oracle"
     if str(oracle_root) not in _sys.path:
         _sys.path.insert(0, str(oracle_root))
     try:
@@ -246,7 +246,7 @@ def _check_canonical_bytes_binds_sec1_fields(report: Report) -> None:
     canonical format to the pre-SEC-1 shape, this lights red."""
     import importlib
     import sys as _sys
-    oracle_root = REPO_ROOT / "helixor-oracle"
+    oracle_root = REPO_ROOT / "phylanx-oracle"
     if str(oracle_root) not in _sys.path:
         _sys.path.insert(0, str(oracle_root))
     try:
@@ -317,7 +317,7 @@ def _check_canonical_bytes_binds_sec1_fields(report: Report) -> None:
 # SDK + integration reader checks — the public-facing surface
 # =============================================================================
 
-_TS_SDK_PATH = REPO_ROOT / "helixor-sdk" / "src" / "safe_reader.ts"
+_TS_SDK_PATH = REPO_ROOT / "phylanx-sdk" / "src" / "safe_reader.ts"
 _INTEGRATIONS_DIR = REPO_ROOT / "launch" / "integrations"
 
 
@@ -422,7 +422,7 @@ def _check_sdk_advisory_disclaimer_matches(report: Report) -> None:
 
     import importlib
     import sys as _sys
-    oracle_root = REPO_ROOT / "helixor-oracle"
+    oracle_root = REPO_ROOT / "phylanx-oracle"
     if str(oracle_root) not in _sys.path:
         _sys.path.insert(0, str(oracle_root))
     try:

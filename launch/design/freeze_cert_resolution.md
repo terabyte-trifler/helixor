@@ -2,7 +2,7 @@
 
 **Status:** IMPLEMENTED.
 **Red-team finding:** Path 3 from the red-team attack tree (root:
-"Drain DeFi Protocol Integrated with Helixor") — "Freeze Cert at
+"Drain DeFi Protocol Integrated with Phylanx") — "Freeze Cert at
 High Score" — three sub-leaves:
 
   3a. Exploit VULN-05 (commit-reveal block)              [LOW EFFORT]
@@ -14,25 +14,25 @@ High Score" — three sub-leaves:
 cluster anchors continue to be owned by the health-oracle (VULN-02),
 cluster (VULN-05), and certificate-issuer (TA-6) program teams.
 **Related code / config:**
-- `helixor-oracle/oracle/cluster_participation_floor.py` (FRP-1)
-- `helixor-oracle/oracle/epoch_advance_liveness.py` (FRP-2)
-- `helixor-oracle/oracle/cert_reissue_cadence.py` (FRP-3)
-- `helixor-oracle/tests/oracle/test_frp1_cluster_participation_floor.py`
-- `helixor-oracle/tests/oracle/test_frp2_epoch_advance_liveness.py`
-- `helixor-oracle/tests/oracle/test_frp3_cert_reissue_cadence.py`
+- `phylanx-oracle/oracle/cluster_participation_floor.py` (FRP-1)
+- `phylanx-oracle/oracle/epoch_advance_liveness.py` (FRP-2)
+- `phylanx-oracle/oracle/cert_reissue_cadence.py` (FRP-3)
+- `phylanx-oracle/tests/oracle/test_frp1_cluster_participation_floor.py`
+- `phylanx-oracle/tests/oracle/test_frp2_epoch_advance_liveness.py`
+- `phylanx-oracle/tests/oracle/test_frp3_cert_reissue_cadence.py`
 - `audit/freeze_cert_check.py` +
   `audit/test_freeze_cert_check.py` (mechanical regression gate)
 - On-chain / cluster anchors (UNCHANGED, cross-referenced by the
   FRP audit gate):
-  - `helixor-oracle/oracle/cluster/commit_reveal_round.py`
+  - `phylanx-oracle/oracle/cluster/commit_reveal_round.py`
     (`submit_reveal` + `non_revealers` + `reveal_deadline` +
     `min_reveals`)
-  - `helixor-programs/programs/health-oracle/src/instructions/advance_epoch.rs`
+  - `phylanx-programs/programs/health-oracle/src/instructions/advance_epoch.rs`
     (`verify_cluster_threshold` + `consensus_threshold` +
     `InsufficientAdvanceAttestations`)
-  - `helixor-programs/programs/health-oracle/src/state/epoch_state.rs`
+  - `phylanx-programs/programs/health-oracle/src/state/epoch_state.rs`
     (`DEFAULT_DURATION_SECONDS: i64 = 86_400`)
-  - `helixor-programs/programs/certificate-issuer/src/state/health_certificate.rs`
+  - `phylanx-programs/programs/certificate-issuer/src/state/health_certificate.rs`
     (`MAX_AGE_SECONDS: i64 = 48 * 60 * 60` + `is_fresh_default`)
 
 ---
@@ -45,7 +45,7 @@ signing authority (Path 1) nor the agent's score itself (Path 2).
 Reproduced verbatim from the tree:
 
 ```
-ROOT: Drain DeFi Protocol Integrated with Helixor
+ROOT: Drain DeFi Protocol Integrated with Phylanx
 ├── Path 3: Freeze Cert at High Score
 │   ├── 3a. Exploit VULN-05 (commit-reveal block)        [LOW EFFORT]
 │   ├── 3b. Exploit VULN-02 (epoch advancement freeze)   [MEDIUM EFFORT]

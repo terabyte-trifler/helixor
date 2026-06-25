@@ -1,7 +1,7 @@
 // =============================================================================
 // audit/multisig/transfer_upgrade_authority.ts
 //
-// Transfer the BPF Upgrade Authority of each Helixor program to a Squads
+// Transfer the BPF Upgrade Authority of each Phylanx program to a Squads
 // v4 3-of-5 multisig vault. This is the Day-29 hardening step that turns
 // the deployer key from a single point of compromise into a 3-of-5
 // threshold for any program upgrade.

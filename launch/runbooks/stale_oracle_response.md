@@ -341,9 +341,9 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest audit/test_stale_oracle_check.py -v
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest \
-    helixor-oracle/tests/oracle/test_sol1_cluster_liveness.py \
-    helixor-oracle/tests/oracle/test_sol2_staleness_escalator.py \
-    helixor-oracle/tests/oracle/test_sol3_operation_freshness.py -v
+    phylanx-oracle/tests/oracle/test_sol1_cluster_liveness.py \
+    phylanx-oracle/tests/oracle/test_sol2_staleness_escalator.py \
+    phylanx-oracle/tests/oracle/test_sol3_operation_freshness.py -v
 ```
 
 All three MUST be green before the PR is mergeable. For a runtime

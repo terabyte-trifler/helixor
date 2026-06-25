@@ -15,8 +15,8 @@ quorum risk.
 ```bash
 # 1. Confirm the node is actually down vs scrape-only.
 ssh oracle-node-<i>
-sudo systemctl status helixor-oracle-<i>
-journalctl -u helixor-oracle-<i> -n 200
+sudo systemctl status phylanx-oracle-<i>
+journalctl -u phylanx-oracle-<i> -n 200
 
 # 2. Confirm cluster is producing certs without it.
 curl -s http://api/health/cluster | jq '.recent_epochs'
@@ -35,14 +35,14 @@ curl -s http://api/byzantine/strikes | jq ".summary[\"$NODE\"]"
   backup keypair, restart, watch one full epoch complete.
 
 - **Process keeps exiting with code 2:** the network guard refused start.
-  The env file references mainnet without `HELIXOR_MAINNET_OK=1`. This
+  The env file references mainnet without `PHYLANX_MAINNET_OK=1`. This
   is the **safety belt firing** — do NOT add the flag to make it stop.
   Confirm the env file is correct first. If the start *was* intentional,
   add the flag with a deliberate commit message naming the reason.
 
 - **Node was flagged Byzantine before going down:** do NOT restart
   blindly. The node may have been killed by the on-call to PREVENT
-  further damage. Confirm with #helixor-ops before restarting.
+  further damage. Confirm with #phylanx-ops before restarting.
 
 - **Network partition (transport unreachable but process up):** see
   `partition.md`. Restart often does not help here; investigate
@@ -52,10 +52,10 @@ curl -s http://api/byzantine/strikes | jq ".summary[\"$NODE\"]"
 
 ```bash
 # Standard restart.
-sudo systemctl restart helixor-oracle-<i>
-sudo systemctl status helixor-oracle-<i>
+sudo systemctl restart phylanx-oracle-<i>
+sudo systemctl status phylanx-oracle-<i>
 # Wait for the next epoch tick.
-journalctl -u helixor-oracle-<i> -f
+journalctl -u phylanx-oracle-<i> -f
 ```
 
 ## When to wake the lead

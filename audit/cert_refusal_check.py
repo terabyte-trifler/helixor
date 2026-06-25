@@ -2,7 +2,7 @@
 """
 audit/cert_refusal_check.py — OFAC-1 silent-delist transparency gate.
 
-The substrate is `helixor-oracle/oracle/cert_refusal_log.py`, paired
+The substrate is `phylanx-oracle/oracle/cert_refusal_log.py`, paired
 with `Topic.CERT_REFUSED = "agent.cert_events.refused"` in the
 indexer's `eventbus/types.py`. This gate is the mechanical regression
 alarm: if a refactor quietly removes the substrate, or breaks the
@@ -119,7 +119,7 @@ class Report:
 
 def _check_substrate_present(report: Report) -> None:
     """The oracle-side substrate module must exist."""
-    path = REPO_ROOT / "helixor-oracle" / "oracle" / "cert_refusal_log.py"
+    path = REPO_ROOT / "phylanx-oracle" / "oracle" / "cert_refusal_log.py"
     report.checked.append(str(path.relative_to(REPO_ROOT)))
     if not path.is_file():
         report.findings.append(Finding(
@@ -136,7 +136,7 @@ def _check_oracle_public_surface(report: Report) -> None:
     """The substrate module must export the audit-pinned symbols."""
     import importlib
     import sys as _sys
-    oracle_root = REPO_ROOT / "helixor-oracle"
+    oracle_root = REPO_ROOT / "phylanx-oracle"
     if str(oracle_root) not in _sys.path:
         _sys.path.insert(0, str(oracle_root))
     try:
@@ -206,7 +206,7 @@ def _check_indexer_topic(report: Report) -> None:
     """The indexer's `Topic.CERT_REFUSED` must exist with the canonical name."""
     import importlib
     import sys as _sys
-    indexer_root = REPO_ROOT / "helixor-indexer"
+    indexer_root = REPO_ROOT / "phylanx-indexer"
     if str(indexer_root) not in _sys.path:
         _sys.path.insert(0, str(indexer_root))
     try:
@@ -259,7 +259,7 @@ def _check_indexer_serialiser(report: Report) -> None:
     """The serialiser pair must exist and reject the documented bad inputs."""
     import importlib
     import sys as _sys
-    indexer_root = REPO_ROOT / "helixor-indexer"
+    indexer_root = REPO_ROOT / "phylanx-indexer"
     if str(indexer_root) not in _sys.path:
         _sys.path.insert(0, str(indexer_root))
     try:

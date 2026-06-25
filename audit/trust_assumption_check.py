@@ -2,7 +2,7 @@
 """
 audit/trust_assumption_check.py — the unified TRUST-ASSUMPTION audit gate.
 
-The Helixor audit enumerated 8 TRUST ASSUMPTIONS (TA-1..TA-8). Each one
+The Phylanx audit enumerated 8 TRUST ASSUMPTIONS (TA-1..TA-8). Each one
 was closed by a real mechanism — a Python module, an Anchor state file, a
 constant, a property-test suite — committed into the repo. This gate is
 the regression alarm: it greps each marker so that a refactor that
@@ -123,14 +123,14 @@ def check_ta1_oracle_divergence(report: Report) -> None:
     report.checked.append("TA-1 oracle-node honesty")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "slashing" / "divergence.py"
+        REPO_ROOT / "phylanx-oracle" / "slashing" / "divergence.py"
     )
     _require(
         report, ta="TA-1",
         rule="divergence-detector-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/slashing/divergence.py is missing — the TA-1 "
+            "phylanx-oracle/slashing/divergence.py is missing — the TA-1 "
             "Byzantine-node detector has been removed."
         ),
     )
@@ -155,7 +155,7 @@ def check_ta1_oracle_divergence(report: Report) -> None:
         )
 
     tests = _read(
-        REPO_ROOT / "helixor-oracle" / "tests" / "slashing"
+        REPO_ROOT / "phylanx-oracle" / "tests" / "slashing"
         / "test_ta1_divergence.py"
     )
     _require(
@@ -174,7 +174,7 @@ def check_ta2_geyser_verified_source(report: Report) -> None:
     report.checked.append("TA-2 geyser data integrity")
 
     prod = _read(
-        REPO_ROOT / "helixor-indexer" / "indexer" / "production_config.py"
+        REPO_ROOT / "phylanx-indexer" / "indexer" / "production_config.py"
     )
     _require(
         report, ta="TA-2",
@@ -192,7 +192,7 @@ def check_ta2_geyser_verified_source(report: Report) -> None:
     )
 
     consensus = _read(
-        REPO_ROOT / "helixor-indexer" / "indexer" / "consensus.py"
+        REPO_ROOT / "phylanx-indexer" / "indexer" / "consensus.py"
     )
     _require(
         report, ta="TA-2",
@@ -209,7 +209,7 @@ def check_ta2_geyser_verified_source(report: Report) -> None:
     )
 
     runner = _read(
-        REPO_ROOT / "helixor-indexer" / "indexer" / "runner.py"
+        REPO_ROOT / "phylanx-indexer" / "indexer" / "runner.py"
     )
     _require(
         report, ta="TA-2",
@@ -232,7 +232,7 @@ def check_ta3_scoring_property_tests(report: Report) -> None:
     report.checked.append("TA-3 scoring properties")
 
     tests = _read(
-        REPO_ROOT / "helixor-oracle" / "tests" / "scoring"
+        REPO_ROOT / "phylanx-oracle" / "tests" / "scoring"
         / "test_ta3_property_invariants.py"
     )
     _require(
@@ -272,14 +272,14 @@ def check_ta4_library_verification(report: Report) -> None:
     report.checked.append("TA-4 library verification")
 
     verifier = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "library_verification.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "library_verification.py"
     )
     _require(
         report, ta="TA-4",
         rule="library-verification-present",
         condition=verifier is not None,
         detail=(
-            "helixor-oracle/oracle/library_verification.py is missing — "
+            "phylanx-oracle/oracle/library_verification.py is missing — "
             "the TA-4 runtime version gate is gone."
         ),
     )
@@ -298,14 +298,14 @@ def check_ta4_library_verification(report: Report) -> None:
     )
 
     requirements = _read(
-        REPO_ROOT / "helixor-oracle" / "requirements.in"
+        REPO_ROOT / "phylanx-oracle" / "requirements.in"
     )
     if requirements is None:
         report.findings.append(Finding(
             ta="TA-4", severity="HARD",
             rule="requirements-in-present",
             detail=(
-                "helixor-oracle/requirements.in is missing — there is no "
+                "phylanx-oracle/requirements.in is missing — there is no "
                 "source of truth for TA-4 to mirror."
             ),
         ))
@@ -340,14 +340,14 @@ def check_ta5_tx_window_digest(report: Report) -> None:
     report.checked.append("TA-5 tx-window digest")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "tx_window_digest.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "tx_window_digest.py"
     )
     _require(
         report, ta="TA-5",
         rule="tx-window-digest-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/tx_window_digest.py is missing — the "
+            "phylanx-oracle/oracle/tx_window_digest.py is missing — the "
             "TA-5 input-row commitment helper is gone."
         ),
     )
@@ -370,7 +370,7 @@ def check_ta6_cert_freshness(report: Report) -> None:
     report.checked.append("TA-6 cert freshness")
 
     cert = _read(
-        REPO_ROOT / "helixor-programs" / "programs" / "certificate-issuer"
+        REPO_ROOT / "phylanx-programs" / "programs" / "certificate-issuer"
         / "src" / "state" / "health_certificate.rs"
     )
     _require(
@@ -410,7 +410,7 @@ def check_ta7_squads_deadline(report: Report) -> None:
     report.checked.append("TA-7 squads transition deadline")
 
     src = _read(
-        REPO_ROOT / "helixor-programs" / "programs" / "slash-authority"
+        REPO_ROOT / "phylanx-programs" / "programs" / "slash-authority"
         / "src" / "state" / "squads_transition.rs"
     )
     _require(
@@ -465,14 +465,14 @@ def check_ta8_multi_rpc(report: Report) -> None:
     report.checked.append("TA-8 multi-RPC consensus")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "multi_rpc.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "multi_rpc.py"
     )
     _require(
         report, ta="TA-8",
         rule="multi-rpc-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/multi_rpc.py is missing — the TA-8 "
+            "phylanx-oracle/oracle/multi_rpc.py is missing — the TA-8 "
             "multi-endpoint consensus helper is gone."
         ),
     )

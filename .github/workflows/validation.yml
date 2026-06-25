@@ -1,0 +1,149 @@
+# =============================================================================
+# .github/workflows/validation.yml — Day-14 long-run validation (compressed).
+#
+# Relocated to the repository root from phylanx-validator/.github/workflows/
+# validation_short.yml (where GitHub Actions never discovered it) and FIXED:
+#
+#   * `working-directory` and the artifact path are `phylanx-validator` —
+#     the original used `phylanx-validation`, a directory that does not
+#     exist, so every step would have failed to find package.json.
+#   * The API is started from `phylanx-api` (where `api.main:app` lives),
+#     not `phylanx-oracle`.
+#   * Dependencies install into one venv (oracle + api closures).
+#
+# Like integration.yml this needs devnet access + a running API and is gated
+# on the `PHYLANX_DEVNET_RPC_URL` secret so it skips cleanly when unset. It
+# also depends on DB migrations 0001–0005 (finding D-1) to fully pass.
+# Weekly cron + manual dispatch — never a PR blocker.
+# =============================================================================
+
+name: Validation (compressed)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 0"   # Sundays at 06:00 UTC
+
+concurrency:
+  group: validation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      has_devnet: ${{ steps.check.outputs.has_devnet }}
+    steps:
+      - id: check
+        env:
+          RPC: ${{ secrets.PHYLANX_DEVNET_RPC_URL }}
+        run: |
+          if [ -n "$RPC" ]; then
+            echo "has_devnet=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_devnet=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PHYLANX_DEVNET_RPC_URL not set — skipping validation."
+          fi
+
+  validate:
+    needs: preflight
+    if: needs.preflight.outputs.has_devnet == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: phylanx-validator
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER:     phylanx
+          POSTGRES_PASSWORD: phylanx
+          POSTGRES_DB:       phylanx
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U phylanx -d phylanx"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    env:
+      PHYLANX_API_URL:    http://localhost:8001
+      PHYLANX_PROGRAM_ID: ${{ secrets.PHYLANX_DEVNET_PROGRAM_ID }}
+      DATABASE_URL:       postgresql://phylanx:phylanx@localhost:5432/phylanx
+      SOLANA_RPC_URL:     ${{ secrets.PHYLANX_DEVNET_RPC_URL }}
+      PHYLANX_ORACLE_DIR: ../phylanx-oracle
+      # Compressed: 2h of "validation" with 10-min ticks (12 ticks total).
+      PHYLANX_VALIDATION_INTERVAL_MS: "600000"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Restore oracle keypair
+        env:
+          ORACLE_KEYPAIR: ${{ secrets.PHYLANX_DEVNET_ORACLE_KEYPAIR }}
+        run: |
+          mkdir -p "${{ github.workspace }}/keys"
+          printf '%s' "$ORACLE_KEYPAIR" > "${{ github.workspace }}/keys/oracle-node.json"
+          echo "ORACLE_KEYPAIR_PATH=${{ github.workspace }}/keys/oracle-node.json" >> "$GITHUB_ENV"
+
+      # NOTE (finding D-1): migrations 0001–0005 are not yet in the repo;
+      # apply what exists, in order.
+      - name: Apply DB migrations
+        working-directory: phylanx-oracle
+        run: |
+          shopt -s nullglob
+          for sql in $(ls db/migrations/*.sql | sort); do
+            echo "applying $sql"
+            PGPASSWORD=phylanx psql -h localhost -U phylanx -d phylanx -f "$sql"
+          done
+
+      - name: Install Python deps + start API
+        run: |
+          python -m venv "${{ github.workspace }}/.venv"
+          "${{ github.workspace }}/.venv/bin/python" -m pip install --upgrade pip
+          "${{ github.workspace }}/.venv/bin/python" -m pip install \
+            -r "${{ github.workspace }}/phylanx-oracle/requirements.txt" \
+            -r "${{ github.workspace }}/phylanx-api/requirements.txt"
+          cd "${{ github.workspace }}/phylanx-api"
+          PYTHONPATH=.:../phylanx-oracle \
+            "${{ github.workspace }}/.venv/bin/python" -m uvicorn api.main:app \
+            --host 0.0.0.0 --port 8001 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8001/health && break
+            sleep 1
+          done
+
+      - name: Install validation deps
+        run: npm ci
+
+      - name: Stage
+        run: tsx scripts/stage_validation.ts
+
+      - name: Monitor (capped — overrides duration to 2h)
+        run: timeout 7200 tsx scripts/monitor_validation.ts || true
+
+      - name: Verify
+        run: tsx scripts/verify_validation.ts
+
+      - name: Build report
+        if: always()
+        run: tsx scripts/build_report.ts
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-report-${{ github.run_id }}
+          path: phylanx-validator/reports/

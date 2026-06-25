@@ -4,7 +4,7 @@ audit/inflate_score_check.py — the unified INFLATE LEGITIMATE SCORE
 audit gate.
 
 The red-team attack tree's Path 2 (root: "Drain DeFi Protocol
-Integrated with Helixor") is "Inflate Legitimate Score" — three
+Integrated with Phylanx") is "Inflate Legitimate Score" — three
 sub-leaves:
 
   2a. Exploit VULN-06 (baseline overwrite)              [LOW EFFORT]
@@ -62,12 +62,12 @@ This gate is the mechanical regression alarm: it greps each marker
 so a refactor that quietly removes a mitigation lights this red
 BEFORE mainnet. It ALSO cross-checks the on-chain and indexer-side
 anchors for VULN-06
-(`helixor-programs/programs/certificate-issuer/src/instructions/
+(`phylanx-programs/programs/certificate-issuer/src/instructions/
 record_baseline.rs` — `is_authorised_baseline_writer` +
 `BaselineRotationTooSoon` + `BaselineEpochNotMonotonic`), VULN-07
-(`helixor-indexer/eventbus/consumer.py` — `TrustedProducerSet` +
+(`phylanx-indexer/eventbus/consumer.py` — `TrustedProducerSet` +
 `verify_record_headers`), and VULN-03
-(`helixor-oracle/oracle/cluster/drift_detector.py` —
+(`phylanx-oracle/oracle/cluster/drift_detector.py` —
 `VELOCITY_THRESHOLD` + rolling baseline + per-node signed deviation)
 so a regression on any existing anchor lights this gate too.
 
@@ -159,7 +159,7 @@ def check_ils1_baseline_rotation_guard(report: Report) -> None:
     )
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle"
+        REPO_ROOT / "phylanx-oracle" / "oracle"
         / "baseline_rotation_guard.py"
     )
     _require(
@@ -167,7 +167,7 @@ def check_ils1_baseline_rotation_guard(report: Report) -> None:
         rule="baseline-rotation-guard-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/baseline_rotation_guard.py is "
+            "phylanx-oracle/oracle/baseline_rotation_guard.py is "
             "missing — the ILS-1 baseline-rotation cadence + "
             "co-attestation guard has been removed; an attacker with "
             "one compromised cluster key can grind any agent's "
@@ -232,7 +232,7 @@ def check_ils1_baseline_rotation_guard(report: Report) -> None:
 
     # Cross-check: VULN-06's on-chain anchor must still ship.
     onchain = _read(
-        REPO_ROOT / "helixor-programs" / "programs" / "certificate-issuer"
+        REPO_ROOT / "phylanx-programs" / "programs" / "certificate-issuer"
         / "src" / "instructions" / "record_baseline.rs"
     )
     if onchain is not None:
@@ -272,14 +272,14 @@ def check_ils2_feature_corroboration(report: Report) -> None:
     )
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "feature_corroboration.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "feature_corroboration.py"
     )
     _require(
         report, ils="ILS-2",
         rule="feature-corroboration-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/feature_corroboration.py is "
+            "phylanx-oracle/oracle/feature_corroboration.py is "
             "missing — the ILS-2 producer-corroboration gate has "
             "been removed; a single compromised producer key can "
             "solo-poison an agent's aggregation."
@@ -342,7 +342,7 @@ def check_ils2_feature_corroboration(report: Report) -> None:
 
     # Cross-check: VULN-07's indexer-side anchor must still ship.
     consumer = _read(
-        REPO_ROOT / "helixor-indexer" / "eventbus" / "consumer.py"
+        REPO_ROOT / "phylanx-indexer" / "eventbus" / "consumer.py"
     )
     if consumer is not None:
         _require(
@@ -364,7 +364,7 @@ def check_ils2_feature_corroboration(report: Report) -> None:
             ils="ILS-2", severity="HARD",
             rule="vuln07-consumer-module-present",
             detail=(
-                "helixor-indexer/eventbus/consumer.py is missing — "
+                "phylanx-indexer/eventbus/consumer.py is missing — "
                 "the indexer-side VULN-07 producer-signing anchor "
                 "has been removed."
             ),
@@ -379,14 +379,14 @@ def check_ils3_score_drift_ceiling(report: Report) -> None:
     )
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "score_drift_ceiling.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "score_drift_ceiling.py"
     )
     _require(
         report, ils="ILS-3",
         rule="score-drift-ceiling-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/score_drift_ceiling.py is "
+            "phylanx-oracle/oracle/score_drift_ceiling.py is "
             "missing — the ILS-3 cumulative score-drift ceiling has "
             "been removed; an attacker with patience can inflate a "
             "score by 30%+ over many epochs without per-epoch "
@@ -453,7 +453,7 @@ def check_ils3_score_drift_ceiling(report: Report) -> None:
     # Cross-check: VULN-03's cluster-side detector anchor must still
     # ship.
     detector = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "cluster"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "cluster"
         / "drift_detector.py"
     )
     if detector is not None:
@@ -477,7 +477,7 @@ def check_ils3_score_drift_ceiling(report: Report) -> None:
             ils="ILS-3", severity="HARD",
             rule="vuln03-drift-detector-module-present",
             detail=(
-                "helixor-oracle/oracle/cluster/drift_detector.py "
+                "phylanx-oracle/oracle/cluster/drift_detector.py "
                 "is missing — the VULN-03 cluster-side drift "
                 "detector has been removed."
             ),

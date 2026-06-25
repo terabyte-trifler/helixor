@@ -25,7 +25,7 @@ orders compelling action against their will.
 
 ## What's happening
 
-Helixor is, in the worst-case framing, *financial infrastructure that
+Phylanx is, in the worst-case framing, *financial infrastructure that
 scores AI agents*. A sufficiently motivated nation-state could:
 
   1. Identify which countries the 5 oracle node operators reside in.
@@ -77,7 +77,7 @@ The temptation is to write a canonical on-chain denylist that every
 oracle node and Verified Integrator must respect. We deliberately
 refuse this pattern for three reasons:
 
-  1. **Permissionless invariant.** Helixor's architecture promises
+  1. **Permissionless invariant.** Phylanx's architecture promises
      that any agent can be scored. An on-chain denylist requires an
      authority key to mutate, and an authority key is exactly the
      surface a nation-state would target NEXT. The minute we ship a
@@ -107,7 +107,7 @@ such mandate and no such on-chain surface.
 
 ## Step 1 — Confirm the diversity floor still binds
 
-**Substrate:** `helixor-oracle/oracle/operator_manifest.py` HCR-4
+**Substrate:** `phylanx-oracle/oracle/operator_manifest.py` HCR-4
 gate with `MIN_DISTINCT_JURISDICTIONS = 2` and
 `MIN_DISTINCT_OPERATORS = 2`, plus the new OFAC-1 Ed25519 sig binding.
 
@@ -117,13 +117,13 @@ gate with `MIN_DISTINCT_JURISDICTIONS = 2` and
     `OperatorSignatureError` if any operator's declared pubkey,
     jurisdiction, org, or contact does not match the canonical bytes
     they signed (domain-tagged
-    `helixor.operator_attestation.v1`).
+    `phylanx.operator_attestation.v1`).
 
 **Procedure (responder, no Squads ceremony required):**
 
 ```bash
 # A. Verify both gates pass on the current production manifest.
-cd helixor-oracle
+cd phylanx-oracle
 python -c "
 import json
 from oracle.operator_manifest import (
@@ -161,15 +161,15 @@ a Squads-governed onboarding (step 5 below).
   edit during incident response.
 
 **Test pins:**
-- `helixor-oracle/tests/oracle/test_hcr4_operator_diversity.py`
-- `helixor-oracle/tests/oracle/test_hcr4_operator_signature.py`
+- `phylanx-oracle/tests/oracle/test_hcr4_operator_diversity.py`
+- `phylanx-oracle/tests/oracle/test_hcr4_operator_signature.py`
 
 ---
 
 ## Step 2 — Emit the OPERATOR_OVERRIDE refusal (the transparency move)
 
 **Substrate:** OFAC-1 `CertRefusalLog` in
-`helixor-oracle/oracle/cert_refusal_log.py`, paired with
+`phylanx-oracle/oracle/cert_refusal_log.py`, paired with
 `Topic.CERT_REFUSED = "agent.cert_events.refused"` and the
 `serialize_cert_refused` wire format in the indexer.
 
@@ -224,8 +224,8 @@ and "refused cert" (specific agent is being delisted).
   is detectable by any subscriber holding the canonical Kafka log.
 
 **Test pins:**
-- `helixor-oracle/tests/oracle/test_ofac1_cert_refusal_log.py`
-- `helixor-indexer/tests/test_ofac1_cert_refused_serialization.py`
+- `phylanx-oracle/tests/oracle/test_ofac1_cert_refusal_log.py`
+- `phylanx-indexer/tests/test_ofac1_cert_refused_serialization.py`
 - `audit/cert_refusal_check.py` (boot-time and CI audit gate)
 
 ---
@@ -263,11 +263,11 @@ down a public credentialing protocol.
   1. **Confirm the halt is observed by SOL-3 floors.** Within 4h,
      `LOAN_ISSUE` callers see `StaleCert` rejections from
      `SafeCertReader` (
-     `helixor-sdk/src/safe_reader.ts`). Within 36h, the
+     `phylanx-sdk/src/safe_reader.ts`). Within 36h, the
      `cert.degrading` webhook fires to every Insured-tier
      subscriber (`launch/integrations/example_safe_partner/reader.ts`
      `LIQUIDATION_CHECK_MAX_AGE_SECONDS = 12*60*60`,
-     `helixor-api/api/webhooks.py` `DEGRADING_THRESHOLD_FRACTION = 0.75`).
+     `phylanx-api/api/webhooks.py` `DEGRADING_THRESHOLD_FRACTION = 0.75`).
   2. **Post the incident notice** to the Verified Integrator
      channel referencing this runbook + the public Kafka log of
      refusals on `agent.cert_events.refused`. Partners that wire
@@ -332,9 +332,9 @@ silent delist, threshold preserved for the remaining cluster).
   config.
 
 **Test pins:**
-- `helixor-programs/programs/health-oracle/tests/vuln13_oracle_key_rotation.rs`
-- `helixor-oracle/tests/oracle/test_hcr4_operator_diversity.py`
-- `helixor-oracle/tests/oracle/test_hcr4_operator_signature.py`
+- `phylanx-programs/programs/health-oracle/tests/vuln13_oracle_key_rotation.rs`
+- `phylanx-oracle/tests/oracle/test_hcr4_operator_diversity.py`
+- `phylanx-oracle/tests/oracle/test_hcr4_operator_signature.py`
 
 ---
 
@@ -374,7 +374,7 @@ Every move in this runbook is a *composition* of primitives already
 in the tree:
 
 - **Step 1** is `verify_operator_diversity` + `verify_attestation_signatures`
-  in `helixor-oracle/oracle/operator_manifest.py`. The HCR-4 diversity
+  in `phylanx-oracle/oracle/operator_manifest.py`. The HCR-4 diversity
   floor and the OFAC-1 Ed25519 binding together prevent both
   jurisdictional convergence and silent jurisdictional lying.
 - **Step 2** is `cert_refusal_log.operator_override(...)` +

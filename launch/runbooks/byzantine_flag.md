@@ -43,7 +43,7 @@ curl -s "http://api/byzantine/per_node?epoch=$EPOCH&agent=$AGENT" | jq '
 # reports the cluster's effective version; compare to each node's env.)
 curl -s "http://api/version" | jq '{algo: .scoring_algo_version, weights: .scoring_weights_version}'
 # Per-node env (run on each host):
-ssh oracle-node-<i> -- grep SCORING_ helixor.env
+ssh oracle-node-<i> -- grep SCORING_ phylanx.env
 ```
 
 ## Decision tree

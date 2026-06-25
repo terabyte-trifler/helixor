@@ -152,7 +152,7 @@ class TestUnsafeShapes:
 
 class TestRealCodebase:
     """
-    The currently-shipped Helixor codebase MUST scan clean. A future PR
+    The currently-shipped Phylanx codebase MUST scan clean. A future PR
     that introduces an f-string SQL call will fail this test in CI long
     before review.
     """

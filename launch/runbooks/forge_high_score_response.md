@@ -19,7 +19,7 @@ from the tree or fired at runtime).
 
 The Forge High-Score Cert path (red-team Path 1) is the three-
 sub-leaf drain in which an attacker mints a forged GREEN cert and
-uses it to drain a DeFi protocol integrated with Helixor:
+uses it to drain a DeFi protocol integrated with Phylanx:
 
   1a. Compromise 3 oracle keys                          [HIGH EFFORT]
   1b. Exploit VULN-01 (signature verification bypass)   [MEDIUM EFFORT]
@@ -374,9 +374,9 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest audit/test_forge_high_score_check.py -v
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest \
-    helixor-oracle/tests/oracle/test_fhs1_key_rotation_cadence.py \
-    helixor-oracle/tests/oracle/test_fhs2_signer_provenance.py \
-    helixor-oracle/tests/oracle/test_fhs3_rotation_overlap_guard.py -v
+    phylanx-oracle/tests/oracle/test_fhs1_key_rotation_cadence.py \
+    phylanx-oracle/tests/oracle/test_fhs2_signer_provenance.py \
+    phylanx-oracle/tests/oracle/test_fhs3_rotation_overlap_guard.py -v
 ```
 
 All three MUST be green before the PR is mergeable. For a runtime

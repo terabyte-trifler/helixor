@@ -11,7 +11,7 @@ global:
   scrape_interval:     15s
   evaluation_interval: 15s
   external_labels:
-    deployment: helixor-v2
+    deployment: phylanx-v2
 
 # ── Alert rules (loaded from a separate file for clarity) ────────────────────
 rule_files:

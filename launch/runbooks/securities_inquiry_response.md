@@ -12,26 +12,26 @@ of-record's home jurisdiction.
 **Triggers:**
 - Inbound subpoena, civil investigative demand (CID), or
   equivalent process from a securities regulator (SEC, CFTC, FCA,
-  BaFin, ESMA-routed, SEBI, MAS, ASIC, etc.) naming Helixor, a
+  BaFin, ESMA-routed, SEBI, MAS, ASIC, etc.) naming Phylanx, a
   cluster operator, or a specific `agent_wallet`.
-- No-action letter request that proposes to characterise a Helixor
+- No-action letter request that proposes to characterise a Phylanx
   cert score as a "rating" or "investment advice" — the operator
   must respond on the record.
 - Direct inquiry from a regulator's enforcement or examinations
   desk asking about the cluster's compensation arrangements or
   operator conflicts.
 - Operator-of-record observes a press / advocacy claim that
-  Helixor "rates investments" and wants to file a clarifying
+  Phylanx "rates investments" and wants to file a clarifying
   record.
 
 ## What's happening
 
 The audit-flagged risk SEC-1 closes is that DeFi protocols
-consume Helixor cert scores to size loans, and an oracle operator
+consume Phylanx cert scores to size loans, and an oracle operator
 who has a financial interest in that outcome (performance fee,
 TVL-tracking token, revenue share) starts to align with Howey
 prong 4 ("derived solely from efforts of others"). The SEC-1
-substrate (`helixor-oracle/oracle/securities_compliance.py`)
+substrate (`phylanx-oracle/oracle/securities_compliance.py`)
 defends the posture mechanically:
 
   * `compensation_model` is closed-enum, today only
@@ -93,7 +93,7 @@ counsel.
 ## Step 2 — Records production (subpoena / CID)
 
 **Substrate:** the operator's local records + the on-disk
-attestation in `helixor-oracle/deploy/operator_manifest.json` + the
+attestation in `phylanx-oracle/deploy/operator_manifest.json` + the
 audit reports under `audit/reports/`.
 
 **Procedure:**
@@ -101,7 +101,7 @@ audit reports under `audit/reports/`.
   1. Counsel reviews the subpoena's specific records request.
   2. Identify the categories the request maps to:
      - **Operator attestation** —
-       `helixor-oracle/deploy/operator_manifest.json` (sig-bound
+       `phylanx-oracle/deploy/operator_manifest.json` (sig-bound
        JSON with the operator's pubkey, org, jurisdiction,
        compensation model, conflicts disclosed).
      - **Compensation records** — the operator's local accounting
@@ -113,8 +113,8 @@ audit reports under `audit/reports/`.
        in canonical sort order. Run:
 
        ```bash
-       cd /helixor && source helixor-api/.venv/bin/activate
-       cd helixor-oracle
+       cd /phylanx && source phylanx-api/.venv/bin/activate
+       cd phylanx-oracle
        python -c "
        import json
        from oracle.securities_compliance import collect_disclosed_conflicts
@@ -132,7 +132,7 @@ audit reports under `audit/reports/`.
      - **DSAR audit log** (if the subpoena is for processing
        records of a named wallet) — see
        `launch/runbooks/data_subject_request_response.md` §5,
-       under `/var/log/helixor/dsar/`.
+       under `/var/log/phylanx/dsar/`.
      - **OFAC-1 refusal log** (if the subpoena is for cluster
        cert-issuance decisions about a named wallet) — see
        `launch/runbooks/ofac_compliance_response.md` §3,
@@ -173,16 +173,16 @@ and 14 days, measured from counsel-confirmed receipt.
 substrate.
 
 If a regulator (or a third party CC'ing the regulator) requests an
-on-the-record characterisation of a Helixor cert score, the
+on-the-record characterisation of a Phylanx cert score, the
 operator-of-record's response **MUST** ground every claim in code,
 not in marketing language. Specifically:
 
-  - Cite `helixor-oracle/oracle/securities_compliance.py` for the
+  - Cite `phylanx-oracle/oracle/securities_compliance.py` for the
     closed-enum compensation model (`FLAT_FEE_PER_CERT_FROM_TREASURY`).
-  - Cite `helixor-oracle/oracle/operator_manifest.py` for the
+  - Cite `phylanx-oracle/oracle/operator_manifest.py` for the
     sig-bound attestation surface (OFAC-1 + SEC-1 fields folded
     into `attestation_canonical_bytes`).
-  - Cite `helixor-sdk/src/safe_reader.ts:ADVISORY_DISCLAIMER` for
+  - Cite `phylanx-sdk/src/safe_reader.ts:ADVISORY_DISCLAIMER` for
     the disclaimer surfaced to every consumer.
   - Reference `audit/securities_compliance_check.py` as the
     mechanical regression alarm verifying the above.
@@ -273,13 +273,13 @@ operator-of-record's home jurisdiction follows the same
 
 ## Step 6 — Audit log
 
-**Substrate:** `/var/log/helixor/securities/<ticket_id>.json`.
+**Substrate:** `/var/log/phylanx/securities/<ticket_id>.json`.
 
 Every SEC-1 inquiry (subpoena, no-action, examination, cross-
 border forward) emits one canonical-JSON line. The operator-of-
 record runbook pins:
 
-  - **Path:** `/var/log/helixor/securities/<ticket_id>.<op>.json`
+  - **Path:** `/var/log/phylanx/securities/<ticket_id>.<op>.json`
     where `<op>` is one of `subpoena`, `noaction`, `exam`,
     `forward`.
   - **Schema:**
@@ -377,7 +377,7 @@ already in the tree:
 - **Step 5** mirrors the OFAC-1 §3 cross-border posture — refuse
   silent protocol-level action, route through MLA.
 - **Step 6** is a canonical-JSON line in
-  `/var/log/helixor/securities/` — same operator-local audit
+  `/var/log/phylanx/securities/` — same operator-local audit
   pattern the DSAR runbook uses.
 - **Step 7** is the same SEC-1 audit gate replayed.
 

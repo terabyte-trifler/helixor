@@ -1,4 +1,4 @@
-# Helixor V2 — Canary Rollout Plan
+# Phylanx V2 — Canary Rollout Plan
 
 The phased mainnet rollout. Each phase has explicit **entry criteria** to
 advance and explicit **abort criteria** that send the rollout backward.
@@ -37,7 +37,7 @@ single node, without yet committing to consensus.
 
 **Bring up:**
 - One node, `oracle-node-0`, on mainnet.
-- `HELIXOR_NETWORK=mainnet-beta`, `HELIXOR_MAINNET_OK=1` in the env file
+- `PHYLANX_NETWORK=mainnet-beta`, `PHYLANX_MAINNET_OK=1` in the env file
   with a commit message naming the rollout phase.
 - Other 4 nodes still off.
 
@@ -85,7 +85,7 @@ is the first moment any score is anchored on-chain via the BFT path.
 **What to watch:**
 - First mainnet cert: agent_wallet, epoch, score, alert tier — confirmed
   via explorer.
-- `helixor_epoch_seconds` histogram — baseline the production latency.
+- `phylanx_epoch_seconds` histogram — baseline the production latency.
 - No `ByzantineNodeDetected` (the 3 nodes should agree exactly).
 - Cert sigs == 3 (the minimum); any cert with > 3 is a bug.
 

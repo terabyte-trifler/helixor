@@ -6,7 +6,7 @@ for the red-team Path 4 "DeFi Bypass" attack chain.
 WHAT THIS GATE IS FOR
 ---------------------
 Path 4 of the drain-DeFi attack tree lives ENTIRELY in the consumer's
-code, not Helixor's. The Helixor-side defences against the leaves
+code, not Phylanx's. The Phylanx-side defences against the leaves
 (VULN-23 SafeCertReader, SOL-3 per-operation freshness, AW-01 input
 provenance, AW-01-EXT slot-anchor verification) all already ship — but
 they only fire if a partner ACTUALLY USES them.
@@ -32,14 +32,14 @@ THE FIVE CHECKS
   DBP-1a   per-manifest schema + source verification
             (`launch/integrations/<partner>.json` -> cert-reader source)
   DBP-1b   VULN-23 anchor — `SafeCertReader` + `CERT_MAX_AGE_SECONDS`
-            present in `helixor-sdk/src/safe_reader.ts`.
+            present in `phylanx-sdk/src/safe_reader.ts`.
   DBP-1c   SOL-3 anchor — `Operation` enum + all four per-op constants
-            present in `helixor-oracle/oracle/operation_freshness.py`.
+            present in `phylanx-oracle/oracle/operation_freshness.py`.
   DBP-1d   AW-01-EXT anchor — `verifyAgainstSolanaLedger` exported
-            from `helixor-sdk/src/input_provenance.ts`.
-  DBP-1e   DBP-3 safe-default invariant — `@helixor/sdk/unsafe` subpath
-            is exported from `helixor-sdk/src/unsafe.ts`, and any
-            partner cert-reader source that imports `@helixor/sdk/unsafe`
+            from `phylanx-sdk/src/input_provenance.ts`.
+  DBP-1e   DBP-3 safe-default invariant — `@phylanx/sdk/unsafe` subpath
+            is exported from `phylanx-sdk/src/unsafe.ts`, and any
+            partner cert-reader source that imports `@phylanx/sdk/unsafe`
             ALSO uses `SafeCertReader` (the linter's "wrapped, not raw"
             check).
 
@@ -415,14 +415,14 @@ def _check_manifest(report: Report, manifest_path: Path) -> None:
                 ),
             )
 
-        # DBP-3 — if the source imports from `@helixor/sdk/unsafe`, it MUST
+        # DBP-3 — if the source imports from `@phylanx/sdk/unsafe`, it MUST
         # wrap the raw client in `SafeCertReader`. A bare `/unsafe` import
         # without a SafeCertReader anchor in the same file is the exact
         # pattern Path-4 attackers exploit: raw `getScore()` with no
         # freshness or velocity guard.
         imports_unsafe = (
-            "@helixor/sdk/unsafe" in src
-            or "'@helixor/sdk/unsafe'" in src
+            "@phylanx/sdk/unsafe" in src
+            or "'@phylanx/sdk/unsafe'" in src
         )
         if imports_unsafe:
             _require(
@@ -431,7 +431,7 @@ def _check_manifest(report: Report, manifest_path: Path) -> None:
                 rule=f"unsafe-import-must-wrap[{src_rel}]",
                 condition="SafeCertReader" in src,
                 detail=(
-                    f"{src_rel} imports from @helixor/sdk/unsafe but does NOT "
+                    f"{src_rel} imports from @phylanx/sdk/unsafe but does NOT "
                     f"use SafeCertReader in the same file. A Verified "
                     f"Integrator that touches raw cert-reading MUST wrap it "
                     f"in SafeCertReader to keep the VULN-23 freshness + "
@@ -476,57 +476,57 @@ def check_manifests(report: Report) -> None:
 
 
 # =============================================================================
-# DBP-1b — VULN-23 anchor (SafeCertReader in helixor-sdk)
+# DBP-1b — VULN-23 anchor (SafeCertReader in phylanx-sdk)
 # =============================================================================
 
 def check_vuln23_anchor(report: Report) -> None:
     family = "DBP-1b[VULN-23 anchor]"
     report.checked.append(family)
 
-    src = _read(REPO_ROOT / "helixor-sdk" / "src" / "safe_reader.ts")
+    src = _read(REPO_ROOT / "phylanx-sdk" / "src" / "safe_reader.ts")
     _require(
         report,
         family=family,
         rule="safe-cert-reader-class-present",
         condition="export class SafeCertReader" in src,
-        detail="helixor-sdk/src/safe_reader.ts no longer exports class SafeCertReader",
+        detail="phylanx-sdk/src/safe_reader.ts no longer exports class SafeCertReader",
     )
     _require(
         report,
         family=family,
         rule="cert-max-age-pinned",
         condition="CERT_MAX_AGE_SECONDS = 48 * 60 * 60" in src,
-        detail="helixor-sdk/src/safe_reader.ts no longer pins CERT_MAX_AGE_SECONDS = 48 * 60 * 60",
+        detail="phylanx-sdk/src/safe_reader.ts no longer pins CERT_MAX_AGE_SECONDS = 48 * 60 * 60",
     )
     _require(
         report,
         family=family,
         rule="max-score-velocity-pinned",
         condition="MAX_SCORE_VELOCITY = 200" in src,
-        detail="helixor-sdk/src/safe_reader.ts no longer pins MAX_SCORE_VELOCITY = 200",
+        detail="phylanx-sdk/src/safe_reader.ts no longer pins MAX_SCORE_VELOCITY = 200",
     )
     _require(
         report,
         family=family,
         rule="velocity-window-pinned",
         condition="VELOCITY_WINDOW_EPOCHS = 3" in src,
-        detail="helixor-sdk/src/safe_reader.ts no longer pins VELOCITY_WINDOW_EPOCHS = 3",
+        detail="phylanx-sdk/src/safe_reader.ts no longer pins VELOCITY_WINDOW_EPOCHS = 3",
     )
     _require(
         report,
         family=family,
         rule="min-history-pinned",
         condition="MIN_HISTORY_REQUIRED = 2" in src,
-        detail="helixor-sdk/src/safe_reader.ts no longer pins MIN_HISTORY_REQUIRED = 2",
+        detail="phylanx-sdk/src/safe_reader.ts no longer pins MIN_HISTORY_REQUIRED = 2",
     )
 
-    index_src = _read(REPO_ROOT / "helixor-sdk" / "src" / "index.ts")
+    index_src = _read(REPO_ROOT / "phylanx-sdk" / "src" / "index.ts")
     _require(
         report,
         family=family,
         rule="safe-cert-reader-reexported",
         condition="SafeCertReader" in index_src and "from \"./safe_reader\"" in index_src,
-        detail="@helixor/sdk no longer re-exports SafeCertReader from ./safe_reader",
+        detail="@phylanx/sdk no longer re-exports SafeCertReader from ./safe_reader",
     )
 
 
@@ -538,20 +538,20 @@ def check_sol3_anchor(report: Report) -> None:
     family = "DBP-1c[SOL-3 anchor]"
     report.checked.append(family)
 
-    src = _read(REPO_ROOT / "helixor-oracle" / "oracle" / "operation_freshness.py")
+    src = _read(REPO_ROOT / "phylanx-oracle" / "oracle" / "operation_freshness.py")
     _require(
         report,
         family=family,
         rule="operation-enum-present",
         condition="class Operation(str, Enum):" in src,
-        detail="helixor-oracle/oracle/operation_freshness.py no longer exports the Operation enum",
+        detail="phylanx-oracle/oracle/operation_freshness.py no longer exports the Operation enum",
     )
     _require(
         report,
         family=family,
         rule="verify-operation-freshness-present",
         condition="def verify_operation_freshness(" in src,
-        detail="helixor-oracle/oracle/operation_freshness.py no longer exports verify_operation_freshness",
+        detail="phylanx-oracle/oracle/operation_freshness.py no longer exports verify_operation_freshness",
     )
 
     for op, seconds in SOL3_FLOORS.items():
@@ -568,7 +568,7 @@ def check_sol3_anchor(report: Report) -> None:
             rule=f"sol3-constant[{op}]",
             condition=any(c in src for c in candidates),
             detail=(
-                f"helixor-oracle/oracle/operation_freshness.py no longer pins "
+                f"phylanx-oracle/oracle/operation_freshness.py no longer pins "
                 f"{op} = {seconds} seconds. SOL-3 floors must match the "
                 f"audit-mandated values."
             ),
@@ -583,7 +583,7 @@ def check_sol3_anchor(report: Report) -> None:
             rule=f"sol3-enum-label[{op}]",
             condition=f"{op} = " in src or f'"{op}"' in src,
             detail=(
-                f"helixor-oracle/oracle/operation_freshness.py no longer "
+                f"phylanx-oracle/oracle/operation_freshness.py no longer "
                 f"references the {op!r} enum label that partner manifests bind."
             ),
         )
@@ -597,29 +597,29 @@ def check_aw01ext_anchor(report: Report) -> None:
     family = "DBP-1d[AW-01-EXT anchor]"
     report.checked.append(family)
 
-    src = _read(REPO_ROOT / "helixor-sdk" / "src" / "input_provenance.ts")
+    src = _read(REPO_ROOT / "phylanx-sdk" / "src" / "input_provenance.ts")
     _require(
         report,
         family=family,
         rule="verify-against-solana-ledger-present",
         condition="verifyAgainstSolanaLedger" in src,
-        detail="helixor-sdk/src/input_provenance.ts no longer exports verifyAgainstSolanaLedger",
+        detail="phylanx-sdk/src/input_provenance.ts no longer exports verifyAgainstSolanaLedger",
     )
     _require(
         report,
         family=family,
         rule="verify-input-provenance-present",
         condition="verifyInputProvenance" in src,
-        detail="helixor-sdk/src/input_provenance.ts no longer exports verifyInputProvenance",
+        detail="phylanx-sdk/src/input_provenance.ts no longer exports verifyInputProvenance",
     )
 
-    index_src = _read(REPO_ROOT / "helixor-sdk" / "src" / "index.ts")
+    index_src = _read(REPO_ROOT / "phylanx-sdk" / "src" / "index.ts")
     _require(
         report,
         family=family,
         rule="aw01ext-reexported",
         condition="verifyAgainstSolanaLedger" in index_src,
-        detail="@helixor/sdk no longer re-exports verifyAgainstSolanaLedger",
+        detail="@phylanx/sdk no longer re-exports verifyAgainstSolanaLedger",
     )
 
 
@@ -627,21 +627,21 @@ def check_aw01ext_anchor(report: Report) -> None:
 # DBP-1e — DBP-3 safe-default invariant
 #
 # Two parts:
-#   (1) `helixor-sdk/src/unsafe.ts` exists and re-exports HelixorClient +
-#       HelixorChainClient. If a refactor deletes this file, every
-#       partner who imports from `@helixor/sdk/unsafe` will silently
+#   (1) `phylanx-sdk/src/unsafe.ts` exists and re-exports PhylanxClient +
+#       PhylanxChainClient. If a refactor deletes this file, every
+#       partner who imports from `@phylanx/sdk/unsafe` will silently
 #       resolve to `undefined` at runtime — lint that BEFORE it ships.
-#   (2) The default `helixor-sdk/src/index.ts` no longer exports the
-#       raw cert-reader primitives (`HelixorClient` / `HelixorChainClient`).
+#   (2) The default `phylanx-sdk/src/index.ts` no longer exports the
+#       raw cert-reader primitives (`PhylanxClient` / `PhylanxChainClient`).
 #       Re-introducing them to the default surface defeats the DBP-3
 #       safe-by-default invariant: misuse becomes opt-out instead of
 #       opt-in.
 # =============================================================================
 
-# Pinned to match the surfaces declared in helixor-sdk/src/unsafe.ts.
+# Pinned to match the surfaces declared in phylanx-sdk/src/unsafe.ts.
 UNSAFE_REEXPORTS: tuple[str, ...] = (
-    "HelixorClient",
-    "HelixorChainClient",
+    "PhylanxClient",
+    "PhylanxChainClient",
 )
 
 
@@ -649,14 +649,14 @@ def check_unsafe_surface(report: Report) -> None:
     family = "DBP-1e[DBP-3 safe-default]"
     report.checked.append(family)
 
-    unsafe_src = _read(REPO_ROOT / "helixor-sdk" / "src" / "unsafe.ts")
+    unsafe_src = _read(REPO_ROOT / "phylanx-sdk" / "src" / "unsafe.ts")
     _require(
         report,
         family=family,
         rule="unsafe-subpath-exists",
         condition=bool(unsafe_src.strip()),
         detail=(
-            "helixor-sdk/src/unsafe.ts no longer exists. The @helixor/sdk/"
+            "phylanx-sdk/src/unsafe.ts no longer exists. The @phylanx/sdk/"
             "unsafe subpath that partners (e.g. example_safe_partner) "
             "import from is unreachable — restore the file or coordinate "
             "a deprecation rollout with active partners."
@@ -669,16 +669,16 @@ def check_unsafe_surface(report: Report) -> None:
             rule=f"unsafe-reexports[{name}]",
             condition=name in unsafe_src,
             detail=(
-                f"helixor-sdk/src/unsafe.ts no longer re-exports {name!r}. "
-                f"Any partner that imports {name!r} from @helixor/sdk/unsafe "
+                f"phylanx-sdk/src/unsafe.ts no longer re-exports {name!r}. "
+                f"Any partner that imports {name!r} from @phylanx/sdk/unsafe "
                 f"will get `undefined`. Restore the re-export or coordinate "
                 f"the partner migration."
             ),
         )
 
-    default_src = _read(REPO_ROOT / "helixor-sdk" / "src" / "index.ts")
+    default_src = _read(REPO_ROOT / "phylanx-sdk" / "src" / "index.ts")
     for name in UNSAFE_REEXPORTS:
-        # The default `@helixor/sdk` entry MUST NOT name the raw client
+        # The default `@phylanx/sdk` entry MUST NOT name the raw client
         # surface in its export list. We grep the export keyword adjacent
         # to the name to avoid matching a banal comment mention; the SDK
         # convention is `export { Name, ... }`.
@@ -698,9 +698,9 @@ def check_unsafe_surface(report: Report) -> None:
             rule=f"default-does-not-leak[{name}]",
             condition=name not in default_src,
             detail=(
-                f"helixor-sdk/src/index.ts references {name!r} — the DBP-3 "
+                f"phylanx-sdk/src/index.ts references {name!r} — the DBP-3 "
                 f"safe-by-default invariant requires raw cert-reader "
-                f"primitives to live ONLY under @helixor/sdk/unsafe. Move "
+                f"primitives to live ONLY under @phylanx/sdk/unsafe. Move "
                 f"the export to unsafe.ts."
             ),
         )

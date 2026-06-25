@@ -12,12 +12,12 @@ market action.
 **Owners:** oracle engineering (NSS-1, NSS-3), platform / ops
 engineering (NSS-2).
 **Related code / config:**
-- `helixor-oracle/oracle/cloud_diversity.py` (NSS-1)
-- `helixor-oracle/oracle/signer_enforcement.py` (NSS-2)
-- `helixor-oracle/oracle/agent_age_gate.py` (NSS-3)
-- `helixor-oracle/tests/oracle/test_nss1_cloud_diversity.py`
-- `helixor-oracle/tests/oracle/test_nss2_signer_enforcement.py`
-- `helixor-oracle/tests/oracle/test_nss3_agent_age_gate.py`
+- `phylanx-oracle/oracle/cloud_diversity.py` (NSS-1)
+- `phylanx-oracle/oracle/signer_enforcement.py` (NSS-2)
+- `phylanx-oracle/oracle/agent_age_gate.py` (NSS-3)
+- `phylanx-oracle/tests/oracle/test_nss1_cloud_diversity.py`
+- `phylanx-oracle/tests/oracle/test_nss2_signer_enforcement.py`
+- `phylanx-oracle/tests/oracle/test_nss3_agent_age_gate.py`
 - `audit/nation_state_check.py` + `audit/test_nation_state_check.py`
   (mechanical regression gate)
 
@@ -25,12 +25,12 @@ engineering (NSS-2).
 
 ## The attack the audit named
 
-Scenario B is the SECOND failure mode that defeats Helixor without
+Scenario B is the SECOND failure mode that defeats Phylanx without
 defeating any of the per-key cryptography. Reproduced verbatim from
 the audit:
 
 1. A nation-state compromises a cloud provider that hosts a majority
-   of Helixor oracle nodes. The compromise is operational — a
+   of Phylanx oracle nodes. The compromise is operational — a
    national-security letter, a covert subpoena, or a kernel-level
    intrusion into the hypervisor fabric. The cluster threshold math
    (3-of-5) is still intact in the abstract, but the substrate on
@@ -40,7 +40,7 @@ the audit:
    `InProcessSigner` was always vulnerable to this — the private key
    sat in plain memory pages reachable by ring-0 code. The exfiltrated
    keys travel out of the network via a covert channel that does not
-   touch any Helixor-visible interface.
+   touch any Phylanx-visible interface.
 3. The attacker now holds three (or more) cluster signing keys —
    enough to win the 3-of-5 threshold without involving any honest
    node. From the on-chain consumer's perspective every certificate
@@ -56,7 +56,7 @@ the audit:
    snapshots, but two epochs is four hours — well inside the "set up
    and borrow" window for a state actor.
 5. The state-controlled agents now hold GREEN certs and accumulate
-   large collateralised positions in DeFi protocols that read Helixor
+   large collateralised positions in DeFi protocols that read Phylanx
    certs as the only signal. The positions are accumulated over
    weeks, so the on-chain footprint looks like a slow, distributed
    accretion rather than a single mover.
@@ -82,7 +82,7 @@ The six steps cluster into three independent substrates:
 | Substrate | Steps it spans | Why a single mitigation cannot reach it |
 | --- | --- | --- |
 | Cluster cloud-compute (boot-time topology) | steps 1, 2, 3 | If every cluster node sits on one cloud provider, ONE state-level legal or technical capture reaches all K-of-N keys. HCR-2 (region diversity) and HCR-4 (operator diversity) DO NOT close this — three AWS regions are three subpoenas to the same court. NSS-1 closes the substrate at the topology level: a cluster MUST be spread across ≥2 distinct cloud providers, and no more than `N - K = 2` nodes may share a provider. |
-| Per-node key custody (process memory) | step 2 | Even on a diversified cluster, if any single node uses `InProcessSigner` on mainnet, a kernel-level intrusion on THAT host yields one of K keys. NSS-2 refuses to BOOT a mainnet oracle node whose signer is in-process — the substrate of the kernel-exfil attack is not present at all. An explicit env opt-in (`HELIXOR_INPROCESS_SIGNER_OK=1`) exists for documented HSM-outage scenarios and is logged at ERROR. |
+| Per-node key custody (process memory) | step 2 | Even on a diversified cluster, if any single node uses `InProcessSigner` on mainnet, a kernel-level intrusion on THAT host yields one of K keys. NSS-2 refuses to BOOT a mainnet oracle node whose signer is in-process — the substrate of the kernel-exfil attack is not present at all. An explicit env opt-in (`PHYLANX_INPROCESS_SIGNER_OK=1`) exists for documented HSM-outage scenarios and is logged at ERROR. |
 | Cert issuance — agent-side history floor | steps 4, 5 | Suppose NSS-1 and NSS-2 BOTH fail: the cluster is captured. NSS-3 closes the OUTPUT step: the cluster (even if captured) will not stamp GREEN on a wallet whose `AgentRegistration` PDA is younger than `MIN_AGENT_AGE_SECONDS_FOR_GREEN = 14 days` AND `MIN_AGENT_AGE_EPOCHS_FOR_GREEN = 168`. A state-controlled fresh wallet either ages publicly (visible to external observers) or never receives a GREEN cert. |
 
 The three mitigations are orthogonal: each closes a substrate the
@@ -99,7 +99,7 @@ for GREEN" is a fingerprint visible from chain alone.
 | #   | Substrate                                    | Mitigation                                                                                                              | Pinned thresholds                                                                                                                                            | Gate           |
 |-----|----------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------|
 | 1   | Cluster cloud-compute topology               | `verify_cloud_diversity(nodes, *, threshold, min_distinct_clouds)` — refuses to boot a cluster whose nodes concentrate on one cloud provider | `MIN_DISTINCT_CLOUD_PROVIDERS=2`, `DEFAULT_CLUSTER_SIZE=5`, `DEFAULT_CLUSTER_THRESHOLD=3` (max nodes/cloud = N−K = 2), `KNOWN_CLOUD_PROVIDERS` includes aws/gcp/azure/hetzner/self-hosted | NSS gate NSS-1 |
-| 2   | Per-node signer custody                      | `enforce_production_signer(signer, *, service)` — refuses to start a mainnet oracle node with an `InProcessSigner`        | `HELIXOR_INPROCESS_SIGNER_OK=1` opt-in (logged at ERROR), classifier buckets `in-process` / `hsm` / `unknown` with `HSMSigner`-suffix subclass rule           | NSS gate NSS-2 |
+| 2   | Per-node signer custody                      | `enforce_production_signer(signer, *, service)` — refuses to start a mainnet oracle node with an `InProcessSigner`        | `PHYLANX_INPROCESS_SIGNER_OK=1` opt-in (logged at ERROR), classifier buckets `in-process` / `hsm` / `unknown` with `HSMSigner`-suffix subclass rule           | NSS gate NSS-2 |
 | 3   | Cert issuance agent-history floor            | `enforce_agent_age_for_tier(context, *, current_unix, current_epoch, tier)` — refuses to stamp GREEN on a fresh wallet    | `MIN_AGENT_AGE_SECONDS_FOR_GREEN = 14*24*3600` (14 days), `MIN_AGENT_AGE_EPOCHS_FOR_GREEN = 168` (14 days × 12 epochs/day @ 2h cadence), `GATED_TIER_GREEN = "GREEN"` | NSS gate NSS-3 |
 
 ---
@@ -206,7 +206,7 @@ operational hole.
   opt-in path (the operator MUST see the decision in the journal),
   WARNING on production + HSM (the healthy path), and INFO on
   non-production. The opt-in env var is
-  `HELIXOR_INPROCESS_SIGNER_OK=1` — the value MUST be the literal
+  `PHYLANX_INPROCESS_SIGNER_OK=1` — the value MUST be the literal
   `"1"`; any other value is treated as "not opted in." The opt-in
   bypass exists for documented HSM-outage scenarios only and the
   operator is required to record the justification in
@@ -222,7 +222,7 @@ absent — no key in memory, no kernel module to read.
 
 ### NSS-3 — cluster-side agent-registration-age floor for GREEN certs
 
-VULN-23 (`helixor-sdk/src/lib/cert_reader.ts`) shipped the
+VULN-23 (`phylanx-sdk/src/lib/cert_reader.ts`) shipped the
 consumer-side history floor `MIN_HISTORY_REQUIRED = 2` — the DeFi
 reader refuses a cert with too few historical samples. Two epochs is
 four hours at the canonical 2h cadence — INSIDE the "set up state

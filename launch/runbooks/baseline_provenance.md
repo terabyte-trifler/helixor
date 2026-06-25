@@ -54,7 +54,7 @@ A divergence means one of:
    cluster will re-emit on the next epoch; `AccountNotFound` should
    self-heal within ~30s.
 4. **Wrong PDA derivation in the partner's SDK fork.** If the partner
-   pinned an old `@helixor/sdk` minor that predates the
+   pinned an old `@phylanx/sdk` minor that predates the
    `baselineDataPda` helper, their PDA derivation can diverge from the
    on-chain seed scheme. Pin them to current SDK.
 5. **Real AW-03 break.** The cluster issued a cert binding a
@@ -67,18 +67,18 @@ A divergence means one of:
 ```bash
 # 1. What's the cert claiming?
 CERT_PDA=...   # from the consumer's bug report
-helixor-cli cert-show "$CERT_PDA" --field \
+phylanx-cli cert-show "$CERT_PDA" --field \
   agent,layout_version,baseline_hash,baseline_commit_nonce
 
 # 2. Does the on-chain BaselineDataAccount exist at that nonce?
 AGENT=$(...)
 NONCE=$(...)
-helixor-cli baseline-data-show \
+phylanx-cli baseline-data-show \
   --agent "$AGENT" --nonce "$NONCE" \
   --field commit_nonce,baseline_hash,payload_len
 
 # 3. Re-derive the hash from the on-chain payload.
-helixor-cli baseline-data-show --agent "$AGENT" --nonce "$NONCE" \
+phylanx-cli baseline-data-show --agent "$AGENT" --nonce "$NONCE" \
   --field payload --raw | sha256sum
 # Compare bytes-for-bytes with the cert's baseline_hash.
 
@@ -109,12 +109,12 @@ curl -s "http://api/agents/$AGENT/baseline" | jq '
 
 - **`AccountNotFound` and the cert is > 30s old** → P0. The cluster's
   on-chain baseline state diverges from what the cert claims.
-  Halt cert issuance (`helixor-cli pause cert-writes`), investigate.
+  Halt cert issuance (`phylanx-cli pause cert-writes`), investigate.
 
 - **`AccountUnreadable`** → P0 with a different shape. The bytes are
   there but deserialise fails. Almost always a program-version /
   client-version mismatch. Confirm the partner's
-  `helixor-sdk` IDL hash matches the deployed program's IDL hash.
+  `phylanx-sdk` IDL hash matches the deployed program's IDL hash.
 
 - **`HashMismatch`** → CRITICAL P0. This is by-construction
   impossible: the on-chain `commit_baseline` handler enforces
@@ -137,7 +137,7 @@ curl -s "http://api/agents/$AGENT/baseline" | jq '
 
 - **`AgentMismatch` / `NonceMismatch`** → SDK fork bug. The partner's
   PDA derivation diverged from the canonical seeds. Pin them to the
-  current `@helixor/sdk`.
+  current `@phylanx/sdk`.
 
 ## On-chain rejections to watch
 
@@ -153,7 +153,7 @@ regressions before chain state diverges:
 | (see `errors.rs`) | `BaselinePayloadEmpty` | Payload is zero-length. Pipeline bug — the serializer failed silently somewhere upstream. |
 
 Any non-zero rate on the Prometheus
-`helixor_baseline_writetime_rejections_total{kind="*"}` counter is a P1
+`phylanx_baseline_writetime_rejections_total{kind="*"}` counter is a P1
 in steady state — the cluster's serializer + writer should be
 self-consistent; a rejection means a deploy landed without the audit
 sweep catching the regression.

@@ -1,12 +1,12 @@
 # Runbook — API DDoS incident response
 
-**Severity:** High but non-catastrophic. The `helixor-api` read layer is
+**Severity:** High but non-catastrophic. The `phylanx-api` read layer is
 under a volumetric or application-layer flood. The on-chain certificate
 state and the oracle cluster itself are unaffected; the failure mode is
 that legitimate Verified Integrators cannot reach the read API.
 
 **Triggers:**
-- `helixor.api.rate_limit` log volume spikes; 429 emission rate jumps
+- `phylanx.api.rate_limit` log volume spikes; 429 emission rate jumps
   more than 10x baseline across all replicas in
   `launch/deploy/nginx/api_upstream.conf`.
 - `cluster_health` p95 latency Prometheus alert fires (`launch/monitoring/alerts.yml`).
@@ -18,7 +18,7 @@ that legitimate Verified Integrators cannot reach the read API.
 
 ## What's happening
 
-Helixor's threat model puts the read API in the load-shedding tier, not
+Phylanx's threat model puts the read API in the load-shedding tier, not
 the consensus tier. A flood at the API only degrades the convenience
 layer — the on-chain `HealthCertificate` PDAs remain authoritative and
 readable directly via any Solana RPC. The audit's incident-response
@@ -27,7 +27,7 @@ strategy is three concurrent moves:
   1. Shed the flood at the rate-limit layer (per-IP + per-key tiers
      already exist; tighten the public bucket).
   2. Tell Verified Integrators to switch to the **direct on-chain
-     reader** path (DBP-3), which has no dependency on `helixor-api`.
+     reader** path (DBP-3), which has no dependency on `phylanx-api`.
   3. Tighten cluster-health visibility so on-call has 3x faster signal
      on whether the cluster itself is being affected while the API is
      under load.
@@ -43,14 +43,14 @@ to use.
 **Substrate:** the audit-mandated sliding-window limiter and the NGINX
 upstream pool, both pre-wired and already running in production.
 
-  - `helixor-api/api/rate_limit.py` — VULN-09 sliding-window limiter:
+  - `phylanx-api/api/rate_limit.py` — VULN-09 sliding-window limiter:
     - `WINDOW_SECONDS = 60.0` (audit-mandated).
     - `DEFAULT_PUBLIC_RATE_LIMIT_PER_MIN = 100` per-IP.
-    - Per-API-key cap baked into the `HELIXOR_API_KEYS` string
-      (`helixor-api/api/auth.py:65-90`).
-    - Runtime knob: `HELIXOR_PUBLIC_RATE_LIMIT_PER_MIN` env var
+    - Per-API-key cap baked into the `PHYLANX_API_KEYS` string
+      (`phylanx-api/api/auth.py:65-90`).
+    - Runtime knob: `PHYLANX_PUBLIC_RATE_LIMIT_PER_MIN` env var
       (`load_public_limit_from_env`, lines 180-189).
-    - Trust-proxy knob: `HELIXOR_TRUST_PROXY=1` so the LEFTMOST
+    - Trust-proxy knob: `PHYLANX_TRUST_PROXY=1` so the LEFTMOST
       `X-Forwarded-For` entry is used for IP extraction (required when
       behind NGINX).
   - `launch/deploy/nginx/api_upstream.conf`:
@@ -66,16 +66,16 @@ upstream pool, both pre-wired and already running in production.
 
 ```bash
 # A. Tighten the per-IP bucket from 100/min to 25/min on every replica.
-#    `helixor.api.rate_limit` reads HELIXOR_PUBLIC_RATE_LIMIT_PER_MIN at
+#    `phylanx.api.rate_limit` reads PHYLANX_PUBLIC_RATE_LIMIT_PER_MIN at
 #    startup, so this requires a rolling restart of the api-* services.
 for replica in api-1 api-2 api-3; do
-  ssh "$replica" "sudo systemctl set-environment HELIXOR_PUBLIC_RATE_LIMIT_PER_MIN=25"
-  ssh "$replica" "sudo systemctl restart helixor-api"
+  ssh "$replica" "sudo systemctl set-environment PHYLANX_PUBLIC_RATE_LIMIT_PER_MIN=25"
+  ssh "$replica" "sudo systemctl restart phylanx-api"
 done
 
 # B. Confirm the new ceiling is in effect.
 curl -s -o /dev/null -w '%{http_code}\n' \
-  -H 'Host: api.helixor.local' \
+  -H 'Host: api.phylanx.local' \
   http://nginx:8080/health  # repeat 30x in a tight loop
 # Expect to see 429 appear after the 25th request from a single IP.
 
@@ -87,7 +87,7 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 **Per-key tier overrides during IR:**
 
 Partner-keyed clients should NOT be rate-limited the same as anonymous
-traffic. The `HELIXOR_API_KEYS` env var supports five fields per key:
+traffic. The `PHYLANX_API_KEYS` env var supports five fields per key:
 `key_id:secret:tier:limit_per_min:partner_wallet`. During an attack,
 re-emit the env var with the legit-partner `limit_per_min` *raised*
 (e.g. from 1,000/min to 5,000/min) so the partner traffic is not
@@ -96,9 +96,9 @@ collateral damage. Restart api-* to pick it up.
 **Verify the limiter is engaged:**
 
 ```bash
-# `helixor.api.rate_limit` logs each 429 with the bucket id.
-journalctl -u helixor-api -f \
-  | grep 'helixor.api.rate_limit' \
+# `phylanx.api.rate_limit` logs each 429 with the bucket id.
+journalctl -u phylanx-api -f \
+  | grep 'phylanx.api.rate_limit' \
   | grep ' 429 '
 # Expect a steady stream from "ip:X.Y.Z.W" buckets and NONE from "key:*"
 # buckets if the partner-tier overrides are working.
@@ -121,7 +121,7 @@ journalctl -u helixor-api -f \
 
 **Substrate:** the DBP-3 SafeCertReader path, which reads
 `HealthCertificate` PDAs directly from Solana RPC and has NO dependency
-on `helixor-api`.
+on `phylanx-api`.
 
   - `launch/integrations/example_safe_partner/reader.ts` — the
     reference implementation. `SafePartnerReader` enforces the
@@ -131,9 +131,9 @@ on `helixor-api`.
       LIQUIDATION_CHECK 12h, STATUS_READ 48h.
     - AW-01 input-provenance verification.
     - AW-01-EXT slot-anchor ledger re-verification.
-  - `@helixor/sdk` (default export) — wraps the on-chain reader and
-    exposes only the safe surfaces. The `@helixor/sdk/unsafe` subpath
-    exposes raw primitives (`HelixorChainClient`); a DBP-3 lint gate
+  - `@phylanx/sdk` (default export) — wraps the on-chain reader and
+    exposes only the safe surfaces. The `@phylanx/sdk/unsafe` subpath
+    exposes raw primitives (`PhylanxChainClient`); a DBP-3 lint gate
     pins this partition so partners cannot accidentally import the
     unsafe surface.
   - `VerifiedConsumer` PDA at `[b"verified_consumer", partner_wallet]`
@@ -152,26 +152,26 @@ layer.
 **Procedure (on-call → partner-notify channel):**
 
 ```text
-A. Page the partner-notify channel (Slack #helixor-integrators) with
+A. Page the partner-notify channel (Slack #phylanx-integrators) with
    the templated message:
 
    ┌─────────────────────────────────────────────────────────────────┐
-   │ Helixor API is under load. The read API may return 429 or 503  │
+   │ Phylanx API is under load. The read API may return 429 or 503  │
    │ for the next N hours. Your on-chain reader path is unaffected. │
    │                                                                 │
-   │ ACTION: switch from `https://api.helixor.io/v1/cert/{agent}`   │
+   │ ACTION: switch from `https://api.phylanx.io/v1/cert/{agent}`   │
    │ to the on-chain reader. Reference implementation:              │
    │   launch/integrations/example_safe_partner/reader.ts           │
    │                                                                 │
    │ SDK switch (one line): `import { SafePartnerReader } from      │
-   │ '@helixor/sdk'` — uses RPC directly, no API dependency.        │
+   │ '@phylanx/sdk'` — uses RPC directly, no API dependency.        │
    │                                                                 │
    │ This is the *normal* DeFi-bypass path (DBP-3). The four gates   │
    │ — freshness, velocity, input-provenance, slot-anchor — are     │
    │ enforced client-side and are CHEAPER per call than the API.    │
    └─────────────────────────────────────────────────────────────────┘
 
-B. Cross-post to status.helixor.io with a one-line "Read API
+B. Cross-post to status.phylanx.io with a one-line "Read API
    degraded; on-chain reader path is healthy" banner.
 
 C. After the flood subsides, page the partners again with the
@@ -183,11 +183,11 @@ C. After the flood subsides, page the partners again with the
 **Verify partners migrated:**
 
 ```bash
-# The API replicas' access logs include a "X-Helixor-SDK" header
+# The API replicas' access logs include a "X-Phylanx-SDK" header
 # emitted by the older API-path SDK. The on-chain reader does NOT emit
 # this header. Count how many partner keys are still hitting the API.
-journalctl -u helixor-api --since '1 hour ago' \
-  | grep -oP 'X-Helixor-SDK: \S+' \
+journalctl -u phylanx-api --since '1 hour ago' \
+  | grep -oP 'X-Phylanx-SDK: \S+' \
   | sort -u
 # A shrinking set of distinct values = partners are migrating.
 ```
@@ -244,7 +244,7 @@ curl -s http://prometheus:9090/api/v1/status/config \
 
 # D. Tail the cluster-health series — every 5 seconds, every node.
 watch -n 1 'curl -s http://prometheus:9090/api/v1/query \
-  --data-urlencode "query=helixor_cluster_quorum_size" \
+  --data-urlencode "query=phylanx_cluster_quorum_size" \
   | jq -r ".data.result[] | .metric.instance + \" \" + .value[1]"'
 # Expect 5 nodes all reporting quorum=5 (3-of-5 healthy ceiling).
 ```
@@ -277,16 +277,16 @@ curl -X POST http://prometheus:9090/-/reload
 
 ## What to log in the postmortem
 
-  - Peak `helixor.api.rate_limit` 429 emission rate per replica and
+  - Peak `phylanx.api.rate_limit` 429 emission rate per replica and
     bucket-id histogram (which IPs / which keys).
   - NGINX upstream-eject events from `/var/log/nginx/error.log`
     (timestamps when `max_fails=3` tripped).
-  - `helixor_cluster_quorum_size` series for the full incident window
+  - `phylanx_cluster_quorum_size` series for the full incident window
     — confirmation that the cluster never dropped quorum.
-  - Partner-migration ratio: count of distinct `X-Helixor-SDK`
+  - Partner-migration ratio: count of distinct `X-Phylanx-SDK`
     user-agents at attack start vs end.
   - Whether the partner-tier `limit_per_min` overrides in
-    `HELIXOR_API_KEYS` had to be raised (and the value used).
+    `PHYLANX_API_KEYS` had to be raised (and the value used).
   - Whether NGINX 503 sinkhole rules had to be added; if so, retain
     the regex and IP set in `incidents/`.
 
@@ -311,7 +311,7 @@ The runbook DOES rely on three additive items being on the roadmap
 (not blockers, since the existing posture is sufficient):
 
   - A Redis-backed distributed limiter at the edge (acknowledged in
-    `helixor-api/api/rate_limit.py:31-38`).
+    `phylanx-api/api/rate_limit.py:31-38`).
   - A managed CDN layer (Cloudflare / CloudFront) in front of NGINX
     for true volumetric attacks; the current NGINX-only posture is
     adequate for application-layer floods up to the upstream's

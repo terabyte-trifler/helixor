@@ -70,16 +70,16 @@ def test_report_serialises_to_json():
 
 def test_unsafe_import_without_safe_reader_is_rejected(tmp_path, monkeypatch):
     """DBP-1e: a per-source check — a partner cert-reader source that imports
-    from `@helixor/sdk/unsafe` WITHOUT also using `SafeCertReader` must HARD
+    from `@phylanx/sdk/unsafe` WITHOUT also using `SafeCertReader` must HARD
     fail. This is the exact pattern Path-4 attackers exploit.
     """
     # Build a tiny throwaway manifest + reader source in a temp dir, then
     # point the linter at it via REPO_ROOT monkeypatch.
     integrations = tmp_path / "launch" / "integrations"
     integrations.mkdir(parents=True)
-    sdk = tmp_path / "helixor-sdk" / "src"
+    sdk = tmp_path / "phylanx-sdk" / "src"
     sdk.mkdir(parents=True)
-    oracle = tmp_path / "helixor-oracle" / "oracle"
+    oracle = tmp_path / "phylanx-oracle" / "oracle"
     oracle.mkdir(parents=True)
 
     # Stubs so the cross-checks don't trip on unrelated families.
@@ -99,8 +99,8 @@ def test_unsafe_import_without_safe_reader_is_rejected(tmp_path, monkeypatch):
         'export { verifyAgainstSolanaLedger } from "./input_provenance";\n'
     )
     (sdk / "unsafe.ts").write_text(
-        'export { HelixorClient } from "./http_client";\n'
-        'export { HelixorChainClient } from "./client";\n'
+        'export { PhylanxClient } from "./http_client";\n'
+        'export { PhylanxChainClient } from "./client";\n'
     )
     (oracle / "operation_freshness.py").write_text(
         'from enum import Enum\n'
@@ -119,11 +119,11 @@ def test_unsafe_import_without_safe_reader_is_rejected(tmp_path, monkeypatch):
     # The bad reader: imports /unsafe but does NOT use SafeCertReader.
     bad_reader = tmp_path / "launch" / "integrations" / "bad_reader.ts"
     bad_reader.write_text(
-        'import { HelixorChainClient } from "@helixor/sdk/unsafe";\n'
+        'import { PhylanxChainClient } from "@phylanx/sdk/unsafe";\n'
         '// raw read with no safety wrap, no provenance check, no\n'
         '// slot anchor — this is the Path-4 attack pattern.\n'
         'export async function readScore(c, ids, agent) {\n'
-        '  return new HelixorChainClient(c, ids).getScore(agent);\n'
+        '  return new PhylanxChainClient(c, ids).getScore(agent);\n'
         '}\n'
     )
 
@@ -158,7 +158,7 @@ def test_unsafe_import_without_safe_reader_is_rejected(tmp_path, monkeypatch):
         r.startswith("unsafe-import-must-wrap[") for r in rules
     ), (
         "DBP-1e linter did not flag a cert-reader source that imports "
-        "@helixor/sdk/unsafe without using SafeCertReader. Findings: "
+        "@phylanx/sdk/unsafe without using SafeCertReader. Findings: "
         f"{sorted(rules)}"
     )
 

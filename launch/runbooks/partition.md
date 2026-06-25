@@ -19,7 +19,7 @@ From each node, ping each peer:
 for peer in oracle-node-{0,1,2,3,4}; do
   if [[ "$peer" != "$HOSTNAME" ]]; then
     timeout 3 grpcurl -plaintext "$peer:50051" \
-        helixor.OracleCluster/Ping || echo "$peer UNREACHABLE"
+        phylanx.OracleCluster/Ping || echo "$peer UNREACHABLE"
   fi
 done
 ```

@@ -1,0 +1,29 @@
+[build-system]
+requires      = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "phylanx-api"
+version         = "0.1.0"
+description     = "Read-side FastAPI service for Phylanx agent health"
+requires-python = ">=3.12"
+dependencies    = [
+    "fastapi==0.136.3",
+    "uvicorn==0.32.0",
+    "pydantic>=2.6,<3",
+    "prometheus_client==0.21.0",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+prod = [
+    "psycopg[binary]>=3.1",
+]
+test = [
+    "pytest>=8",
+    "httpx>=0.27",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["api*"]

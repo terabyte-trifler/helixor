@@ -8,8 +8,8 @@
 - `programs/slash-authority/src/instructions/{propose,attest,enact,cancel}_authority_rotation.rs` (#2)
 - `programs/slash-authority/src/instructions/update_authorities.rs` (#2 — refusal handler)
 - `launch/deploy/deploy_programs.sh` (#3 — Squads upgrade authority)
-- `helixor-indexer/indexer/production_config.py` (#8)
-- `helixor-indexer/indexer/consensus.py` (#8 — already present)
+- `phylanx-indexer/indexer/production_config.py` (#8)
+- `phylanx-indexer/indexer/consensus.py` (#8 — already present)
 - `launch/deploy/docker-compose.kafka-ha.yml` (#5)
 - `launch/deploy/docker-compose.timescale-ha.yml` (#6)
 - `launch/deploy/docker-compose.api-ha.yml` (#7+#9)
@@ -85,8 +85,8 @@ retained for IDL compatibility but ALWAYS returns
 `indexer/production_config.py` is the only sanctioned construction
 site for a mainnet indexer; it:
 
-- Parses `HELIXOR_GEYSER_ENDPOINTS` (`name=url[|TOKEN_ENV],...`).
-- When `HELIXOR_SOLANA_CLUSTER` is mainnet, requires
+- Parses `PHYLANX_GEYSER_ENDPOINTS` (`name=url[|TOKEN_ENV],...`).
+- When `PHYLANX_SOLANA_CLUSTER` is mainnet, requires
   `len(endpoints) >= 3`. Single-endpoint mainnet raises
   `SinglePointGeyserError` at startup — the indexer does not boot.
 - Defaults `consensus_threshold` to strict majority of N

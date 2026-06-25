@@ -1,0 +1,147 @@
+# =============================================================================
+# .github/workflows/integration.yml — Day-13 hardening + integration suite.
+#
+# Relocated to the repository root from phylanx-integration/.github/
+# workflows/gate.yml (where GitHub Actions never discovered it) and FIXED:
+#
+#   * The API is started from `phylanx-api` (where `api.main:app` actually
+#     lives) — the original started it from `phylanx-oracle`, which has no
+#     `api/` package, so the API never came up.
+#   * Dependencies are installed into one venv (oracle + api closures), the
+#     same contract ci.yml / audit/run_all.sh use.
+#   * The migration step applies only the migration files that exist, in
+#     order. NOTE: this suite cannot fully pass until DB migrations
+#     0001–0005 are recovered (review finding D-1) — until then the schema
+#     is incomplete and DB-backed steps will fail. It is intentionally NOT a
+#     PR blocker for that reason.
+#
+# This suite needs devnet access + a running API, so it is gated on the
+# `PHYLANX_DEVNET_RPC_URL` secret: with no secret configured it skips
+# cleanly instead of red-lining every nightly run. Trigger manually or let
+# the nightly cron run it once secrets + migrations are in place.
+# =============================================================================
+
+name: Integration (hardening)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * *"   # nightly at 05:00 UTC
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # GitHub does not allow `secrets.*` in a job-level `if:`, so a tiny
+  # preflight job promotes the secret's presence to an output the gated job
+  # can branch on.
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      has_devnet: ${{ steps.check.outputs.has_devnet }}
+    steps:
+      - id: check
+        env:
+          RPC: ${{ secrets.PHYLANX_DEVNET_RPC_URL }}
+        run: |
+          if [ -n "$RPC" ]; then
+            echo "has_devnet=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_devnet=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PHYLANX_DEVNET_RPC_URL not set — skipping the integration gate."
+          fi
+
+  gate:
+    needs: preflight
+    if: needs.preflight.outputs.has_devnet == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: phylanx-integration
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER:     phylanx
+          POSTGRES_PASSWORD: phylanx
+          POSTGRES_DB:       phylanx
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U phylanx -d phylanx"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    env:
+      PHYLANX_API_URL:      http://localhost:8001
+      PHYLANX_PROGRAM_ID:   ${{ secrets.PHYLANX_DEVNET_PROGRAM_ID }}
+      DATABASE_URL:         postgresql://phylanx:phylanx@localhost:5432/phylanx
+      SOLANA_RPC_URL:       ${{ secrets.PHYLANX_DEVNET_RPC_URL }}
+      ORACLE_KEYPAIR_PATH:  ${{ github.workspace }}/keys/oracle-node.json
+      PHYLANX_ORACLE_DIR:   ../phylanx-oracle
+      PHYLANX_PROGRAMS_DIR: ../phylanx-programs
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore oracle keypair
+        env:
+          ORACLE_KEYPAIR: ${{ secrets.PHYLANX_DEVNET_ORACLE_KEYPAIR }}
+        run: |
+          mkdir -p "${{ github.workspace }}/keys"
+          printf '%s' "$ORACLE_KEYPAIR" > "${{ github.workspace }}/keys/oracle-node.json"
+
+      # NOTE (finding D-1): db/migrations starts at 0006; migrations
+      # 0001–0005 and the indexer schema are not yet in the repo, so this
+      # bootstrap is incomplete. Apply what exists, in order.
+      - name: Apply DB migrations
+        working-directory: phylanx-oracle
+        run: |
+          shopt -s nullglob
+          for sql in $(ls db/migrations/*.sql | sort); do
+            echo "applying $sql"
+            PGPASSWORD=phylanx psql -h localhost -U phylanx -d phylanx -f "$sql"
+          done
+
+      - name: Install Python deps + start API
+        run: |
+          python -m venv "${{ github.workspace }}/.venv"
+          "${{ github.workspace }}/.venv/bin/python" -m pip install --upgrade pip
+          "${{ github.workspace }}/.venv/bin/python" -m pip install \
+            -r "${{ github.workspace }}/phylanx-oracle/requirements.txt" \
+            -r "${{ github.workspace }}/phylanx-api/requirements.txt"
+          # The API lives in phylanx-api (NOT phylanx-oracle), and imports
+          # shared oracle modules, so PYTHONPATH spans both.
+          cd "${{ github.workspace }}/phylanx-api"
+          PYTHONPATH=.:../phylanx-oracle \
+            "${{ github.workspace }}/.venv/bin/python" -m uvicorn api.main:app \
+            --host 0.0.0.0 --port 8001 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8001/health && break
+            sleep 1
+          done
+
+      - name: Install integration deps
+        run: npm ci
+
+      - name: Run hardening + tests
+        run: npm run harden:all

@@ -9,10 +9,10 @@
 #
 # The instance ID (%i) is the node's cluster index (0..4 for a 5-node
 # cluster). Each instance reads its own env file at
-# /etc/helixor/oracle-node-%i.env.
+# /etc/phylanx/oracle-node-%i.env.
 #
 # Hardening:
-#   * Runs as a dedicated `helixor` user.
+#   * Runs as a dedicated `phylanx` user.
 #   * NoNewPrivileges, ProtectSystem, ProtectHome — process can't escalate.
 #   * MemoryMax + CPUQuota bound resource use.
 #   * Restart=on-failure with bounded retries — does NOT loop on
@@ -21,25 +21,25 @@
 # =============================================================================
 
 [Unit]
-Description=Helixor Oracle Node (cluster instance %i)
+Description=Phylanx Oracle Node (cluster instance %i)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=helixor
-Group=helixor
-WorkingDirectory=/opt/helixor
+User=phylanx
+Group=phylanx
+WorkingDirectory=/opt/phylanx
 
 # Per-instance env file — pinned cluster id, port, peer list, network.
-EnvironmentFile=/etc/helixor/oracle-node-%i.env
+EnvironmentFile=/etc/phylanx/oracle-node-%i.env
 
 # The entrypoint refuses to start against mainnet without explicit
-# HELIXOR_MAINNET_OK=1 in the env file.
-ExecStart=/opt/helixor/venv/bin/python -m oracle.cluster.run_cluster_node \
-    --node-id ${HELIXOR_NODE_ID} \
-    --port    ${HELIXOR_PORT} \
-    --peers   ${HELIXOR_PEERS}
+# PHYLANX_MAINNET_OK=1 in the env file.
+ExecStart=/opt/phylanx/venv/bin/python -m oracle.cluster.run_cluster_node \
+    --node-id ${PHYLANX_NODE_ID} \
+    --port    ${PHYLANX_PORT} \
+    --peers   ${PHYLANX_PEERS}
 
 # Restart policy: bounded retries for transient failures, but NOT for the
 # guard-refusal exit code (2). systemd's `RestartPreventExitStatus=`
@@ -66,12 +66,12 @@ MemoryDenyWriteExecute=true
 
 # ── VULN-25 supply-chain hardening ──────────────────────────────────────────
 # Read-only root + tightly-scoped writable paths. The venv at
-# /opt/helixor is read-only — a compromised dependency cannot
+# /opt/phylanx is read-only — a compromised dependency cannot
 # silently rewrite its own bytes on disk to survive a restart.
-# Writable state is confined to /var/lib/helixor (db cache, baseline
-# snapshots) and /var/log/helixor (rotated journals).
-ReadOnlyPaths=/opt/helixor
-ReadWritePaths=/var/lib/helixor /var/log/helixor
+# Writable state is confined to /var/lib/phylanx (db cache, baseline
+# snapshots) and /var/log/phylanx (rotated journals).
+ReadOnlyPaths=/opt/phylanx
+ReadWritePaths=/var/lib/phylanx /var/log/phylanx
 ProtectKernelLogs=true
 ProtectHostname=true
 ProtectClock=true
@@ -99,7 +99,7 @@ TasksMax=512
 # Log to journald with structured rate-limiting.
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=helixor-oracle-%i
+SyslogIdentifier=phylanx-oracle-%i
 
 [Install]
 WantedBy=multi-user.target

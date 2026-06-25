@@ -1,0 +1,266 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+ * Phylanx — global styles, v3 "vermilion"
+ * Warm charcoal canvas, cream text, vermilion chrome, mono data voice.
+ * Heavier grain than v2 — the canvas should feel like printed matter.
+ * ========================================================================== */
+
+:root {
+  color-scheme: dark;
+  --font-sans: "Space Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+}
+
+html, body {
+  background: #100d0c;
+  color: #f4efe6;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: rgba(255, 79, 46, 0.30); color: #f4efe6; }
+
+*:focus-visible {
+  outline: 2px solid rgba(255, 79, 46, 0.70);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Film grain — stronger in v3; the genre wants visible tooth. */
+.grain::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='1'/></svg>");
+  background-size: 200px 200px;
+  opacity: 0.06;
+  mix-blend-mode: overlay;
+  z-index: 1;
+}
+
+.hairline   { background: #221d1b; height: 1px; width: 100%; }
+.hairline-y { background: #221d1b; width: 1px; }
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #857b76;
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.marquee-track { animation: marquee 40s linear infinite; will-change: transform; }
+
+.score-ring { transform: rotate(-90deg); }
+.score-ring__fill {
+  stroke-dasharray: var(--circ);
+  stroke-dashoffset: var(--circ);
+  animation: score-fill 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.15s forwards;
+}
+@keyframes score-fill { to { stroke-dashoffset: var(--target); } }
+
+.reveal {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: reveal 0.7s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0s) forwards;
+}
+@keyframes reveal { to { opacity: 1; transform: translateY(0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { animation: none; opacity: 1; transform: none; }
+  .marquee-track { animation: none; }
+}
+
+/* Terminal vermilion glow — faint. */
+.terminal-glow {
+  box-shadow: 0 0 0 1px rgba(255, 79, 46, 0.12),
+              0 0 56px rgba(255, 79, 46, 0.06);
+}
+
+/* Notched CTA button — corner-cut brutalist block. */
+.btn-notch {
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px),
+                     calc(100% - 14px) 100%, 0 100%, 0 14px);
+}
+
+details.faq summary { list-style: none; cursor: pointer; }
+details.faq summary::-webkit-details-marker { display: none; }
+details.faq .faq-toggle { transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+details.faq[open] .faq-toggle { transform: rotate(45deg); }
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2c2624; border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: #383130; }
+
+input, button, textarea, select { font-family: inherit; }
+
+/* ============================================================================
+ * Motion system — v3.1. The protocol, made visible.
+ * Every animation lives inside the no-preference guard: reduced-motion
+ * users get a fully static page, no exceptions.
+ * ========================================================================== */
+
+/* Scroll reveal — hidden state is applied by JS on mount, so no-JS
+ * visitors and reduced-motion users always see content. */
+.sreveal {
+  opacity: 0;
+  transform: translateY(14px);
+}
+.sreveal-in {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Radar sweep — the cluster watch, watching. */
+  .radar-sweep {
+    transform-box: view-box;
+    transform-origin: 50% 50%;
+    animation: radar-spin 7s linear infinite;
+  }
+  @keyframes radar-spin { to { transform: rotate(360deg); } }
+
+  /* Honest nodes pulse as they commit. */
+  .radar-node {
+    animation: radar-node-pulse 2.8s ease-in-out infinite;
+  }
+  @keyframes radar-node-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.45; }
+  }
+
+  /* The flagged node's dashed ring marches. */
+  .radar-flag-ring {
+    animation: radar-dash 1.2s linear infinite;
+  }
+  @keyframes radar-dash { to { stroke-dashoffset: -24; } }
+
+  .radar-flag-label {
+    animation: radar-node-pulse 2.4s ease-in-out infinite;
+  }
+
+  /* Consensus mesh breathes. */
+  .radar-mesh {
+    animation: radar-mesh-breathe 5.5s ease-in-out infinite;
+  }
+  @keyframes radar-mesh-breathe {
+    0%, 100% { opacity: 0.55; }
+    50%      { opacity: 1; }
+  }
+
+  /* Finale arcs pulse in staggered phase (delay set inline). */
+  .wire-arc {
+    animation: wire-pulse 6s ease-in-out infinite;
+  }
+  @keyframes wire-pulse {
+    0%, 100% { opacity: 0.18; }
+    50%      { opacity: 0.55; }
+  }
+
+  .haze-breathe {
+    animation: haze 9s ease-in-out infinite alternate;
+  }
+  @keyframes haze {
+    from { opacity: 0.7; transform: scale(1); }
+    to   { opacity: 1;   transform: scale(1.06); }
+  }
+
+  /* Hero glyph drifts, slowly. */
+  .glyph-drift {
+    animation: glyph-drift 9s ease-in-out infinite alternate;
+  }
+  @keyframes glyph-drift {
+    from { transform: translateY(-46%); }
+    to   { transform: translateY(-54%); }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sreveal { opacity: 1; transform: none; }
+}
+
+/* Tabbed showcase — underline slides, panels rise. */
+.tab-underline {
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+              width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  left: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .panel-rise { animation: panel-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  @keyframes panel-rise {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel-rise .animate-fade-in { opacity: 1 !important; animation: none; }
+}
+
+/* Hero entrance choreography — v3.3. Hidden states live INSIDE the
+ * no-preference guard so reduced-motion (and any non-animating context)
+ * always renders the complete static hero. */
+.hero-mask {
+  display: block;
+  overflow: hidden;
+  padding-bottom: 0.1em;
+  margin-bottom: -0.1em;
+}
+.hero-line { display: block; transform-origin: left top; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .hero-line {
+    transform: translateY(115%) rotate(2deg);
+    animation: hero-line-in 0.95s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes hero-line-in {
+    to { transform: translateY(0) rotate(0deg); }
+  }
+  .hero-blur {
+    opacity: 0;
+    filter: blur(10px);
+    animation: hero-blur-in 0.8s ease-out 0.42s both;
+  }
+  @keyframes hero-blur-in {
+    to { opacity: 1; filter: blur(0); }
+  }
+  .magnetic-btn { transition: transform 0.18s ease-out; }
+}
+
+/* Accent micro-label — the in-card data label, app-wide. Same metrics as
+ * .eyebrow, accent voice. Pills mark sections; this marks data. */
+.eyebrow-accent {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ff4f2e;
+}

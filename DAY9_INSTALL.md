@@ -1,14 +1,14 @@
 # Day 9 Installation
 
 This zip contains:
-1. **`helixor-plugin-elizaos/`** — the new npm package `@elizaos/plugin-helixor`
-2. **`helixor-oracle/api/routes/registration.py`** — small addition to the
+1. **`phylanx-plugin-elizaos/`** — the new npm package `@elizaos/plugin-phylanx`
+2. **`phylanx-oracle/api/routes/registration.py`** — small addition to the
    Day 8 API providing the `POST /agents/prepare-registration` endpoint
 
 ## What's in this zip
 
 ```
-helixor-plugin-elizaos/         ← NEW package, drop in next to helixor-sdk/
+phylanx-plugin-elizaos/         ← NEW package, drop in next to phylanx-sdk/
 ├── src/
 │   ├── index.ts                 (plugin entry + initialize hook)
 │   ├── config.ts                (typed settings + validation)
@@ -28,36 +28,36 @@ helixor-plugin-elizaos/         ← NEW package, drop in next to helixor-sdk/
 ├── vitest.config.ts
 └── README.md
 
-helixor-oracle/                 ← addition to Day 8 API
+phylanx-oracle/                 ← addition to Day 8 API
 └── api/routes/registration.py
 ```
 
 ## What to do
 
-1. Drop `helixor-plugin-elizaos/` into the same parent directory as
-   `helixor-sdk/`. They're sibling npm packages.
-2. Copy `helixor-oracle/api/routes/registration.py` into your Day 8
-   `helixor-oracle/api/routes/` directory.
-3. Wire the new router in `helixor-oracle/api/main.py`:
+1. Drop `phylanx-plugin-elizaos/` into the same parent directory as
+   `phylanx-sdk/`. They're sibling npm packages.
+2. Copy `phylanx-oracle/api/routes/registration.py` into your Day 8
+   `phylanx-oracle/api/routes/` directory.
+3. Wire the new router in `phylanx-oracle/api/main.py`:
    ```python
    from api.routes import registration as registration_routes
    app.include_router(registration_routes.router, tags=["registration"])
    ```
 4. Build + test the plugin:
    ```bash
-   cd helixor-plugin-elizaos
+   cd phylanx-plugin-elizaos
    npm install
    npm test
    npm run build
    ```
 5. Use it in any elizaOS character:
    ```typescript
-   import { helixorPlugin } from "@elizaos/plugin-helixor";
+   import { phylanxPlugin } from "@elizaos/plugin-phylanx";
    export default {
-     plugins: [helixorPlugin],
+     plugins: [phylanxPlugin],
      settings: {
        SOLANA_PUBLIC_KEY: "...",
-       HELIXOR_API_URL:   "https://api.helixor.xyz",
+       PHYLANX_API_URL:   "https://api.phylanx.xyz",
      },
    };
    ```
@@ -65,6 +65,6 @@ helixor-oracle/                 ← addition to Day 8 API
 ## Compatibility
 
 - Plugin peer-depends on `@elizaos/core >= 0.1.0`
-- Plugin runtime-depends on `@helixor/client ^0.8.0` (Day 8 SDK)
+- Plugin runtime-depends on `@phylanx/client ^0.8.0` (Day 8 SDK)
 - Plugin dev-depends on `@solana/web3.js` for tx building only
 - Tests use Vitest with mock fetch — no real network needed

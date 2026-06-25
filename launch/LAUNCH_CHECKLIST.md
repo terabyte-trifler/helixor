@@ -1,7 +1,7 @@
-# Helixor V2 — Launch Checklist
+# Phylanx V2 — Launch Checklist
 
 The pre-mainnet gate. Every box must be ticked, with the linked artefact,
-**before** an `HELIXOR_MAINNET_OK=1` flag is added to any production env
+**before** an `PHYLANX_MAINNET_OK=1` flag is added to any production env
 file.
 
 ## 1 — Audit gates (Day 29-31)
@@ -12,8 +12,8 @@ file.
 - [ ] **VULN-20 SQLi sweep clean** —
       `python3 audit/sql_injection_check.py --json audit/reports/sql_injection.json`
       reports **0 HARD findings**. Every `.execute(...)` in
-      `helixor-oracle/db/`, `helixor-oracle/baseline/`, `helixor-api/api/`,
-      and `helixor-indexer/` uses parameterised binding (`%s` + params
+      `phylanx-oracle/db/`, `phylanx-oracle/baseline/`, `phylanx-api/api/`,
+      and `phylanx-indexer/` uses parameterised binding (`%s` + params
       sequence); no f-strings, no `.format()`, no `+` concatenation.
 - [ ] **VULN-21 Ed25519 strictness sweep clean** —
       `python3 audit/ed25519_strictness_check.py --json audit/reports/ed25519_strictness.json`
@@ -61,10 +61,10 @@ file.
       `*-requirements-txt-missing` rules, which the default run_all
       sweep tolerates pre-release). Before mainnet:
         1. Run `bash scripts/regen_requirements.sh` to produce
-           `helixor-{oracle,api,indexer}/requirements.txt` with full
+           `phylanx-{oracle,api,indexer}/requirements.txt` with full
            SHA256 hash closures via `pip-compile --generate-hashes`.
            Commit BOTH `.in` and `.txt` files.
-        2. Verify `helixor-programs/Cargo.lock` is committed (it
+        2. Verify `phylanx-programs/Cargo.lock` is committed (it
            already is — Rust transitives are pinned).
         3. Confirm `oracle/cluster/signer.py` exports the `Signer`
            Protocol with `InProcessSigner` (default) and `HSMSigner`
@@ -74,11 +74,11 @@ file.
            LOUDLY rather than silently falling back.
         4. Confirm `launch/deploy/systemd/oracle-node@.service`
            still carries the supply-chain hardening directives:
-           `ReadOnlyPaths=/opt/helixor`, `SystemCallFilter=@system-service`,
+           `ReadOnlyPaths=/opt/phylanx`, `SystemCallFilter=@system-service`,
            `CapabilityBoundingSet=` (empty), `MemoryDenyWriteExecute=true`,
            `ProtectSystem=strict`.
       Production install command (in the deploy script):
-      `/opt/helixor/venv/bin/pip install --require-hashes --no-deps -r helixor-oracle/requirements.txt`.
+      `/opt/phylanx/venv/bin/pip install --require-hashes --no-deps -r phylanx-oracle/requirements.txt`.
       A hash drift (compromised mirror, MITM, registered ghost
       version) trips here BEFORE the bytes ever import.
 - [ ] **VULN-24 adversarial-ML sweep clean** —
@@ -94,7 +94,7 @@ file.
         3. `scoring/_gaming.py` exposes
            `apply_dimension_delta_guard_rail` at `DIM_MAX_SCORE_DELTA = 250`
            (caller ORs `FlagBit.DIMENSION_CLAMPED`)
-        4. `helixor-api/api/flag_obfuscation.py` exposes
+        4. `phylanx-api/api/flag_obfuscation.py` exposes
            `compute_flag_token` + `popcount`; `HealthResponse` exposes
            `flag_set_token` + `flag_count` and NEVER the raw bitmask.
       Together the four mitigations break the per-epoch read-then-craft
@@ -132,7 +132,7 @@ file.
       `signing.cert_payload_digest` in `certificate-issuer` folds
       BOTH the commitment AND the slot anchor into the signed digest;
       `verifyInputProvenance` + `verifyAgainstSolanaLedger` in
-      `@helixor/sdk` reproduce them byte-for-byte from observable
+      `@phylanx/sdk` reproduce them byte-for-byte from observable
       transactions and from the live SlotHashes sysvar. A DeFi
       consumer can detect a Geyser/Kafka/indexer poisoning attack
       AND a coordinated upstream RPC-fleet poisoning attack without
@@ -150,7 +150,7 @@ file.
       `verifyAgainstSolanaLedger` is the read-time analogue.
 - [ ] **AW-01-EXT SDK-side ledger re-verification** — at least one
       integration partner has wired `verifyAgainstSolanaLedger(cert,
-      provider)` from `@helixor/sdk` and confirmed it returns `ok:
+      provider)` from `@phylanx/sdk` and confirmed it returns `ok:
       true` for a fresh production cert. The partner's `provider` is
       either `Connection.getSlotHashes()` or an equivalent — and is
       pointed at an RPC INDEPENDENT from the cluster's RPC fleet
@@ -188,7 +188,7 @@ file.
       the program enforces `sha256(payload) == baseline_hash` at
       write time, and `BaselineStats` + `HealthCertificate` carry
       the `baseline_commit_nonce` that names the latest account.
-      `verifyBaselineProvenance` in `@helixor/sdk` reproduces the
+      `verifyBaselineProvenance` in `@phylanx/sdk` reproduces the
       hash byte-for-byte from the fetched payload. A DeFi consumer
       can detect a substituted baseline without trusting either the
       cluster OR a separate DA service.
@@ -228,7 +228,7 @@ file.
       32 bytes are folded into `cert_payload_digest` after the
       AW-03 nonce, with `score_components_hash` folded immediately
       after as another 32 bytes. `verifyScoreComputation` in
-      `@helixor/sdk` re-derives BOTH the hash AND the headline
+      `@phylanx/sdk` re-derives BOTH the hash AND the headline
       score from the fetched payload. A DeFi consumer can detect a
       silent kernel swap OR an arithmetically inconsistent score
       without trusting either the cluster OR a separate DA service.
@@ -342,7 +342,7 @@ file.
       `SIGNER_BUCKET_IN_PROCESS="in-process"`,
       `SIGNER_BUCKET_HSM="hsm"`, `SIGNER_BUCKET_UNKNOWN="unknown"`,
       `HSMSigner`-suffix rule, opt-in env var
-      `HELIXOR_INPROCESS_SIGNER_OK` — refuses to start a mainnet
+      `PHYLANX_INPROCESS_SIGNER_OK` — refuses to start a mainnet
       oracle node with an in-process Ed25519 signer so the
       hypervisor-kernel exfil substrate is not present), NSS-3
       cluster-side agent-registration-age floor
@@ -359,7 +359,7 @@ file.
       (`InProcessSigner` + `HSMSigner` in
       `oracle/cluster/signer.py`) and lights a SOFT finding if the
       consumer-side VULN-23 `MIN_HISTORY_REQUIRED` marker in
-      `helixor-sdk/src/lib/cert_reader.ts` disappears. A regression
+      `phylanx-sdk/src/lib/cert_reader.ts` disappears. A regression
       that removes any of these mitigations lights the gate red
       BEFORE the change reaches mainnet.
 - [ ] **Stale Oracle Lock audit gate clean** —
@@ -511,10 +511,10 @@ file.
       `programs/certificate-issuer/src/instructions/record_baseline.rs`),
       the indexer-side VULN-07 anchor (`TrustedProducerSet` +
       `verify_record_headers` in
-      `helixor-indexer/eventbus/consumer.py`), and the cluster-side
+      `phylanx-indexer/eventbus/consumer.py`), and the cluster-side
       VULN-03 anchor (`VELOCITY_THRESHOLD = 0.20` +
       `DRIFT_REASON_VELOCITY` in
-      `helixor-oracle/oracle/cluster/drift_detector.py`) so the
+      `phylanx-oracle/oracle/cluster/drift_detector.py`) so the
       off-chain ILS-1 / ILS-2 / ILS-3 mitigations cannot drift out
       of lockstep with the upstream defences they pair with. A
       regression that removes any of these mitigations lights the
@@ -600,12 +600,12 @@ file.
       regression alarm for the red-team Path 4 "DeFi Bypass" attack
       chain in `launch/design/defi_bypass_resolution.md` — three
       sub-leaves all of which live in the CONSUMER's code, not
-      Helixor's: (4a) DeFi protocol uses cert without freshness
+      Phylanx's: (4a) DeFi protocol uses cert without freshness
       check, (4b) DeFi protocol uses cert without score threshold
       validation, (4c) DeFi protocol's cert-reading code has bugs.
       Closed by a four-substrate "Verified Integrator" tier whose
       four deliverables (DBP-1 linter, DBP-2 on-chain
-      `VerifiedConsumer` PDA, DBP-3 safe-default `@helixor/sdk`
+      `VerifiedConsumer` PDA, DBP-3 safe-default `@phylanx/sdk`
       export partition, DBP-4 per-partner telemetry + leaderboard
       + cert-degrading webhooks) have all shipped. The Insured
       tier's revenue surface is the bad-faith forfeit clause
@@ -632,23 +632,23 @@ file.
       (`export class SafeCertReader` + `CERT_MAX_AGE_SECONDS = 48 *
       60 * 60` + `MAX_SCORE_VELOCITY = 200` +
       `VELOCITY_WINDOW_EPOCHS = 3` + `MIN_HISTORY_REQUIRED = 2` in
-      `helixor-sdk/src/safe_reader.ts` and the re-export from
-      `helixor-sdk/src/index.ts`), the SOL-3 anchor
+      `phylanx-sdk/src/safe_reader.ts` and the re-export from
+      `phylanx-sdk/src/index.ts`), the SOL-3 anchor
       (`class Operation(str, Enum)` +
       `LOAN_ISSUE_MAX_AGE_SECONDS = 4 * 3600` +
       `LOAN_INCREASE_MAX_AGE_SECONDS = 8 * 3600` +
       `LIQUIDATION_CHECK_MAX_AGE_SECONDS = 12 * 3600` +
       `STATUS_READ_MAX_AGE_SECONDS = 48 * 3600` +
       `verify_operation_freshness` in
-      `helixor-oracle/oracle/operation_freshness.py`), and the
+      `phylanx-oracle/oracle/operation_freshness.py`), and the
       AW-01-EXT anchor (`verifyAgainstSolanaLedger` +
       `verifyInputProvenance` in
-      `helixor-sdk/src/input_provenance.ts` and the re-export from
-      `helixor-sdk/src/index.ts`), and the DBP-3 safe-default
-      partition (`helixor-sdk/src/unsafe.ts` re-exports
-      `HelixorClient` + `HelixorChainClient`; the default
-      `helixor-sdk/src/index.ts` MUST NOT name either symbol; any
-      partner cert-reader source that imports `@helixor/sdk/
+      `phylanx-sdk/src/input_provenance.ts` and the re-export from
+      `phylanx-sdk/src/index.ts`), and the DBP-3 safe-default
+      partition (`phylanx-sdk/src/unsafe.ts` re-exports
+      `PhylanxClient` + `PhylanxChainClient`; the default
+      `phylanx-sdk/src/index.ts` MUST NOT name either symbol; any
+      partner cert-reader source that imports `@phylanx/sdk/
       unsafe` MUST also reference `SafeCertReader` — the
       `[DBP-1e][DBP-3 safe-default]` family fires HARD on any of
       the three regressions) — so any rename or removal of a
@@ -681,9 +681,9 @@ file.
       discriminator + 140 data: partner_wallet, integration_hash,
       registered_at_{slot,unix}, state, revoked_at_unix, revoked_by,
       revoke_reason, layout_version, 16-byte _reserved) is pinned
-      by the SDK decoder at `helixor-sdk/src/verified_consumer.ts`
+      by the SDK decoder at `phylanx-sdk/src/verified_consumer.ts`
       and the 9-test SDK suite at
-      `helixor-sdk/test/verified_consumer.test.ts`. The revoke
+      `phylanx-sdk/test/verified_consumer.test.ts`. The revoke
       flow is dual-path: `PartnerSelfRevoke` requires the partner
       to sign; `AdminBadFaith` / `AdminTerminated` require
       `issuer_config.authority` to sign. The account is NEVER
@@ -693,19 +693,19 @@ file.
       `is_active()` discriminator check on the `state` byte) and
       treat "had a badge, lost it" as a refusal — presence alone
       is insufficient. The
-      `REGISTRATION_DOMAIN_TAG = "helixor-dbp2-verified-consumer"`
+      `REGISTRATION_DOMAIN_TAG = "phylanx-dbp2-verified-consumer"`
       digest helper is exported on both Rust and TS sides so any
       future delegated-submission v2 path AND off-chain auditors
       arrive at the same SHA256.
 - [ ] **DBP-4 Verified-Integrator revenue surface live** —
-      `cd helixor-api && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest
+      `cd phylanx-api && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest
       tests/test_dbp4_partner_telemetry.py tests/test_dbp4_webhooks.py`
       reports **24 + 21 = 45 green tests**. The three substrates:
 
       (4a) **Per-partner safe-reader share telemetry** — `ApiKey`
       carries a `partner_wallet` (optional 5th colon field of
-      `HELIXOR_API_KEYS`) and the
-      `helixor_api_safe_reader_share_total{partner_wallet,
+      `PHYLANX_API_KEYS`) and the
+      `phylanx_api_safe_reader_share_total{partner_wallet,
       surface=safe|raw}` Prometheus counter increments on every
       successful score-read by a partner-bound key. `safe` =
       `/agents/{wallet}/safe_score`; `raw` =
@@ -725,7 +725,7 @@ file.
       (4c) **Cert-degrading webhook (Insured tier)** —
       `api/webhooks.py` provides a `WebhookRegistry`
       (`partner_wallet → (url, secret)`, loaded from
-      `HELIXOR_WEBHOOKS=partner_wallet:url:secret` lines), a
+      `PHYLANX_WEBHOOKS=partner_wallet:url:secret` lines), a
       `compute_signature` HMAC-SHA256 helper, a
       `CertDegradingPayload` with byte-stable
       canonical JSON (sorted keys, no whitespace) so the partner-
@@ -738,7 +738,7 @@ file.
       anonymous call, a fresh cert, an expired cert, or a partner
       without a webhook all short-circuit silently — no spurious
       pages. Anchors: `degrading_threshold_seconds(48*3600) ==
-      36*3600`, `SIGNATURE_HEADER = "X-Helixor-Webhook-Signature"`,
+      36*3600`, `SIGNATURE_HEADER = "X-Phylanx-Webhook-Signature"`,
       `EVENT_CERT_DEGRADING = "cert.degrading"`,
       `WEBHOOK_SCHEMA_VERSION = 1`.
 
@@ -759,7 +759,7 @@ file.
       read p95 < 100ms → `audit/reports/db_stress.json`
 - [ ] **Cluster chaos test green in CI** — 20 epochs × 50 agents with
       mid-run kill, all certs threshold-signed
-- [ ] **Read API tests green** — `cd helixor-api && pytest` passes
+- [ ] **Read API tests green** — `cd phylanx-api && pytest` passes
 - [ ] External security audit report received, all findings addressed
 - [ ] Internal review of every `// audit:` annotation in the codebase
 
@@ -802,16 +802,16 @@ file.
 - [ ] **API-DDoS runbook reviewed by lead.** The 3-step incident
       response in `launch/runbooks/api_ddos_response.md` composes the
       existing primitives — Step 1 (tighten the VULN-09 sliding-window
-      limiter in `helixor-api/api/rate_limit.py` via the
-      `HELIXOR_PUBLIC_RATE_LIMIT_PER_MIN` env var; NGINX upstream pool
+      limiter in `phylanx-api/api/rate_limit.py` via the
+      `PHYLANX_PUBLIC_RATE_LIMIT_PER_MIN` env var; NGINX upstream pool
       at `launch/deploy/nginx/api_upstream.conf` already enforces
       `max_fails=3 fail_timeout=15s` ejection + 64KiB body cap + GET-only
       `proxy_next_upstream` failover; per-key tier overrides via
-      `HELIXOR_API_KEYS`), Step 2 (Verified Integrators switch to the
+      `PHYLANX_API_KEYS`), Step 2 (Verified Integrators switch to the
       DBP-3 `SafePartnerReader` in
       `launch/integrations/example_safe_partner/reader.ts`, which reads
       `HealthCertificate` PDAs directly via Solana RPC with NO
-      dependency on `helixor-api`; the 2h epoch cadence stays well
+      dependency on `phylanx-api`; the 2h epoch cadence stays well
       under the SOL-3 LOAN_ISSUE 4h freshness floor so direct readers
       remain valid throughout the flood), Step 3 (tighten Prometheus
       `scrape_interval` from 15s to 5s in
@@ -832,7 +832,7 @@ file.
       flips `challenge_state` to `Upheld=1` per affected
       `(agent, epoch)` after attester quorum), Step 2
       (`issue_certificate` accepts `alert_tier` as input and signs
-      it into the cluster digest; the `HELIXOR_FORCE_YELLOW_AGENTS`
+      it into the cluster digest; the `PHYLANX_FORCE_YELLOW_AGENTS`
       cluster-side config forces YELLOW for the affected agent set,
       and FRP-3 `MAX_CERT_REISSUE_INTERVAL_SECONDS = 4*3600` reissues
       them under the rotated tier within 4h with no new instruction),
@@ -855,10 +855,10 @@ file.
       `launch/runbooks/ofac_compliance_response.md` composes the
       existing primitives — Step 1 (`verify_operator_diversity` + the
       new OFAC-1 `verify_attestation_signatures` in
-      `helixor-oracle/oracle/operator_manifest.py` together pin
+      `phylanx-oracle/oracle/operator_manifest.py` together pin
       `MIN_DISTINCT_JURISDICTIONS = 2` AND bind every declared
       jurisdiction with an Ed25519 sig under the domain tag
-      `helixor.operator_attestation.v1`, so a captured cluster cannot
+      `phylanx.operator_attestation.v1`, so a captured cluster cannot
       silently re-declare jurisdiction without holding the original
       keys), Step 2 (`cert_refusal_log.operator_override(...)` with a
       required non-empty justification publishes a `CertRefusal` with
@@ -894,8 +894,8 @@ file.
       `DBConnection` Protocol), an operator-local objection list for
       Art. 21 / s.13 (NOT on-chain — same anti-pattern OFAC-1
       declined), and a canonical-JSON DSAR audit log at
-      `/var/log/helixor/dsar/<ticket>.<op>.json`. The substrate
-      `helixor-oracle/oracle/data_protection_policy.py` declares
+      `/var/log/phylanx/dsar/<ticket>.<op>.json`. The substrate
+      `phylanx-oracle/oracle/data_protection_policy.py` declares
       DataCategory × StorageLocation × LawfulBasis × RetentionPolicy
       with the on-chain / off-chain erasability biconditional and a
       single carve-out (REFUSAL_LOG, justified by the OFAC-1
@@ -904,7 +904,7 @@ file.
       carve-out BEFORE registration (the GDPR Recital 26 / DPDP s.3(c)
       technical-infeasibility path). The audit gate
       `audit/data_protection_check.py` verifies the TimescaleDB 180d
-      pin in `helixor-oracle/db/migrations/0009_timescaledb.sql` and
+      pin in `phylanx-oracle/db/migrations/0009_timescaledb.sql` and
       the Prometheus 30d pin in
       `launch/deploy/docker-compose.indexer.yml` still match the
       substrate's declared seconds — a drift trips the gate HARD.
@@ -922,9 +922,9 @@ file.
       examinations (the protocol does NOT attend), forward-only handling
       for cross-border inquiries (mirrors the OFAC-1 §3 anti-silent-
       delist posture), a canonical-JSON SEC-1 audit log at
-      `/var/log/helixor/securities/<ticket>.<op>.json`, and a SEC-1 gate
+      `/var/log/phylanx/securities/<ticket>.<op>.json`, and a SEC-1 gate
       re-run as the post-inquiry drift check. The substrate
-      `helixor-oracle/oracle/securities_compliance.py` declares the
+      `phylanx-oracle/oracle/securities_compliance.py` declares the
       closed-enum `CompensationModel` (today only
       `FLAT_FEE_PER_CERT_FROM_TREASURY`), the `ConflictDisclosure`
       shape, and the canonical `ADVISORY_DISCLAIMER` — every field
@@ -947,7 +947,7 @@ file.
       the marker — a drift in any of those trips the gate HARD. SEC-1
       DECLINES on-chain accredited-investor gating (would create a
       high-value authority key, break the permissionless invariant) and
-      DECLINES registering Helixor as an investment adviser (registration
+      DECLINES registering Phylanx as an investment adviser (registration
       is a per-operator legal posture, not a protocol feature). On-call
       confirms they can recite the seven steps, find the linked handlers
       in <5 minutes, AND name the four sub-runbooks (subpoena, no-action,
@@ -966,11 +966,11 @@ file.
       boilerplate-complaint path (the process-tax DoS vector the
       AML-1 risk model calls out — substrate-citation reply, no
       protocol action, complaint dies at intake), a canonical-JSON
-      AML-1 audit log at `/var/log/helixor/aml/<ticket>.<op>.json`,
+      AML-1 audit log at `/var/log/phylanx/aml/<ticket>.<op>.json`,
       and an AML-1 gate re-run as the post-inquiry drift check. The
-      substrate `helixor-oracle/oracle/aml_compliance.py` declares
+      substrate `phylanx-oracle/oracle/aml_compliance.py` declares
       the closed-enum `AmlProgramAttestation` (today
-      `{NO_AML_PROGRAM_REQUIRED_FOR_HELIXOR_ACTIVITY,
+      `{NO_AML_PROGRAM_REQUIRED_FOR_PHYLANX_ACTIVITY,
       EXTERNAL_AML_PROGRAM_DECLARED}`), the `_KYC_FORBIDDEN_FIELDS` +
       `assert_no_kyc_fields(name)` defensive guard against KYC-shaped
       DP-1 `DataCategory` drift (`KycFieldRefusedError` at substrate
@@ -988,7 +988,7 @@ file.
       `audit/aml_compliance_check.py` verifies the substrate stays
       present, the enum / allowlist agree, the allowlist matches the
       governance pin (today:
-      `{NO_AML_PROGRAM_REQUIRED_FOR_HELIXOR_ACTIVITY,
+      `{NO_AML_PROGRAM_REQUIRED_FOR_PHYLANX_ACTIVITY,
       EXTERNAL_AML_PROGRAM_DECLARED}`), `OperatorAttestation` carries
       the AML-1 field, `attestation_canonical_bytes` still binds it,
       the DP-1 `DataCategory` allowlist stays KYC-clean against the
@@ -998,7 +998,7 @@ file.
       drift in any of those trips the gate HARD. AML-1 DECLINES
       cluster-side KYC ingestion (would invert the cluster's
       not-covered-activity posture and create a high-value PII
-      honeypot) and DECLINES registering Helixor as a VASP / MSB /
+      honeypot) and DECLINES registering Phylanx as a VASP / MSB /
       CASP (registration is a per-operator legal posture, not a
       protocol feature). On-call confirms they can recite the eight
       steps, find the linked handlers in <5 minutes, AND name the five
@@ -1038,31 +1038,31 @@ the entry gate.
 - [ ] `audit/reports/deploy_verified.json` exists — the safe-to-publish
       marker. Program IDs MUST NOT be announced publicly before this
       file is on disk.
-- [ ] First mainnet node brought up with `HELIXOR_MAINNET_OK=1` in
-      `/etc/helixor/oracle-node-0.env`, journalctl shows the
+- [ ] First mainnet node brought up with `PHYLANX_MAINNET_OK=1` in
+      `/etc/phylanx/oracle-node-0.env`, journalctl shows the
       `network_guard: ... PRODUCTION network ... explicit
-      HELIXOR_MAINNET_OK=1 opt-in` line
+      PHYLANX_MAINNET_OK=1 opt-in` line
 - [ ] **VULN-17 Kafka auth.** Each oracle node's env file sets
       `KAFKA_SECURITY_PROTOCOL=SASL_SSL` (or `SSL` for mTLS-only
       brokers); journalctl shows the
       `kafka_security: service ... starting with 'SASL_SSL'` info
-      line. NO node shows `HELIXOR_KAFKA_PLAINTEXT_OK=1` unless the
+      line. NO node shows `PHYLANX_KAFKA_PLAINTEXT_OK=1` unless the
       cluster sits behind a private-link service mesh that
       authenticates the connection independently (record the
       justification in `audit/reports/kafka_plaintext_optin.md`).
 - [ ] **VULN-18 scoring determinism.** Every oracle node runs on a
       Python interpreter in `SUPPORTED_PYTHON_VERSIONS` (currently
-      `{(3, 12), (3, 13)}` — see `helixor-oracle/scoring/determinism.py`);
+      `{(3, 12), (3, 13)}` — see `phylanx-oracle/scoring/determinism.py`);
       journalctl shows the
       `scoring_determinism: service ... starting on PRODUCTION with
       pinned runtime python=...` warning line at startup. NO node
-      shows `HELIXOR_SCORING_DETERMINISM_OK=1` unless the audited
+      shows `PHYLANX_SCORING_DETERMINISM_OK=1` unless the audited
       runtime has a CVE and the bypass is justified in
       `audit/reports/scoring_determinism_optin.md`. No node has
       `numpy`/`scipy`/`pandas`/`sklearn` in `sys.modules` at startup
       (the guard scans on every entrypoint).
 - [ ] **VULN-20 wallet validation on the live API.** From an external
-      host, `curl -i $HELIXOR_API_URL/agents/'%27%3B%20DROP%20TABLE%20agent_transactions%3B%20--'/health`
+      host, `curl -i $PHYLANX_API_URL/agents/'%27%3B%20DROP%20TABLE%20agent_transactions%3B%20--'/health`
       returns `400 bad_request` (NOT 404, NOT 500). Confirms the
       base58 boundary check is in the deployed binary, not just the
       tests.
@@ -1085,7 +1085,7 @@ the entry gate.
       the lagging node. A future scoring-algo upgrade MUST take effect
       at epoch N+1 via governance, not mid-epoch.
 - [ ] **VULN-23 safe_score endpoint live.** From an external host,
-      `curl -i $HELIXOR_API_URL/agents/<wallet>/safe_score` returns
+      `curl -i $PHYLANX_API_URL/agents/<wallet>/safe_score` returns
       `200 OK` with a JSON body whose `ok` field is the discriminator.
       For a brand-new agent the body MUST be
       `{"ok": false, "reason": "INSUFFICIENT_HISTORY", ...}` — NOT a
@@ -1103,10 +1103,10 @@ the entry gate.
       the literal flag). `pip check` returns no inconsistencies.
       The per-host firewall (iptables/nftables — see
       `launch/runbooks/supply_chain.md`) drops all egress from the
-      `helixor` UID except the documented RPC + indexer + peer-RPC
+      `phylanx` UID except the documented RPC + indexer + peer-RPC
       destinations.
 - [ ] **VULN-24 flag obfuscation live.** From an external host,
-      `curl -s $HELIXOR_API_URL/agents/<wallet>/health | jq .` returns
+      `curl -s $PHYLANX_API_URL/agents/<wallet>/health | jq .` returns
       a body that contains `flag_set_token` (a 16-hex-char string) and
       `flag_count` (an int) but **NOT** a raw `flags` field. The same
       request issued twice for the same `(wallet, epoch)` MUST return
@@ -1161,7 +1161,7 @@ the entry gate.
       deployed `advance_epoch` instruction REQUIRES
       `consensus_threshold(OracleConfig.oracle_keys)` Ed25519
       precompile attestations over the canonical advance digest
-      (`sha256("helixor-epoch-advance" || current_epoch ||
+      (`sha256("phylanx-epoch-advance" || current_epoch ||
       target_epoch || last_advanced_at)`) for every Tier-1 tick.
       The legacy single-key `advance_authority` Tier-1 path is
       GONE — the field is a non-authoritative hint, retained for
@@ -1179,7 +1179,7 @@ the entry gate.
       with their HSM / KMS / Squads setup at least once on
       devnet. The off-chain signer pipeline produces an Ed25519
       program instruction the on-chain verifier accepts (use the
-      SDK helper `advancePayloadDigest` from `@helixor/sdk` to
+      SDK helper `advancePayloadDigest` from `@phylanx/sdk` to
       compute the digest — it is byte-for-byte identical to the
       on-chain `advance_payload_digest`). The cluster's daily
       "advance coordinator" rotation is documented in
@@ -1276,10 +1276,10 @@ the entry gate.
 
 ## 5 — Post-launch (first 30 days)
 
-- [ ] Daily review of `helixor_byzantine_flags_total` — flag count should
+- [ ] Daily review of `phylanx_byzantine_flags_total` — flag count should
       be 0 or near 0 in steady state
-- [ ] Daily review of `helixor_cert_submit_failures_total`
-- [ ] **Daily review of `helixor_input_divergence_flags_total`** — any
+- [ ] Daily review of `phylanx_cert_submit_failures_total`
+- [ ] **Daily review of `phylanx_input_divergence_flags_total`** — any
       epoch where this is non-zero means at least one node disagreed
       with the cluster on what its upstream pipeline delivered (AW-01).
       Steady state is 0. A persistent non-zero on the same node
@@ -1287,7 +1287,7 @@ the entry gate.
       `launch/runbooks/input_provenance.md`. ANY epoch where the
       aggregator reports `input_commitment is None` (no AW-01 quorum
       → no cert issued for that agent) is a P0.
-- [ ] **Daily review of `helixor_slot_anchor_writetime_rejections_total`
+- [ ] **Daily review of `phylanx_slot_anchor_writetime_rejections_total`
       (AW-01-EXT).** Any non-zero count for either
       `SlotAnchorHashMismatch` (12073) or `SlotAnchorTooOld` (12072)
       means a write-time slot-anchor rejection landed on chain.

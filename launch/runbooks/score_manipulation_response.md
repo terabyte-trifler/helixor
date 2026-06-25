@@ -9,7 +9,7 @@ oracle nodes.
 **Triggers:**
 - ILS-1 / ILS-2 / ILS-3 audit gate (`audit/inflate_score_check.py`)
   red.
-- PDS-2 score-velocity guard (`helixor-oracle/oracle/score_velocity.py`)
+- PDS-2 score-velocity guard (`phylanx-oracle/oracle/score_velocity.py`)
   raises `ScoreVelocityViolation` for an agent.
 - An off-protocol observer files a `challenge_certificate` ix
   (AW-01-EXT.6) and the threshold attester quorum upholds it.
@@ -52,11 +52,11 @@ on `certificate-issuer`. The challenge is an immutable PDA (one-per-
 cert) carrying the challenger's evidence digest and the cluster's
 attester-quorum verdict.
 
-  - `helixor-programs/programs/certificate-issuer/src/instructions/challenge_certificate.rs`
-  - `helixor-programs/programs/certificate-issuer/src/state/challenge_record.rs`
+  - `phylanx-programs/programs/certificate-issuer/src/instructions/challenge_certificate.rs`
+  - `phylanx-programs/programs/certificate-issuer/src/state/challenge_record.rs`
     (`ChallengeRecord` PDA with `state ∈ {None=0, Upheld=1, Rejected=2}`,
     layout-pinned, never closes)
-  - `helixor-programs/programs/certificate-issuer/src/state/health_certificate.rs:70-103`
+  - `phylanx-programs/programs/certificate-issuer/src/state/health_certificate.rs:70-103`
     (the `ChallengeState` discriminator the cert itself carries)
 
 **Procedure (operator-of-record, signed Squads tx — one per affected
@@ -137,7 +137,7 @@ cert-issuance cycle to emit `alert_tier = 1`.
 A. AGREE on the YELLOW-list — the set of agents whose certs were
    manipulated or whose dependent inputs are tainted. The list goes
    into a cluster-coordinator config flag
-   (HELIXOR_FORCE_YELLOW_AGENTS) that the scoring kernel reads at
+   (PHYLANX_FORCE_YELLOW_AGENTS) that the scoring kernel reads at
    issuance time.
 
 B. The cluster's next epoch tick produces certs for every active
@@ -153,7 +153,7 @@ C. FRP-3 (`MAX_CERT_REISSUE_INTERVAL_SECONDS = 4 * 3600`) guarantees
 
 D. After the forensic analysis (step 4) closes and the audit
    confirms the agent's inputs are clean, REMOVE the agent from
-   HELIXOR_FORCE_YELLOW_AGENTS. The next cluster reissue (≤ 4h)
+   PHYLANX_FORCE_YELLOW_AGENTS. The next cluster reissue (≤ 4h)
    produces GREEN again.
 ```
 
@@ -167,11 +167,11 @@ incident in the *detection* phase is YELLOW; an upheld challenge
 the cluster's next reissue to RED.
 
 **Anchor pins:**
-- `helixor-programs/programs/certificate-issuer/src/state/health_certificate.rs:64`
+- `phylanx-programs/programs/certificate-issuer/src/state/health_certificate.rs:64`
   (`AlertTier::Yellow = 1`).
-- `helixor-programs/programs/certificate-issuer/src/instructions/issue_certificate.rs:53`
+- `phylanx-programs/programs/certificate-issuer/src/instructions/issue_certificate.rs:53`
   (`alert_tier: u8` accepted as input, folded into the signed digest).
-- `helixor-oracle/oracle/cert_reissue_cadence.py:102`
+- `phylanx-oracle/oracle/cert_reissue_cadence.py:102`
   (`MAX_CERT_REISSUE_INTERVAL_SECONDS = 4 * 3600` cadence guarantee).
 
 ---
@@ -205,12 +205,12 @@ exact per-operation cutoffs.
 **3c. Courtesy notification — DBP-4 cert.degrading + email.** If the
 cluster has suspended signing for the affected agents, the existing
 `cert.degrading` webhook fires at the 36h mark (DBP-4d
-`DEGRADING_THRESHOLD_FRACTION = 0.75` in `helixor-api/api/webhooks.py`)
+`DEGRADING_THRESHOLD_FRACTION = 0.75` in `phylanx-api/api/webhooks.py`)
 to every Insured-tier subscriber. The webhook is the proactive
 signal; combined with an out-of-band incident notice to the
 Verified Integrator channel (`launch/integrations/example_safe_partner.json`
 points partners at the contact list maintained alongside
-`HELIXOR_WEBHOOKS`), partners hear it from two independent surfaces.
+`PHYLANX_WEBHOOKS`), partners hear it from two independent surfaces.
 
 **Procedure (responder):**
 
@@ -224,16 +224,16 @@ points partners at the contact list maintained alongside
    refusal is the binding mechanism, the ACK is courtesy.
 
 **Anchor pins:**
-- `helixor-api/api/webhooks.py:DEGRADING_THRESHOLD_FRACTION = 0.75`,
+- `phylanx-api/api/webhooks.py:DEGRADING_THRESHOLD_FRACTION = 0.75`,
   `EVENT_CERT_DEGRADING = "cert.degrading"`, `SIGNATURE_HEADER =
-  "X-Helixor-Webhook-Signature"`.
+  "X-Phylanx-Webhook-Signature"`.
 - `launch/integrations/example_safe_partner/reader.ts:58-74`
   (per-operation freshness floors + tier-refusal policy).
-- `helixor-sdk/src/safe_reader.ts` (SafeCertReader's reject reasons).
+- `phylanx-sdk/src/safe_reader.ts` (SafeCertReader's reject reasons).
 
 **Test pins:**
-- `helixor-api/tests/test_dbp4_webhooks.py` (webhook trigger + dedupe).
-- `helixor-sdk/test/safe_reader.test.ts` (reject-reason coverage).
+- `phylanx-api/tests/test_dbp4_webhooks.py` (webhook trigger + dedupe).
+- `phylanx-sdk/test/safe_reader.test.ts` (reject-reason coverage).
 
 **Roadmap note:** a dedicated `cert.repudiated` webhook event +
 `SafeCertReader.RejectReason.CertRepudiated` are additive surface,
@@ -298,7 +298,7 @@ psql -c "
 "
 
 # Q3. Replay the affected epoch's raw vote stream from Kafka:
-helixor-indexer-cli kafka-replay \
+phylanx-indexer-cli kafka-replay \
   --topic scores.raw \
   --filter "agent=<wallet>" \
   --from-epoch <start> --to-epoch <end> \
@@ -323,7 +323,7 @@ python3 audit/baseline_provenance_check.py --json /tmp/aw03.json
    mid-window without a co-attestation is the signature of VULN-06.
 3. **Score-components replay.** Decode the `ScoreComponentsAccount`
    for each affected epoch and re-run `verifyScoreComputation`
-   (helixor-sdk). A replay disagreement is AW-04's catch — either
+   (phylanx-sdk). A replay disagreement is AW-04's catch — either
    the cluster shipped patched scoring code (caught by
    `scoring_code_hash`) or fabricated the components
    (caught by `score_components_hash` matching neither
@@ -334,7 +334,7 @@ python3 audit/baseline_provenance_check.py --json /tmp/aw03.json
    `slot_anchor_(slot, hash)` (AW-01-EXT). A drift here is the
    signature of an upstream-data poison (Geyser / Kafka / indexer)
    — and the same cross-validator in
-   `helixor-indexer/indexer/cross_verify.py:SamplingCrossVerifier`
+   `phylanx-indexer/indexer/cross_verify.py:SamplingCrossVerifier`
    would have refused the data on ingest if it had been sampled.
 5. **Velocity.** PDS-2 (`MAX_SCORE_DELTA_PER_EPOCH = 200`) refuses
    intra-epoch deltas exceeding 200 points. A manipulation that
@@ -393,9 +393,9 @@ python3 audit/baseline_provenance_check.py --json /tmp/aw03.json
 - `audit/inflate_score_check.py` (ILS-1/2/3 audit gate).
 - `audit/scoring_provenance_check.py` (AW-04 audit gate).
 - `audit/baseline_provenance_check.py` (AW-03 audit gate).
-- `helixor-indexer/indexer/cross_verify.py` (Geyser-vs-RPC sampling
+- `phylanx-indexer/indexer/cross_verify.py` (Geyser-vs-RPC sampling
   reconciler — the upstream-data poison defence).
-- `helixor-oracle/oracle/score_velocity.py:MAX_SCORE_DELTA_PER_EPOCH = 200`
+- `phylanx-oracle/oracle/score_velocity.py:MAX_SCORE_DELTA_PER_EPOCH = 200`
   (PDS-2 velocity floor).
 
 ---
@@ -436,7 +436,7 @@ Every move in this runbook composes existing primitives:
 - **Step 1** uses `challenge_certificate` + `ChallengeRecord` PDA
   (AW-01-EXT.6 anchor) — the on-chain dispute flag IS the substrate.
 - **Step 2** uses `issue_certificate` accepting `alert_tier` as input
-  + the cluster-coordinator's `HELIXOR_FORCE_YELLOW_AGENTS` policy
+  + the cluster-coordinator's `PHYLANX_FORCE_YELLOW_AGENTS` policy
   flag + FRP-3's 4h reissue cadence — the YELLOW alert is the
   cluster's normal issuance flow with a tier override.
 - **Step 3** uses on-chain `challenge_state` reads (DBP-3 pattern) +

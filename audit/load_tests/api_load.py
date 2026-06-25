@@ -2,7 +2,7 @@
 audit/load_tests/api_load.py — Day-29 API load test scaffold.
 
 Acceptance: 10,000 agent health queries/hour sustained against the
-helixor read API, p95 latency < 500ms.
+phylanx read API, p95 latency < 500ms.
 
 10K req/h = 2.78 req/s sustained. The harness runs `--rate` requests per
 second over `--duration` seconds, records latencies, and asserts p95
@@ -248,7 +248,7 @@ def run_load(
 
 def _agents_from_file(path: Path) -> list[str]:
     """Load wallet list from a JSON file. Accepts:
-      - `[{"wallet": "..."}, ...]`  (helixor synthetic-explanation report)
+      - `[{"wallet": "..."}, ...]`  (phylanx synthetic-explanation report)
       - `["wallet1", "wallet2", ...]`  (flat list)
       - `{"agents": [...]}`           (wrapped, either of the above)
     Lets the smoke run hit registered wallets (200s) instead of

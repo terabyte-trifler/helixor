@@ -4,11 +4,11 @@ x-timescale-common: &timescale-common
   image: timescale/timescaledb:2.14.2-pg16
   restart: unless-stopped
   environment: &timescale-common-env
-    POSTGRES_DB:       helixor
-    POSTGRES_USER:     helixor_indexer
+    POSTGRES_DB:       phylanx
+    POSTGRES_USER:     phylanx_indexer
     POSTGRES_PASSWORD: "${TIMESCALE_PASSWORD:?TIMESCALE_PASSWORD must be set}"
     TIMESCALEDB_TELEMETRY: "off"
-    POSTGRES_REPLICATION_USER:     "helixor_replicator"
+    POSTGRES_REPLICATION_USER:     "phylanx_replicator"
     POSTGRES_REPLICATION_PASSWORD: "${TIMESCALE_REPLICATION_PASSWORD:?TIMESCALE_REPLICATION_PASSWORD must be set}"
   mem_limit: 4g
   cpus: "2.0"
@@ -42,7 +42,7 @@ services:
       - wal_archive:/wal_archive
       - ./initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U helixor_indexer -d helixor"]
+      test: ["CMD-SHELL", "pg_isready -U phylanx_indexer -d phylanx"]
       interval: 10s
       timeout:  5s
       retries:  10
@@ -55,7 +55,7 @@ services:
     depends_on:
       timescale-primary: { condition: service_healthy }
     environment:
-      PGUSER:                "helixor_replicator"
+      PGUSER:                "phylanx_replicator"
       PGPASSWORD:            "${TIMESCALE_REPLICATION_PASSWORD:?TIMESCALE_REPLICATION_PASSWORD must be set}"
       POSTGRES_PASSWORD:     "${TIMESCALE_PASSWORD:?TIMESCALE_PASSWORD must be set}"
       TIMESCALEDB_TELEMETRY: "off"
@@ -69,17 +69,17 @@ services:
           echo "standby: pg_basebackup from timescale-primary"
           rm -rf "$$DATA"/*
           pg_basebackup -h timescale-primary -p 5432 \
-                        -U helixor_replicator \
+                        -U phylanx_replicator \
                         -D "$$DATA" -Fp -Xs -P -R
           chmod 700 "$$DATA"
         fi
         exec docker-entrypoint.sh postgres \
              -c hot_standby=on \
-             -c primary_conninfo='host=timescale-primary port=5432 user=helixor_replicator password='$$PGPASSWORD
+             -c primary_conninfo='host=timescale-primary port=5432 user=phylanx_replicator password='$$PGPASSWORD
     volumes:
       - tsdb_standby_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U helixor_replicator -d helixor"]
+      test: ["CMD-SHELL", "pg_isready -U phylanx_replicator -d phylanx"]
       interval: 10s
       timeout:  5s
       retries:  10
@@ -100,18 +100,18 @@ services:
       - "-c"
       - |
         set -euo pipefail
-        until pg_isready -h timescale-primary -U helixor_replicator; do
+        until pg_isready -h timescale-primary -U phylanx_replicator; do
           sleep 2
         done
         pg_receivewal -h timescale-primary -p 5432 \
-                      -U helixor_replicator \
+                      -U phylanx_replicator \
                       -D /wal_archive \
-                      --slot=helixor_archive \
+                      --slot=phylanx_archive \
                       --create-slot --if-not-exists || true
         exec pg_receivewal -h timescale-primary -p 5432 \
-                           -U helixor_replicator \
+                           -U phylanx_replicator \
                            -D /wal_archive \
-                           --slot=helixor_archive
+                           --slot=phylanx_archive
     volumes:
       - wal_archive:/wal_archive
     mem_limit: 512m

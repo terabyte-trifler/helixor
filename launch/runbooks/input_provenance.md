@@ -52,7 +52,7 @@ curl -s http://api/byzantine/recent | jq '
 # 2. Pull each node's per-agent input commitment for that epoch.
 #    Honest nodes on the same input MUST produce IDENTICAL bytes.
 for n in oracle-node-0 oracle-node-1 oracle-node-2 oracle-node-3 oracle-node-4; do
-  ssh "$n" -- "helixor-oracle commitment-for --epoch $EPOCH --agent $AGENT"
+  ssh "$n" -- "phylanx-oracle commitment-for --epoch $EPOCH --agent $AGENT"
 done | sort -u
 
 # 3. Compare the upstream pipeline configuration each node reads from.
@@ -132,7 +132,7 @@ fleet IS the poisoned source).
 ```bash
 # 1. Pull the disputed cert + its slot anchor.
 CERT_PDA=...   # from the consumer's bug report
-helixor-cli cert-show "$CERT_PDA" --field slot_anchor_slot,slot_anchor_hash
+phylanx-cli cert-show "$CERT_PDA" --field slot_anchor_slot,slot_anchor_hash
 
 # 2. Independently re-fetch the block hash for that slot from a
 #    REFERENCE validator we trust (not in the cluster's RPC fleet).
@@ -157,7 +157,7 @@ Decision tree:
   report.
 - **Two independent reference RPCs both say cluster lied** → confirmed
   AW-01-EXT poisoning. Page the lead. Halt cert issuance immediately
-  (`helixor-cli pause cert-writes`). The cluster's upstream RPC fleet
+  (`phylanx-cli pause cert-writes`). The cluster's upstream RPC fleet
   is compromised.
 - **Reference RPCs agree with cluster** → SDK consumer's
   `verifyAgainstSolanaLedger` may have a bug. Capture the consumer's
@@ -193,7 +193,7 @@ post-window dispute path:
    cluster) fetches `cert.slot_anchor_slot` from an INDEPENDENT
    source (their own archive node, etc.).
 2. They M-of-N-sign the canonical challenge digest
-   (`sha256("helixor-aw01-ext-challenge" || cert_pubkey ||
+   (`sha256("phylanx-aw01-ext-challenge" || cert_pubkey ||
    true_block_hash)`).
 3. A challenger submits the signatures via `challenge_certificate`.
 4. If `true_block_hash != cert.slot_anchor_hash`, the handler flips

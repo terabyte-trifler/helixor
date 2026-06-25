@@ -26,7 +26,7 @@ This file pins the consumer-side wiring:
 
   2. **SDK `index.ts` re-exports** the SafeCertReader + its constants —
      a future refactor that hides them breaks every DeFi consumer that
-     `import { SafeCertReader } from '@helixor/sdk'`.
+     `import { SafeCertReader } from '@phylanx/sdk'`.
 
   3. **API `compute_safe_score` exists**, exports the same three
      constants AT THE SAME VALUES, and the reject-reason strings match
@@ -58,11 +58,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # Targets
 # =============================================================================
 
-SDK_SAFE_READER_TS = REPO_ROOT / "helixor-sdk" / "src" / "safe_reader.ts"
-SDK_INDEX_TS       = REPO_ROOT / "helixor-sdk" / "src" / "index.ts"
-API_SAFE_SCORE_PY  = REPO_ROOT / "helixor-api" / "api" / "safe_score.py"
-API_APP_PY         = REPO_ROOT / "helixor-api" / "api" / "app.py"
-API_SCHEMAS_PY     = REPO_ROOT / "helixor-api" / "api" / "schemas.py"
+SDK_SAFE_READER_TS = REPO_ROOT / "phylanx-sdk" / "src" / "safe_reader.ts"
+SDK_INDEX_TS       = REPO_ROOT / "phylanx-sdk" / "src" / "index.ts"
+API_SAFE_SCORE_PY  = REPO_ROOT / "phylanx-api" / "api" / "safe_score.py"
+API_APP_PY         = REPO_ROOT / "phylanx-api" / "api" / "app.py"
+API_SCHEMAS_PY     = REPO_ROOT / "phylanx-api" / "api" / "schemas.py"
 
 
 # Audit-mandated numeric values — both the SDK and the API MUST emit
@@ -225,7 +225,7 @@ def _check_sdk_safe_reader(report: Report) -> None:
 
 def _check_sdk_index_exports(report: Report) -> None:
     """A future refactor that hides SafeCertReader breaks every DeFi
-    consumer that imports it from `@helixor/sdk` — pin the public export."""
+    consumer that imports it from `@phylanx/sdk` — pin the public export."""
     text = _require_file(report, SDK_INDEX_TS, "missing-sdk-index")
     if text is None:
         return
@@ -245,7 +245,7 @@ def _check_sdk_index_exports(report: Report) -> None:
                 path=_display(SDK_INDEX_TS),
                 detail=(
                     f"{name} is not re-exported from sdk/index.ts — DeFi "
-                    f"consumers cannot import it as `from '@helixor/sdk'`"
+                    f"consumers cannot import it as `from '@phylanx/sdk'`"
                 ),
             ))
 

@@ -13,13 +13,13 @@ jurisdiction.
 **Triggers:**
 - Inbound formal inquiry from an AML regulator or FIU (FinCEN,
   FCA AML unit, BaFin AML division, FIU-IND, MAS AML division,
-  AUSTRAC, etc.) naming Helixor, a cluster operator, or a specific
+  AUSTRAC, etc.) naming Phylanx, a cluster operator, or a specific
   `agent_wallet`.
 - FATF mutual-evaluation questionnaire about the operator-of-
-  record's home-jurisdiction VASP landscape that names Helixor.
+  record's home-jurisdiction VASP landscape that names Phylanx.
 - AML/KYC complaint filed with any regulator or FIU referencing
-  Helixor — even if the regulator has not yet opened an inquiry.
-- Press / advocacy claim that "Helixor enables unscreened AI agent
+  Phylanx — even if the regulator has not yet opened an inquiry.
+- Press / advocacy claim that "Phylanx enables unscreened AI agent
   lending" that the operator-of-record wants to file a clarifying
   record about.
 - SAR-equivalent (Suspicious Activity Report) third-party query
@@ -28,14 +28,14 @@ jurisdiction.
 ## What's happening
 
 The audit-flagged risk AML-1 closes is that large-scale AI agent
-lending enabled by Helixor certs may trigger AML compliance
+lending enabled by Phylanx certs may trigger AML compliance
 requirements for DeFi protocols, creating a regulatory attack
 surface that adversaries can exploit via regulatory complaints.
-The AML-1 substrate (`helixor-oracle/oracle/aml_compliance.py`)
+The AML-1 substrate (`phylanx-oracle/oracle/aml_compliance.py`)
 defends the posture mechanically:
 
   * `AmlProgramAttestation` is closed-enum, today either
-    `NO_AML_PROGRAM_REQUIRED_FOR_HELIXOR_ACTIVITY` or
+    `NO_AML_PROGRAM_REQUIRED_FOR_PHYLANX_ACTIVITY` or
     `EXTERNAL_AML_PROGRAM_DECLARED` — sig-bound into the
     operator's attestation so a lie costs the same private-key
     compromise the rest of the protocol assumes the adversary
@@ -102,7 +102,7 @@ counsel.
 ## Step 2 — Records production (regulator inquiry / FIU order)
 
 **Substrate:** the operator's local records + the on-disk
-attestation in `helixor-oracle/deploy/operator_manifest.json` + the
+attestation in `phylanx-oracle/deploy/operator_manifest.json` + the
 audit reports under `audit/reports/`.
 
 **Procedure:**
@@ -111,7 +111,7 @@ audit reports under `audit/reports/`.
      request.
   2. Identify the categories the request maps to:
      - **Operator attestation** —
-       `helixor-oracle/deploy/operator_manifest.json` (sig-bound
+       `phylanx-oracle/deploy/operator_manifest.json` (sig-bound
        JSON with the operator's pubkey, org, jurisdiction,
        compensation model, conflicts disclosed, and the AML-1
        `aml_program_attestation` field).
@@ -121,8 +121,8 @@ audit reports under `audit/reports/`.
        Run:
 
        ```bash
-       cd /helixor && source helixor-api/.venv/bin/activate
-       cd helixor-oracle
+       cd /phylanx && source phylanx-api/.venv/bin/activate
+       cd phylanx-oracle
        python -c "
        import json
        from oracle.aml_compliance import collect_aml_attestations
@@ -137,7 +137,7 @@ audit reports under `audit/reports/`.
      - **DSAR audit log** (if the inquiry is for processing
        records of a named wallet) — see
        `launch/runbooks/data_subject_request_response.md` §5,
-       under `/var/log/helixor/dsar/`.
+       under `/var/log/phylanx/dsar/`.
      - **OFAC-1 refusal log** (if the inquiry is for cluster
        cert-issuance decisions about a named wallet) — see
        `launch/runbooks/ofac_compliance_response.md` §3,
@@ -148,9 +148,9 @@ audit reports under `audit/reports/`.
        audit/reports/aml_compliance.json`.
      - **DP-1 DataCategory snapshot** — proof of the KYC-field
        guard: the inquiry will sometimes ask "what personal data
-       does Helixor process?", and the answer is the
+       does Phylanx process?", and the answer is the
        `DataCategory` enum in
-       `helixor-oracle/oracle/data_protection_policy.py`. The AML-1
+       `phylanx-oracle/oracle/data_protection_policy.py`. The AML-1
        gate verifies this is KYC-clean.
 
   3. Counsel reviews each category against the inquiry's scope.
@@ -187,20 +187,20 @@ from counsel-confirmed receipt.
 substrate.
 
 If a regulator (or a third party CC'ing the regulator) requests an
-on-the-record characterisation of whether Helixor cluster activity
+on-the-record characterisation of whether Phylanx cluster activity
 is a covered activity under their AML regime, the operator-of-
 record's response **MUST** ground every claim in code, not in
 marketing language. Specifically:
 
-  - Cite `helixor-oracle/oracle/aml_compliance.py` for the
+  - Cite `phylanx-oracle/oracle/aml_compliance.py` for the
     closed-enum `AmlProgramAttestation`
-    (`NO_AML_PROGRAM_REQUIRED_FOR_HELIXOR_ACTIVITY` /
+    (`NO_AML_PROGRAM_REQUIRED_FOR_PHYLANX_ACTIVITY` /
     `EXTERNAL_AML_PROGRAM_DECLARED`) and the
     `_KYC_FORBIDDEN_FIELDS` guard.
-  - Cite `helixor-oracle/oracle/operator_manifest.py` for the
+  - Cite `phylanx-oracle/oracle/operator_manifest.py` for the
     sig-bound attestation surface (OFAC-1 + SEC-1 + AML-1 fields
     folded into `attestation_canonical_bytes`).
-  - Cite `helixor-sdk/src/safe_reader.ts:AML_KYC_DISCLAIMER` for
+  - Cite `phylanx-sdk/src/safe_reader.ts:AML_KYC_DISCLAIMER` for
     the disclaimer surfaced to every consumer.
   - Reference `audit/aml_compliance_check.py` as the mechanical
     regression alarm verifying the above.
@@ -298,7 +298,7 @@ SEC-1 runbook §5:
 
 The AML-1 risk model explicitly includes the **process-tax
 complaint vector**: an adversary files a boilerplate AML/KYC
-complaint with a regulator naming Helixor, hoping the
+complaint with a regulator naming Phylanx, hoping the
 regulator-response cost itself becomes a DoS. The substrate is
 already built so the complaint dies at intake.
 
@@ -341,13 +341,13 @@ already built so the complaint dies at intake.
 
 ## Step 7 — Audit log
 
-**Substrate:** `/var/log/helixor/aml/<ticket_id>.<op>.json`.
+**Substrate:** `/var/log/phylanx/aml/<ticket_id>.<op>.json`.
 
 Every AML-1 inquiry (regulator inquiry, FIU production, FATF
 evaluation, cross-border forward, boilerplate complaint) emits
 one canonical-JSON line. The operator-of-record runbook pins:
 
-  - **Path:** `/var/log/helixor/aml/<ticket_id>.<op>.json`
+  - **Path:** `/var/log/phylanx/aml/<ticket_id>.<op>.json`
     where `<op>` is one of `inquiry`, `production`,
     `posture`, `evaluation`, `forward`, `complaint`.
   - **Schema:**
@@ -448,7 +448,7 @@ already in the tree:
   process-tax complaint vector — the complaint dies at intake
   on the regulator's side because the substrate citation set is
   ready.
-- **Step 7** is a canonical-JSON line in `/var/log/helixor/aml/` —
+- **Step 7** is a canonical-JSON line in `/var/log/phylanx/aml/` —
   same operator-local audit pattern the DSAR and SEC-1 runbooks
   use.
 - **Step 8** is the same AML-1 audit gate replayed.

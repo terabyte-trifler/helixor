@@ -2,12 +2,12 @@
 # =============================================================================
 # scripts/regen_requirements.sh — VULN-25 hash-locked requirements regen.
 #
-# Reads every `helixor-*/requirements.in` and emits the corresponding
-# `helixor-*/requirements.txt` with full transitive closures and SHA256
+# Reads every `phylanx-*/requirements.in` and emits the corresponding
+# `phylanx-*/requirements.txt` with full transitive closures and SHA256
 # hashes for every package via `pip-compile --generate-hashes`.
 #
 # Production deploys MUST install with `pip install --require-hashes -r
-# helixor-<pkg>/requirements.txt` so a hash drift (compromised mirror,
+# phylanx-<pkg>/requirements.txt` so a hash drift (compromised mirror,
 # MITM, registered ghost version) trips before any code is imported.
 #
 # This script is run by humans, not by CI — committing the regenerated
@@ -25,7 +25,7 @@ if ! command -v pip-compile >/dev/null; then
     exit 1
 fi
 
-for pkg in helixor-oracle helixor-api helixor-indexer; do
+for pkg in phylanx-oracle phylanx-api phylanx-indexer; do
     if [[ ! -f "$pkg/requirements.in" ]]; then
         echo "⊘  $pkg/requirements.in missing, skipping" >&2
         continue

@@ -10,12 +10,12 @@ never get updated certs, and mass defaults follow with no warning.
 **Owners:** oracle engineering (SOL-1, SOL-2, SOL-3); SDK / consumer
 integration mirrors SOL-2 + SOL-3 in TypeScript.
 **Related code / config:**
-- `helixor-oracle/oracle/cluster_liveness.py` (SOL-1)
-- `helixor-oracle/oracle/staleness_escalator.py` (SOL-2)
-- `helixor-oracle/oracle/operation_freshness.py` (SOL-3)
-- `helixor-oracle/tests/oracle/test_sol1_cluster_liveness.py`
-- `helixor-oracle/tests/oracle/test_sol2_staleness_escalator.py`
-- `helixor-oracle/tests/oracle/test_sol3_operation_freshness.py`
+- `phylanx-oracle/oracle/cluster_liveness.py` (SOL-1)
+- `phylanx-oracle/oracle/staleness_escalator.py` (SOL-2)
+- `phylanx-oracle/oracle/operation_freshness.py` (SOL-3)
+- `phylanx-oracle/tests/oracle/test_sol1_cluster_liveness.py`
+- `phylanx-oracle/tests/oracle/test_sol2_staleness_escalator.py`
+- `phylanx-oracle/tests/oracle/test_sol3_operation_freshness.py`
 - `audit/stale_oracle_check.py` + `audit/test_stale_oracle_check.py`
   (mechanical regression gate)
 
@@ -99,7 +99,7 @@ TA-6's hard 48h ceiling. SOL-1 reifies the signal:
   that cert, and a count of distinct nodes that produced a heartbeat
   in the current or previous epoch (sourced from the
   `oracle_node_heartbeat` table consumed by
-  `helixor-api/api/cluster_health.py`).
+  `phylanx-api/api/cluster_health.py`).
 - `WARN_QUIET_SECONDS = 2 * 3600` (2 hours) — one full canonical
   cluster cadence has elapsed without a new cert. The cluster
   MIGHT just have skipped one epoch; the band moves to DEGRADED and

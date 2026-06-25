@@ -120,14 +120,14 @@ def check_sol1_cluster_liveness(report: Report) -> None:
     report.checked.append("SOL-1 cluster-liveness signal")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "cluster_liveness.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "cluster_liveness.py"
     )
     _require(
         report, sol="SOL-1",
         rule="cluster-liveness-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/cluster_liveness.py is missing — "
+            "phylanx-oracle/oracle/cluster_liveness.py is missing — "
             "the SOL-1 cluster-liveness signal has been removed."
         ),
     )
@@ -201,14 +201,14 @@ def check_sol2_staleness_escalator(report: Report) -> None:
     report.checked.append("SOL-2 per-agent staleness escalator")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "staleness_escalator.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "staleness_escalator.py"
     )
     _require(
         report, sol="SOL-2",
         rule="staleness-escalator-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/staleness_escalator.py is missing — "
+            "phylanx-oracle/oracle/staleness_escalator.py is missing — "
             "the SOL-2 age-based tier escalator has been removed."
         ),
     )
@@ -275,14 +275,14 @@ def check_sol3_operation_freshness(report: Report) -> None:
     report.checked.append("SOL-3 per-operation freshness floors")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "operation_freshness.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "operation_freshness.py"
     )
     _require(
         report, sol="SOL-3",
         rule="operation-freshness-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/operation_freshness.py is missing — "
+            "phylanx-oracle/oracle/operation_freshness.py is missing — "
             "the SOL-3 per-operation freshness floor has been removed."
         ),
     )
@@ -367,7 +367,7 @@ def check_sol3_operation_freshness(report: Report) -> None:
     # Cross-check: TA-6's on-chain MAX_AGE_SECONDS = 48h must still
     # ship. SOL-3's STATUS_READ floor is supposed to mirror it.
     cert_src = _read(
-        REPO_ROOT / "helixor-programs" / "programs" / "certificate-issuer"
+        REPO_ROOT / "phylanx-programs" / "programs" / "certificate-issuer"
         / "src" / "state" / "health_certificate.rs"
     )
     if cert_src is not None:

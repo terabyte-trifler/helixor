@@ -1,4 +1,4 @@
-# Helixor V2 — Day 32: The Frontend
+# Phylanx V2 — Day 32: The Frontend
 
 > Day 31 built the read API. Day 32 builds what a YC partner clicks on:
 > a Next.js 15 + Tailwind site with a live agent-lookup widget, a BFT
@@ -68,7 +68,7 @@ table. The product is one input field away.
 ## The honest demo mode
 
 `lib/mock.ts` ships deterministic mock data shaped *exactly* like
-`helixor-api/api/schemas.py`. Every Pydantic field, every `_v: 1`
+`phylanx-api/api/schemas.py`. Every Pydantic field, every `_v: 1`
 schema-version marker, every `alert_tier_code` integer is mirrored.
 
 When `NEXT_PUBLIC_API_URL` is unset, the site uses the mock layer and
@@ -88,20 +88,20 @@ mainnet-refusal gate enforces server-side, applied to the client.
 ```
 Solana chain
    ↑ writes (3-of-5 BFT cert)
-   ├─→ helixor-indexer (Day 17)  →  TimescaleDB
+   ├─→ phylanx-indexer (Day 17)  →  TimescaleDB
    │                                    │
-   │                                    └─→ helixor-api (Day 31)   ←── HTTP
+   │                                    └─→ phylanx-api (Day 31)   ←── HTTP
    │                                                                    │
    │                                                                    ↓
-   │                                                              helixor-web
+   │                                                              phylanx-web
    │                                                                  (this)
    │                                                                    │
    │                                                                    ↓
-   └─→ helixor-sdk (Day 19) ────────────────────────────────── browser/server
+   └─→ phylanx-sdk (Day 19) ────────────────────────────────── browser/server
        (on-chain authoritative reads)                            consumers
 ```
 
-The frontend depends on `helixor-api`. It can *also* talk to the SDK
+The frontend depends on `phylanx-api`. It can *also* talk to the SDK
 for authoritative reads, but for now stays cached-only — the API + mock
 fallback covers every YC-demo path. SDK integration is the next step.
 
@@ -126,7 +126,7 @@ upgrades pre-YC.
 ## File structure
 
 ```
-helixor-web/
+phylanx-web/
 ├── app/
 │   ├── layout.tsx                # Geist fonts, fixed chrome, demo banner
 │   ├── page.tsx                  # Landing
@@ -162,7 +162,7 @@ helixor-web/
 │   ├── format.ts
 │   └── tier.ts
 ├── types/
-│   └── api.ts                    # Mirror of helixor-api/api/schemas.py
+│   └── api.ts                    # Mirror of phylanx-api/api/schemas.py
 ├── tailwind.config.ts            # 12-stop ink palette + tier + chain + ok
 ├── next.config.mjs
 ├── postcss.config.mjs
@@ -177,7 +177,7 @@ helixor-web/
 ## Running
 
 ```bash
-cd helixor-web
+cd phylanx-web
 npm install
 npm run dev                 # http://localhost:3000
 ```
@@ -187,7 +187,7 @@ Point at a real API:
 
 ```bash
 cp .env.example .env.local
-# edit .env.local → NEXT_PUBLIC_API_URL=https://api.helixor.xyz
+# edit .env.local → NEXT_PUBLIC_API_URL=https://api.phylanx.xyz
 npm run dev
 ```
 
@@ -234,7 +234,7 @@ npm run typecheck           # clean across the whole app
 - **Per-integrator dashboards.** No integrators yet, so no dashboards.
 - **Full Solscan / explorer linking.** Today's `href="#"` placeholders;
   swap to `solscan.io/account/<pda>?cluster=mainnet-beta` once
-  on-chain PDAs are addressable from the helixor-sdk.
+  on-chain PDAs are addressable from the phylanx-sdk.
 - **Real auth.** The protocol is permissionless; no accounts needed.
 
 ---
@@ -268,8 +268,8 @@ If you're putting this in a pitch deck:
 - **Slide 5 — Architecture diagram.** From the README of Day 28.
 
 The site itself is the demo — host it on Vercel under
-`helixor.xyz` and the YC application gets a real URL.
+`phylanx.xyz` and the YC application gets a real URL.
 
 ---
 
-*Helixor V2 · Day 32 complete · the frontend is real · ship-ready.*
+*Phylanx V2 · Day 32 complete · the frontend is real · ship-ready.*

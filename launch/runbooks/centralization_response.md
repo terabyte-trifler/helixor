@@ -95,7 +95,7 @@ cat /tmp/hcr.json | python3 -m json.tool | head -80
 ```bash
 docker compose -f launch/deploy/docker-compose.oracle.yml logs oracle | tail -50
 # Look for: "HCR-1: only 1 distinct RPC provider(s) across N endpoints"
-echo "$HELIXOR_SOLANA_RPC_ENDPOINTS"
+echo "$PHYLANX_SOLANA_RPC_ENDPOINTS"
 ```
 
 ### Action
@@ -166,7 +166,7 @@ was committed, and either (a) the in-process boot hook caught it OR
 (b) the CI gate caught it. The fix is identical for both:
 
 1. Locate the offending module from the report. Run:
-   `grep -n -E "^(import|from) (aiokafka|kafka|confluent_kafka|redis|aioredis|memcache|pymemcache|nats|asyncpg|psycopg2|psycopg|sqlalchemy)" helixor-oracle/oracle/<module>.py`
+   `grep -n -E "^(import|from) (aiokafka|kafka|confluent_kafka|redis|aioredis|memcache|pymemcache|nats|asyncpg|psycopg2|psycopg|sqlalchemy)" phylanx-oracle/oracle/<module>.py`
 2. Move the import OUT of the trust-bearing module. Bus traffic must
    cross `oracle/cluster/kafka_ingest.py` — never reach the signer,
    the scorer, or the slashing detector directly.
@@ -188,7 +188,7 @@ was committed, and either (a) the in-process boot hook caught it OR
 # The cluster ships with a manifest file the boot sequence loads.
 # The exception's .report carries the per-org and per-jurisdiction
 # tallies.
-cat /etc/helixor/operator_manifest.json | python3 -m json.tool | head -40
+cat /etc/phylanx/operator_manifest.json | python3 -m json.tool | head -40
 ```
 
 ### Action
@@ -224,10 +224,10 @@ python3 audit/centralization_check.py --json /tmp/hcr.json && echo PASS
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest audit/test_centralization_check.py -v
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
-  python3 -m pytest helixor-oracle/tests/oracle/test_hcr1_provider_diversity.py \
-                    helixor-oracle/tests/oracle/test_hcr2_region_diversity.py \
-                    helixor-oracle/tests/oracle/test_hcr3_state_isolation.py \
-                    helixor-oracle/tests/oracle/test_hcr4_operator_diversity.py -v
+  python3 -m pytest phylanx-oracle/tests/oracle/test_hcr1_provider_diversity.py \
+                    phylanx-oracle/tests/oracle/test_hcr2_region_diversity.py \
+                    phylanx-oracle/tests/oracle/test_hcr3_state_isolation.py \
+                    phylanx-oracle/tests/oracle/test_hcr4_operator_diversity.py -v
 ```
 
 All three MUST be green before the PR is mergeable.

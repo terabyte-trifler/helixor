@@ -47,7 +47,7 @@ If the min trend is moving toward `consensus_threshold(cluster)`:
 1. Identify the missing node(s). Cross-reference the precompile
    signers in the advance tx with `OracleConfig.oracle_keys`. A node
    that did NOT contribute on this tick is in the gap.
-2. SSH to the missing-signer host. Check `journalctl -u helixor-oracle`
+2. SSH to the missing-signer host. Check `journalctl -u phylanx-oracle`
    for the daily advance-ceremony participation log line. Common
    causes: clock drift, KMS/HSM auth expiry, signer daemon crashed,
    network partition between the signer and the tx submitter.
@@ -92,7 +92,7 @@ designed to make rare.
    window IS open — investigate why no cluster member is pushing
    through (any single member can advance solo at this point).
 3. If even one cluster member can SSH in, run the manual fallback:
-   on that host, run `helixor-ops advance-epoch --fallback` (the
+   on that host, run `phylanx-ops advance-epoch --fallback` (the
    ops tool wraps a direct call to `health_oracle.advance_epoch`
    with the single cluster signer). The fallback path only needs
    ONE cluster signer's tx — no Ed25519 precompile attestations

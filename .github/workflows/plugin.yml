@@ -1,0 +1,50 @@
+# =============================================================================
+# .github/workflows/plugin.yml — phylanx-plugin-elizaos CI.
+#
+# Relocated to the repository root from phylanx-plugin-elizaos/.github/
+# workflows/ci.yml (where GitHub Actions never discovered it). The path
+# filter keeps it scoped to plugin changes; content is otherwise unchanged.
+# =============================================================================
+
+name: Plugin CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths: ["phylanx-plugin-elizaos/**", ".github/workflows/plugin.yml"]
+  pull_request:
+    paths: ["phylanx-plugin-elizaos/**", ".github/workflows/plugin.yml"]
+
+concurrency:
+  group: plugin-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: phylanx-plugin-elizaos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: phylanx-plugin-elizaos/package-lock.json
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phylanx-plugin-dist-${{ github.sha }}
+          path: phylanx-plugin-elizaos/dist/

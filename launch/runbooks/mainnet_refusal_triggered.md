@@ -5,7 +5,7 @@
 
 ## What's happening
 
-A Helixor service attempted to start against a mainnet RPC and the
+A Phylanx service attempted to start against a mainnet RPC and the
 network guard (`oracle/network_guard.py`) refused. The process exited
 with code 2 and systemd is **not retrying** (the systemd unit has
 `RestartPreventExitStatus=2`).
@@ -18,21 +18,21 @@ working as designed.
 
 1. **Misconfiguration** — the env file was wrong, the service was meant
    to start against devnet. The fix is to correct the env file. **Do
-   not add `HELIXOR_MAINNET_OK=1` to make the alert go away.**
+   not add `PHYLANX_MAINNET_OK=1` to make the alert go away.**
 2. **Intentional mainnet start** — the operator is bringing up a new
-   production node. The fix is to add `HELIXOR_MAINNET_OK=1` to that
+   production node. The fix is to add `PHYLANX_MAINNET_OK=1` to that
    service's env file, with a commit message naming the reason.
 
 ## Triage (60s)
 
 ```bash
 # 1. What was the service that refused?
-curl -s http://prometheus:9090/api/v1/query?query=helixor_production_refusal_total |
+curl -s http://prometheus:9090/api/v1/query?query=phylanx_production_refusal_total |
   jq '.data.result[] | {service: .metric.service, count: .value[1]}'
 
 # 2. What did it think the network was?
 ssh <host>
-sudo cat /etc/helixor/<service>.env | grep HELIXOR_NETWORK
+sudo cat /etc/phylanx/<service>.env | grep PHYLANX_NETWORK
 
 # 3. Was this start intentional?
 # Check the deploy log / chat for the last 60 min — was a mainnet
@@ -46,7 +46,7 @@ sudo cat /etc/helixor/<service>.env | grep HELIXOR_NETWORK
 
 - **Env file says `mainnet-beta`, rollout was for mainnet, no opt-in
   flag in env file:** INTENTIONAL but incomplete config. Add
-  `HELIXOR_MAINNET_OK=1` to the env file with a deliberate commit
+  `PHYLANX_MAINNET_OK=1` to the env file with a deliberate commit
   message naming the reason ("mainnet canary stage 1 brings up first
   node"), restart.
 
@@ -61,15 +61,15 @@ After the env file is fixed:
 ```bash
 # The systemd unit's RestartPreventExitStatus=2 means manual restart
 # is required — by design, so the operator confirms the fix.
-sudo systemctl restart helixor-oracle-<i>
-sudo systemctl status helixor-oracle-<i>
-journalctl -u helixor-oracle-<i> -n 50
+sudo systemctl restart phylanx-oracle-<i>
+sudo systemctl status phylanx-oracle-<i>
+journalctl -u phylanx-oracle-<i> -n 50
 # Expect: "network_guard: service ... starting against devnet (non-production)"
 ```
 
 ## What NOT to do
 
-- ❌ Don't add `HELIXOR_MAINNET_OK=1` "just to make the alert go away."
+- ❌ Don't add `PHYLANX_MAINNET_OK=1` "just to make the alert go away."
   The alert exists FOR this case.
 - ❌ Don't disable the guard in code. It's been built specifically as a
   last belt and audit teams check for its presence.

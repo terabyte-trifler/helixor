@@ -23,13 +23,13 @@ The four layers of defence:
 
 ## 1 — Regenerate the hash-locked `requirements.txt`
 
-Run from the repo root, every time `helixor-*/requirements.in`
+Run from the repo root, every time `phylanx-*/requirements.in`
 changes:
 
 ```bash
 # Install pip-tools once, then:
 bash scripts/regen_requirements.sh
-git add helixor-*/requirements.{in,txt}
+git add phylanx-*/requirements.{in,txt}
 git commit -m "deps: regenerate hash-locked requirements"
 ```
 
@@ -45,10 +45,10 @@ In the deploy script (or `launch/deploy/deploy_programs.sh`), every
 `pip install` for an oracle/api/indexer venv runs as:
 
 ```bash
-/opt/helixor/venv/bin/pip install \
+/opt/phylanx/venv/bin/pip install \
     --require-hashes \
     --no-deps \
-    -r /opt/helixor/helixor-oracle/requirements.txt
+    -r /opt/phylanx/phylanx-oracle/requirements.txt
 ```
 
 `--require-hashes` makes pip refuse the install if any package on
@@ -61,13 +61,13 @@ Add to the node's startup probe (called by the systemd unit's
 `ExecStartPre=`):
 
 ```bash
-/opt/helixor/venv/bin/pip check
-/opt/helixor/venv/bin/python -c "import importlib.metadata as m; \
+/opt/phylanx/venv/bin/pip check
+/opt/phylanx/venv/bin/python -c "import importlib.metadata as m; \
   print(sorted((d.name, d.version) for d in m.distributions()))"
 ```
 
 Cross-check the printed list against
-`helixor-oracle/requirements.txt`. Any drift = abort start.
+`phylanx-oracle/requirements.txt`. Any drift = abort start.
 
 ## 4 — Egress allowlist (per-node)
 
@@ -76,14 +76,14 @@ the example IPs with your cluster's real RPC + indexer + Prometheus
 endpoints:
 
 ```bash
-# iptables: default-drop egress for the `helixor` user, allow only
+# iptables: default-drop egress for the `phylanx` user, allow only
 # the listed destinations. nftables variant in the appendix.
-iptables -A OUTPUT -m owner --uid-owner helixor -j HELIXOR_EGRESS
-iptables -A HELIXOR_EGRESS -d <SOLANA_RPC_IP>     -p tcp --dport 443 -j ACCEPT
-iptables -A HELIXOR_EGRESS -d <INDEXER_IP>        -p tcp --dport 8443 -j ACCEPT
-iptables -A HELIXOR_EGRESS -d <PROMETHEUS_PUSH>   -p tcp --dport 9090 -j ACCEPT
-iptables -A HELIXOR_EGRESS -d <PEER_NODE_IP_LIST> -p tcp --dport 50051 -j ACCEPT
-iptables -A HELIXOR_EGRESS -j REJECT --reject-with icmp-admin-prohibited
+iptables -A OUTPUT -m owner --uid-owner phylanx -j PHYLANX_EGRESS
+iptables -A PHYLANX_EGRESS -d <SOLANA_RPC_IP>     -p tcp --dport 443 -j ACCEPT
+iptables -A PHYLANX_EGRESS -d <INDEXER_IP>        -p tcp --dport 8443 -j ACCEPT
+iptables -A PHYLANX_EGRESS -d <PROMETHEUS_PUSH>   -p tcp --dport 9090 -j ACCEPT
+iptables -A PHYLANX_EGRESS -d <PEER_NODE_IP_LIST> -p tcp --dport 50051 -j ACCEPT
+iptables -A PHYLANX_EGRESS -j REJECT --reject-with icmp-admin-prohibited
 ```
 
 A compromised dependency that tries to phone home to an attacker
@@ -94,8 +94,8 @@ C2 hits the REJECT rule and never escapes the box.
 Already wired in `launch/deploy/systemd/oracle-node@.service`:
 
 ```
-ReadOnlyPaths=/opt/helixor
-ReadWritePaths=/var/lib/helixor /var/log/helixor
+ReadOnlyPaths=/opt/phylanx
+ReadWritePaths=/var/lib/phylanx /var/log/phylanx
 PrivateTmp=true
 SystemCallFilter=@system-service
 CapabilityBoundingSet=
@@ -120,12 +120,12 @@ runner currently passes a `NodeKeypair`.
 ## Appendix: nftables variant
 
 ```
-table inet helixor {
+table inet phylanx {
     chain output {
         type filter hook output priority 0;
-        meta skuid helixor jump helixor_egress
+        meta skuid phylanx jump phylanx_egress
     }
-    chain helixor_egress {
+    chain phylanx_egress {
         ip daddr { <SOLANA_RPC_IP>, <INDEXER_IP>, <PEER_IPS> } accept
         reject with icmpx admin-prohibited
     }

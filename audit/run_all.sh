@@ -168,7 +168,7 @@ run "OFAC-1 cert-refusal gate"  python3 audit/cert_refusal_check.py \
 # jurisdictions with data protection law (GDPR Art. 6/15/17, DPDP s.7/11/
 # 12, CCPA §1798.105/110/140), storing behavioral data without a declared
 # lawful basis, retention ceiling, or access/erasure mechanism is a
-# regulatory liability. DP-1 (helixor-oracle/oracle/data_protection_policy
+# regulatory liability. DP-1 (phylanx-oracle/oracle/data_protection_policy
 # .py) pins DataCategory × StorageLocation → RetentionPolicy with the
 # erasability biconditional (off-chain ⇒ erasable; on-chain ⇒ not,
 # explicitly disclosed) and a single carve-out (REFUSAL_LOG, kept for
@@ -202,7 +202,7 @@ run "SEC-1 securities-posture gate" python3 audit/securities_compliance_check.py
 
 
 # ── 1m++++. AML-1 KYC/AML posture gate ──────────────────────────────────────
-# Large-scale AI agent lending enabled by Helixor certs may trigger AML
+# Large-scale AI agent lending enabled by Phylanx certs may trigger AML
 # compliance requirements for downstream DeFi protocols, creating a
 # regulatory attack surface that adversaries can exploit via complaint
 # (FinCEN / FCA / SEBI / FATF). The risk is NOT that the cluster is an
@@ -211,7 +211,7 @@ run "SEC-1 securities-posture gate" python3 audit/securities_compliance_check.py
 # becomes a process tax. AML-1 (oracle/aml_compliance.py +
 # OperatorAttestation.aml_program_attestation) makes the operator's
 # AML posture mechanically verifiable: a closed-enum allowlist
-# ({NO_AML_PROGRAM_REQUIRED_FOR_HELIXOR_ACTIVITY,
+# ({NO_AML_PROGRAM_REQUIRED_FOR_PHYLANX_ACTIVITY,
 # EXTERNAL_AML_PROGRAM_DECLARED}) sig-bound via
 # attestation_canonical_bytes so the existing OFAC-1 Ed25519 binding
 # extends to cover it — lying about AML posture costs the same key
@@ -344,11 +344,11 @@ run "freeze cert gate"  python3 audit/freeze_cert_check.py \
 
 
 # ── 1t. DeFi-Bypass audit gate ──────────────────────────────────────────────
-# Red-team Path 4 closure: an attacker who can't break Helixor's own substrate
+# Red-team Path 4 closure: an attacker who can't break Phylanx's own substrate
 # (Paths 1/2/3 closed by FHS/ILS/FRP) targets a DeFi consumer's INTEGRATION
 # instead — a lending protocol that reads `getScore()` raw, never bounds
 # operations against SOL-3 freshness floors, and never re-verifies the
-# AW-01-EXT slot anchor against an independent RPC. Helixor cannot close this
+# AW-01-EXT slot anchor against an independent RPC. Phylanx cannot close this
 # from its own substrate — the only durable mitigation is making the safe
 # path the easy path. This gate is the mechanical regression alarm for the
 # "Verified Integrator" pre-flight: every partner manifest at
@@ -359,10 +359,10 @@ run "freeze cert gate"  python3 audit/freeze_cert_check.py \
 # source on disk that contains every claimed marker, and (d) carry a
 # canonical-hash that matches the recompute. The gate ALSO cross-checks the
 # VULN-23 anchor (`SafeCertReader` + `CERT_MAX_AGE_SECONDS = 48 * 60 * 60` in
-# `helixor-sdk/src/safe_reader.ts`), the SOL-3 anchor (`Operation` enum + all
-# four per-op constants in `helixor-oracle/oracle/operation_freshness.py`),
+# `phylanx-sdk/src/safe_reader.ts`), the SOL-3 anchor (`Operation` enum + all
+# four per-op constants in `phylanx-oracle/oracle/operation_freshness.py`),
 # and the AW-01-EXT anchor (`verifyAgainstSolanaLedger` in
-# `helixor-sdk/src/input_provenance.ts`) so a rename in any of those
+# `phylanx-sdk/src/input_provenance.ts`) so a rename in any of those
 # surfaces voids every existing manifest and lights red here BEFORE the
 # refactor reaches mainnet.
 run "consumer integration gate"  python3 audit/consumer_integration_check.py \
@@ -371,13 +371,13 @@ run "consumer integration gate"  python3 audit/consumer_integration_check.py \
 
 # ── 2. cargo clippy + cargo audit ───────────────────────────────────────────
 if command -v cargo >/dev/null; then
-    run "cargo clippy" bash -c "cd helixor-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"
+    run "cargo clippy" bash -c "cd phylanx-programs && cargo clippy --workspace --all-targets -- -D warnings -A unexpected-cfgs -A ambiguous-glob-reexports -A clippy::diverging-sub-expression"
     if command -v cargo-audit >/dev/null; then
-        run "cargo audit" bash -c "cd helixor-programs && cargo audit"
+        run "cargo audit" bash -c "cd phylanx-programs && cargo audit"
     else
         skip "cargo audit" "cargo-audit not installed (cargo install cargo-audit)"
     fi
-    run "cargo test" bash -c "cd helixor-programs && cargo test --workspace -q"
+    run "cargo test" bash -c "cd phylanx-programs && cargo test --workspace -q"
 else
     skip "cargo clippy" "rust toolchain not installed"
     skip "cargo audit"  "rust toolchain not installed"
@@ -386,18 +386,18 @@ fi
 
 
 # ── 3. Python test suite ────────────────────────────────────────────────────
-run "oracle pytest"  bash -c "cd helixor-oracle && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ../helixor-api/.venv/bin/python -m pytest tests/ --ignore=tests/oracle/test_integration.py -q"
-run "indexer pytest" bash -c "cd helixor-indexer && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ${PYTHON_BIN} -m pytest tests/ -q"
-run "api pytest"     bash -c "cd helixor-api && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=.:../helixor-oracle .venv/bin/python -m pytest tests/ -q"
+run "oracle pytest"  bash -c "cd phylanx-oracle && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ../phylanx-api/.venv/bin/python -m pytest tests/ --ignore=tests/oracle/test_integration.py -q"
+run "indexer pytest" bash -c "cd phylanx-indexer && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ${PYTHON_BIN} -m pytest tests/ -q"
+run "api pytest"     bash -c "cd phylanx-api && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=.:../phylanx-oracle .venv/bin/python -m pytest tests/ -q"
 
 
 # ── 4. Cluster load + chaos ─────────────────────────────────────────────────
-run "cluster load test" bash -c "cd helixor-oracle && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ../helixor-api/.venv/bin/python -m pytest ../audit/load_tests/test_cluster_under_load.py -v -s"
+run "cluster load test" bash -c "cd phylanx-oracle && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 ../phylanx-api/.venv/bin/python -m pytest ../audit/load_tests/test_cluster_under_load.py -v -s"
 
 
 # ── 5. SDK ──────────────────────────────────────────────────────────────────
 if command -v npm >/dev/null; then
-    run "sdk tests" bash -c "cd helixor-sdk && npm install --silent && npm test"
+    run "sdk tests" bash -c "cd phylanx-sdk && npm install --silent && npm test"
 else
     skip "sdk tests" "npm not installed"
 fi
@@ -413,25 +413,25 @@ fi
 
 # ── 7. Load tests against deployed services (external) ──────────────────────
 # Optional helpers:
-#   HELIXOR_WALLETS_FILE  — JSON list of registered agent wallets so the
+#   PHYLANX_WALLETS_FILE  — JSON list of registered agent wallets so the
 #                           harness gets real 2xx responses (otherwise the
 #                           DEFAULT_AGENTS placeholder list 4xx's).
-#   HELIXOR_DB_PYTHON     — python with psycopg2 installed (defaults to
+#   PHYLANX_DB_PYTHON     — python with psycopg2 installed (defaults to
 #                           the API venv if present, else system python3).
-if [[ -n "${HELIXOR_API_URL:-}" ]]; then
-    API_LOAD_ARGS=(--base-url "$HELIXOR_API_URL" --rate 4 --duration 30)
-    if [[ -n "${HELIXOR_WALLETS_FILE:-}" ]]; then
-        API_LOAD_ARGS+=(--wallets-file "$HELIXOR_WALLETS_FILE" --rate 1.5)
+if [[ -n "${PHYLANX_API_URL:-}" ]]; then
+    API_LOAD_ARGS=(--base-url "$PHYLANX_API_URL" --rate 4 --duration 30)
+    if [[ -n "${PHYLANX_WALLETS_FILE:-}" ]]; then
+        API_LOAD_ARGS+=(--wallets-file "$PHYLANX_WALLETS_FILE" --rate 1.5)
     fi
     run "API load (smoke)" python3 audit/load_tests/api_load.py "${API_LOAD_ARGS[@]}"
 else
-    skip "API load test" "HELIXOR_API_URL not set"
+    skip "API load test" "PHYLANX_API_URL not set"
 fi
 
 if [[ -n "${DATABASE_URL:-}" ]]; then
-    DB_PYTHON="${HELIXOR_DB_PYTHON:-}"
-    if [[ -z "$DB_PYTHON" ]] && [[ -x helixor-api/.venv/bin/python ]]; then
-        DB_PYTHON="helixor-api/.venv/bin/python"
+    DB_PYTHON="${PHYLANX_DB_PYTHON:-}"
+    if [[ -z "$DB_PYTHON" ]] && [[ -x phylanx-api/.venv/bin/python ]]; then
+        DB_PYTHON="phylanx-api/.venv/bin/python"
     fi
     DB_PYTHON="${DB_PYTHON:-python3}"
     run "DB stress (smoke)" "$DB_PYTHON" audit/load_tests/db_stress.py --rows 100000
@@ -441,24 +441,24 @@ fi
 
 
 # ── 8. Deployed .so verification (external) ─────────────────────────────────
-# Optional: HELIXOR_PROGRAMS_FILE overrides the placeholder PROGRAMS map
+# Optional: PHYLANX_PROGRAMS_FILE overrides the placeholder PROGRAMS map
 # with the real deployed program IDs for non-mainnet clusters.
-if [[ -n "${HELIXOR_SOLANA_CLUSTER:-}" ]]; then
+if [[ -n "${PHYLANX_SOLANA_CLUSTER:-}" ]]; then
     if command -v npx >/dev/null; then
         REPO_ROOT="$PWD"
         VERIFY_CMD="cd audit/artifact_verification && npx ts-node verify_so_match.ts"
-        VERIFY_CMD+=" --cluster $HELIXOR_SOLANA_CLUSTER"
+        VERIFY_CMD+=" --cluster $PHYLANX_SOLANA_CLUSTER"
         VERIFY_CMD+=" --report $REPO_ROOT/audit/reports/so_match.json"
-        VERIFY_CMD+=" --build-dir ${HELIXOR_BUILD_DIR:-$REPO_ROOT/helixor-programs/target/deploy}"
-        if [[ -n "${HELIXOR_PROGRAMS_FILE:-}" ]]; then
-            VERIFY_CMD+=" --programs-file $HELIXOR_PROGRAMS_FILE"
+        VERIFY_CMD+=" --build-dir ${PHYLANX_BUILD_DIR:-$REPO_ROOT/phylanx-programs/target/deploy}"
+        if [[ -n "${PHYLANX_PROGRAMS_FILE:-}" ]]; then
+            VERIFY_CMD+=" --programs-file $PHYLANX_PROGRAMS_FILE"
         fi
         run ".so verification" bash -c "$VERIFY_CMD"
     else
         skip ".so verification" "npx not installed"
     fi
 else
-    skip ".so verification" "HELIXOR_SOLANA_CLUSTER not set"
+    skip ".so verification" "PHYLANX_SOLANA_CLUSTER not set"
 fi
 
 

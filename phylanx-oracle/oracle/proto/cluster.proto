@@ -1,0 +1,144 @@
+// =============================================================================
+// oracle/proto/cluster.proto — the Phylanx oracle-cluster gRPC service.
+//
+// Phase 4 turns one trusted oracle node into a 3-5 node Byzantine-fault-
+// tolerant cluster. The nodes coordinate over gRPC. This file defines the
+// service; Day 23 stands up the transport, Days 24-28 implement the
+// commit-reveal consensus protocol that flows over it.
+//
+// THE PROTOCOL (Days 24-28, defined here so the wire format is fixed)
+// -------------------------------------------------------------------
+// For each epoch, each node:
+//   1. scores every agent independently (the deterministic V2 engine),
+//   2. COMMITs a hash of its scores to every peer  (Commit RPC),
+//   3. once all commits are in, REVEALs the scores  (Reveal RPC),
+//   4. verifies each peer's reveal against its commit, then the cluster
+//      agrees the consensus score.
+// commit-reveal stops a node seeing peers' scores before fixing its own.
+//
+// `Ping` exists from Day 23 — the liveness check the transport needs and
+// the single-node smoke path uses.
+//
+// This is the SCHEMA. Phylanx generates Python stubs from it with
+// grpcio-tools when gRPC is the transport; the in-process transport
+// (oracle/cluster/transport.py) speaks the same message shapes natively,
+// so the cluster logic is testable with zero gRPC dependency.
+// =============================================================================
+
+syntax = "proto3";
+
+package phylanx.oracle.cluster.v1;
+
+// -----------------------------------------------------------------------------
+// The cluster service.
+// -----------------------------------------------------------------------------
+service OracleCluster {
+  // Liveness + identity check. Used by the transport to confirm a peer is
+  // reachable and to exchange node identities.
+  rpc Ping(PingRequest) returns (PingResponse);
+
+  // Phase-1 of commit-reveal: a node sends the HASH of its epoch scores.
+  rpc Commit(CommitRequest) returns (CommitResponse);
+
+  // Phase-2 of commit-reveal: a node reveals its actual epoch scores. A
+  // peer verifies the reveal hashes to the earlier commit.
+  rpc Reveal(RevealRequest) returns (RevealResponse);
+
+  // Day 24: a node fetches a peer's epoch scores, to compute the cluster
+  // median. Direct score exchange (commit-reveal hardening is a later day).
+  rpc GetScores(GetScoresRequest) returns (GetScoresResponse);
+}
+
+// -----------------------------------------------------------------------------
+// Ping
+// -----------------------------------------------------------------------------
+message PingRequest {
+  // The calling node's id.
+  string node_id = 1;
+  // The caller's monotonic nonce — echoed back, proves a fresh response.
+  uint64 nonce = 2;
+}
+
+message PingResponse {
+  // The responding node's id.
+  string node_id = 1;
+  // The nonce from the request, echoed.
+  uint64 nonce = 2;
+  // The responder's view of the current epoch.
+  uint64 current_epoch = 3;
+}
+
+// -----------------------------------------------------------------------------
+// Commit — phase 1 of commit-reveal
+// -----------------------------------------------------------------------------
+message CommitRequest {
+  // The committing node's id.
+  string node_id = 1;
+  // The epoch these scores cover.
+  uint64 epoch = 2;
+  // SHA-256 of the node's canonical-serialised epoch scores + a per-node
+  // salt. Binds the node to its scores without revealing them.
+  bytes commit_hash = 3;
+}
+
+message CommitResponse {
+  // True if the peer accepted the commit (right epoch, known node, not a
+  // duplicate commit for this epoch).
+  bool accepted = 1;
+  // A human-readable reason when accepted == false.
+  string reason = 2;
+}
+
+// -----------------------------------------------------------------------------
+// Reveal — phase 2 of commit-reveal
+// -----------------------------------------------------------------------------
+message RevealRequest {
+  // The revealing node's id.
+  string node_id = 1;
+  // The epoch.
+  uint64 epoch = 2;
+  // The node's per-agent scores for this epoch.
+  repeated AgentScore scores = 3;
+  // The salt that was folded into commit_hash — lets the peer recompute
+  // the hash and verify it matches the earlier Commit.
+  bytes salt = 4;
+}
+
+message RevealResponse {
+  // True if the reveal verified against the node's earlier commit.
+  bool verified = 1;
+  // A human-readable reason when verified == false.
+  string reason = 2;
+}
+
+// One agent's score within a node's epoch reveal.
+message AgentScore {
+  string agent_wallet = 1;
+  uint32 score = 2;          // 0..1000
+  uint32 alert_tier = 3;     // 0 GREEN, 1 YELLOW, 2 RED
+  uint32 flags = 4;          // aggregated detection flags
+  bool   immediate_red = 5;
+  uint32 confidence = 6;     // 0..1000
+}
+
+// -----------------------------------------------------------------------------
+// GetScores — Day-24 score exchange for median aggregation
+// -----------------------------------------------------------------------------
+message GetScoresRequest {
+  // The requesting node's id.
+  string node_id = 1;
+  // The epoch whose scores are requested.
+  uint64 epoch = 2;
+}
+
+message GetScoresResponse {
+  // The responding node's id.
+  string node_id = 1;
+  // The epoch.
+  uint64 epoch = 2;
+  // False if the responder has not scored this epoch yet — the caller
+  // then treats it exactly like an offline node.
+  bool available = 3;
+  // The responder's per-agent scores for the epoch.
+  repeated AgentScore scores = 4;
+}

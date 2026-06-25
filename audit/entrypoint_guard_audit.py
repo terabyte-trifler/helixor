@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-audit/entrypoint_guard_audit.py — verify every Helixor entrypoint
+audit/entrypoint_guard_audit.py — verify every Phylanx entrypoint
 imports the network guard.
 
 Day 30 — the mainnet refusal gate is only useful if every entrypoint
@@ -34,9 +34,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # ─────────────────────────────────────────────────────────────────────────────
 
 SEARCH_ROOTS = [
-    REPO_ROOT / "helixor-oracle",
-    REPO_ROOT / "helixor-indexer",
-    REPO_ROOT / "helixor-api",
+    REPO_ROOT / "phylanx-oracle",
+    REPO_ROOT / "phylanx-indexer",
+    REPO_ROOT / "phylanx-api",
 ]
 
 SKIP_DIRS = {

@@ -1,0 +1,144 @@
+# =============================================================================
+# .github/workflows/ci.yml — the per-PR unit-test gate.
+#
+# WHY THIS FILE EXISTS AT THE REPO ROOT
+# -------------------------------------
+# GitHub Actions ONLY discovers workflow files under the repository-root
+# `.github/workflows/` directory. Three well-written workflows previously
+# lived in SUBDIRECTORY `.github/workflows/` folders (phylanx-integration,
+# phylanx-validator, phylanx-plugin-elizaos) where Actions never finds them
+# — so the ~1,300+ tests and the audit gate suite had never run
+# automatically despite the docs claiming a merge gate. This file (plus
+# audit.yml, plugin.yml, integration.yml, validation.yml) restores the gate.
+#
+# WHAT THIS GATE COVERS (no external services / secrets required):
+#   * Python unit suites — phylanx-oracle, phylanx-indexer, phylanx-api.
+#   * Rust — clippy (deny warnings) + the on-chain program workspace tests.
+#   * SDK — phylanx-sdk decode / safe-reader / provenance test scripts.
+#
+# Heavier suites that need devnet/a live API/Timescale live in separate,
+# secret-gated workflows (integration.yml, validation.yml) so a missing
+# secret never red-lights an ordinary PR.
+# =============================================================================
+
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save runner minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python-tests:
+    name: Python (oracle / indexer / api)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # A single venv at phylanx-api/.venv — this is the exact path
+      # audit/run_all.sh hardcodes for the oracle + api suites, so CI and
+      # the local audit driver share one environment contract.
+      #
+      # phylanx-indexer has ZERO third-party deps (pure stdlib + sibling
+      # imports), so the oracle + api requirement closures cover all three
+      # suites. The indexer's conftest.py puts oracle/ and api/ on sys.path.
+      - name: Create venv + install pinned dependencies
+        run: |
+          python -m venv phylanx-api/.venv
+          ./phylanx-api/.venv/bin/python -m pip install --upgrade pip
+          # Hash-pinned production deps (VULN-25 supply-chain policy).
+          ./phylanx-api/.venv/bin/python -m pip install \
+            -r phylanx-oracle/requirements.txt \
+            -r phylanx-api/requirements.txt
+          # Test runner (declared in phylanx-api/pyproject.toml [test] extra).
+          ./phylanx-api/.venv/bin/python -m pip install "pytest>=8"
+
+      - name: oracle pytest
+        run: |
+          cd phylanx-oracle
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+            ../phylanx-api/.venv/bin/python -m pytest tests/ \
+            --ignore=tests/oracle/test_integration.py -q
+
+      - name: indexer pytest
+        run: |
+          cd phylanx-indexer
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+            ../phylanx-api/.venv/bin/python -m pytest tests/ -q
+
+      - name: api pytest
+        run: |
+          cd phylanx-api
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=.:../phylanx-oracle \
+            .venv/bin/python -m pytest tests/ -q
+
+  rust:
+    name: Rust (programs — clippy + tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: phylanx-programs
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: phylanx-programs
+
+      # Same clippy invocation as audit/run_all.sh §2: warnings are denied,
+      # only the documented upstream-macro cfg lints are allowed.
+      - name: cargo clippy
+        run: |
+          cargo clippy --workspace --all-targets -- \
+            -D warnings \
+            -A unexpected-cfgs \
+            -A ambiguous-glob-reexports \
+            -A clippy::diverging-sub-expression
+
+      - name: cargo test
+        run: cargo test --workspace -q
+
+  sdk:
+    name: SDK (phylanx-sdk)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: phylanx-sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: phylanx-sdk/package-lock.json
+
+      - name: install
+        run: npm ci
+
+      - name: build (tsc)
+        run: npm run build
+
+      - name: test
+        run: npm test

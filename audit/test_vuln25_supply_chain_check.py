@@ -24,7 +24,7 @@ from pathlib import Path
 
 _AUDIT_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _AUDIT_DIR.parent
-_ORACLE_PKG = _REPO_ROOT / "helixor-oracle"
+_ORACLE_PKG = _REPO_ROOT / "phylanx-oracle"
 for p in (_AUDIT_DIR, _ORACLE_PKG):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
@@ -40,8 +40,8 @@ from supply_chain_check import (  # type: ignore  # noqa: E402
 # network-enabled `pip-compile --generate-hashes` run, which the audit
 # operator does at release time, not at every checkout).
 _GENERATED_TXT_RULES = {
-    "helixor-oracle-requirements-txt-missing",
-    "helixor-api-requirements-txt-missing",
+    "phylanx-oracle-requirements-txt-missing",
+    "phylanx-api-requirements-txt-missing",
 }
 
 

@@ -20,7 +20,7 @@ Most likely causes:
 Read recent deploys. Compare per-stage timing in the structured logs:
 
 ```bash
-journalctl -u helixor-oracle-0 -n 1000 | grep "epoch .* pipeline" |
+journalctl -u phylanx-oracle-0 -n 1000 | grep "epoch .* pipeline" |
     awk '{print $0}' | tail -20
 ```
 

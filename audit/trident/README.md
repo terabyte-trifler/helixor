@@ -1,7 +1,7 @@
 # Trident fuzz harness — Day 29
 
 Trident is the Anchor-aware fuzzer that drives every instruction in the
-three Helixor programs across 10,000,000 randomised inputs and asserts
+three Phylanx programs across 10,000,000 randomised inputs and asserts
 zero panics.
 
 ## What's here

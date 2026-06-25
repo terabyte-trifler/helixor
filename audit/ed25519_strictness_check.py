@@ -56,12 +56,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # =============================================================================
 
 ROOTS: tuple[Path, ...] = (
-    REPO_ROOT / "helixor-oracle" / "oracle" / "cluster",
-    REPO_ROOT / "helixor-oracle" / "oracle",
-    REPO_ROOT / "helixor-programs" / "programs" / "certificate-issuer" / "src",
-    REPO_ROOT / "helixor-programs" / "programs" / "slash-authority" / "src",
-    REPO_ROOT / "helixor-programs" / "programs" / "health-oracle" / "src",
-    REPO_ROOT / "helixor-sdk" / "src",
+    REPO_ROOT / "phylanx-oracle" / "oracle" / "cluster",
+    REPO_ROOT / "phylanx-oracle" / "oracle",
+    REPO_ROOT / "phylanx-programs" / "programs" / "certificate-issuer" / "src",
+    REPO_ROOT / "phylanx-programs" / "programs" / "slash-authority" / "src",
+    REPO_ROOT / "phylanx-programs" / "programs" / "health-oracle" / "src",
+    REPO_ROOT / "phylanx-sdk" / "src",
 )
 
 # Files allowed to mention forbidden names because they are TESTS that
@@ -69,7 +69,7 @@ ROOTS: tuple[Path, ...] = (
 # must contain the literal strings). Keyed by relative path from
 # REPO_ROOT.
 TEST_ALLOWLIST: frozenset[str] = frozenset({
-    "helixor-oracle/tests/oracle/test_vuln21_ed25519_strictness.py",
+    "phylanx-oracle/tests/oracle/test_vuln21_ed25519_strictness.py",
     "audit/ed25519_strictness_check.py",
     "audit/test_vuln21_ed25519_strictness_check.py",
 })

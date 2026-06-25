@@ -4,7 +4,7 @@ audit/sql_injection_check.py — VULN-20 hardening sweep.
 
 AST-based scanner that REJECTS any `cursor.execute(...)` / `conn.execute(...)`
 call whose SQL argument is built from dynamic string operations (f-string,
-%-format, .format(), or `+` concatenation). The Helixor data path uses
+%-format, .format(), or `+` concatenation). The Phylanx data path uses
 psycopg 3, which accepts `%s` placeholders + a params sequence — that is
 the only safe shape. Any other shape is a SQLi surface and must be
 removed before mainnet.
@@ -13,10 +13,10 @@ WHAT IT FLAGS
 -------------
 The scanner walks every `.py` file under three roots:
 
-    helixor-oracle/db/         the canonical TimescaleDB repository
-    helixor-oracle/baseline/   the baseline + scoring read path
-    helixor-api/api/           the FastAPI read API
-    helixor-indexer/           the live ingest pipeline
+    phylanx-oracle/db/         the canonical TimescaleDB repository
+    phylanx-oracle/baseline/   the baseline + scoring read path
+    phylanx-api/api/           the FastAPI read API
+    phylanx-indexer/           the live ingest pipeline
 
 For each call whose attribute chain matches `<expr>.execute`, the FIRST
 positional argument MUST be one of:
@@ -68,10 +68,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_SCAN_ROOTS = (
-    REPO_ROOT / "helixor-oracle" / "db",
-    REPO_ROOT / "helixor-oracle" / "baseline",
-    REPO_ROOT / "helixor-api"    / "api",
-    REPO_ROOT / "helixor-indexer",
+    REPO_ROOT / "phylanx-oracle" / "db",
+    REPO_ROOT / "phylanx-oracle" / "baseline",
+    REPO_ROOT / "phylanx-api"    / "api",
+    REPO_ROOT / "phylanx-indexer",
 )
 
 # Test code is allowed to construct synthetic SQL violations to exercise
@@ -253,7 +253,7 @@ def _format_findings(findings: list[Finding]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="VULN-20 SQL-injection AST sweep over the Helixor data path",
+        description="VULN-20 SQL-injection AST sweep over the Phylanx data path",
     )
     parser.add_argument(
         "--json", dest="json_out", default=None,

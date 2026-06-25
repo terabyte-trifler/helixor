@@ -6,14 +6,14 @@ from the launch-readiness audit (HCR-1..HCR-4).
 **Owners:** platform engineering (HCR-1, HCR-2), oracle engineering
 (HCR-3), protocol engineering (HCR-4).
 **Related code / config:**
-- `helixor-oracle/oracle/provider_diversity.py` (HCR-1)
-- `helixor-oracle/oracle/region_diversity.py` (HCR-2)
-- `helixor-oracle/oracle/state_isolation.py` (HCR-3)
-- `helixor-oracle/oracle/operator_manifest.py` (HCR-4)
-- `helixor-oracle/tests/oracle/test_hcr1_provider_diversity.py`
-- `helixor-oracle/tests/oracle/test_hcr2_region_diversity.py`
-- `helixor-oracle/tests/oracle/test_hcr3_state_isolation.py`
-- `helixor-oracle/tests/oracle/test_hcr4_operator_diversity.py`
+- `phylanx-oracle/oracle/provider_diversity.py` (HCR-1)
+- `phylanx-oracle/oracle/region_diversity.py` (HCR-2)
+- `phylanx-oracle/oracle/state_isolation.py` (HCR-3)
+- `phylanx-oracle/oracle/operator_manifest.py` (HCR-4)
+- `phylanx-oracle/tests/oracle/test_hcr1_provider_diversity.py`
+- `phylanx-oracle/tests/oracle/test_hcr2_region_diversity.py`
+- `phylanx-oracle/tests/oracle/test_hcr3_state_isolation.py`
+- `phylanx-oracle/tests/oracle/test_hcr4_operator_diversity.py`
 - `audit/centralization_check.py` + `audit/test_centralization_check.py`
   (mechanical regression gate)
 

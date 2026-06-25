@@ -80,16 +80,16 @@ This takes minutes-to-hours depending on partition size.
 docker compose -f launch/deploy/docker-compose.indexer.yml \
                -f launch/deploy/docker-compose.timescale-ha.yml \
                exec timescale-standby \
-  psql -U helixor_replicator -h timescale-primary -d helixor -c "SELECT 1"
+  psql -U phylanx_replicator -h timescale-primary -d phylanx -c "SELECT 1"
 
 # 2. Confirm standby is in hot-standby mode.
 docker compose exec timescale-standby \
-  psql -U helixor_replicator -d helixor -c "SELECT pg_is_in_recovery();"
+  psql -U phylanx_replicator -d phylanx -c "SELECT pg_is_in_recovery();"
 # Expect: t
 
 # 3. Replication lag.
 docker compose exec timescale-standby \
-  psql -U helixor_replicator -d helixor -c "
+  psql -U phylanx_replicator -d phylanx -c "
     SELECT now() - pg_last_xact_replay_timestamp() AS lag;"
 ```
 
@@ -98,7 +98,7 @@ docker compose exec timescale-standby \
 ```bash
 # 1. Promote the standby. After this it accepts writes.
 docker compose exec timescale-standby \
-  psql -U helixor_replicator -d helixor -c "SELECT pg_promote();"
+  psql -U phylanx_replicator -d phylanx -c "SELECT pg_promote();"
 
 # 2. Repoint indexer + API at the new primary. Two options:
 #    a) Quick — edit the .env file's DATABASE_URL/READ_DATABASE_URL
@@ -178,7 +178,7 @@ curl -s http://localhost:9090/metrics | grep geyser_consensus_dropped
 - **Spike in `conflicts`:** investigate which endpoint dissented.
   `ConflictReport.dissenting_source` names it (the indexer's
   structured-log line carries the source label). If it persists,
-  REMOVE the dissenter from `HELIXOR_GEYSER_ENDPOINTS` and restart
+  REMOVE the dissenter from `PHYLANX_GEYSER_ENDPOINTS` and restart
   the indexer with N-1 endpoints. The mainnet floor of N=3 still
   holds; below 3, the indexer refuses to start.
 
@@ -188,7 +188,7 @@ curl -s http://localhost:9090/metrics | grep geyser_consensus_dropped
 
 - **`SinglePointGeyserError` at indexer boot:** the operator
   configured fewer than 3 endpoints for mainnet. This is the gate
-  doing its job — set `HELIXOR_GEYSER_ENDPOINTS` to at least three
+  doing its job — set `PHYLANX_GEYSER_ENDPOINTS` to at least three
   independent providers. Do NOT add a workaround to bypass the
   refusal.
 

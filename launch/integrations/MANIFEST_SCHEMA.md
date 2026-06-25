@@ -12,7 +12,7 @@ the safety surfaces it wires.
 The audit linter is a **self-serve tool**: any partner can run it against
 their own checked-out source, fix the findings it surfaces, and only then
 file a PR adding their manifest under `launch/integrations/`. Failing the
-linter does NOT block onboarding (Helixor is opt-in-safe, not gated-safe)
+linter does NOT block onboarding (Phylanx is opt-in-safe, not gated-safe)
 — it just means the partner doesn't get the badge. Once green, the partner
 signs the canonical manifest hash with an Ed25519 key whose pubkey is the
 `partner_wallet` field, and the DBP-2 PDA can be minted on chain.

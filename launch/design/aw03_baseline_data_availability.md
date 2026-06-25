@@ -11,10 +11,10 @@
 - `programs/certificate-issuer/src/state/health_certificate.rs` (`baseline_commit_nonce`, layout v6)
 - `programs/certificate-issuer/src/signing.rs` (`cert_payload_digest`)
 - `programs/certificate-issuer/src/instructions/record_baseline.rs`
-- `helixor-oracle/oracle/cluster/cert_signing.py` (`baseline_commit_nonce` kwarg)
-- `helixor-oracle/baseline/hashing.py` (canonical payload bytes)
-- `helixor-sdk/src/baseline_provenance.ts` (`verifyBaselineProvenance`)
-- `helixor-sdk/src/pdas.ts` (`baselineDataPda`)
+- `phylanx-oracle/oracle/cluster/cert_signing.py` (`baseline_commit_nonce` kwarg)
+- `phylanx-oracle/baseline/hashing.py` (canonical payload bytes)
+- `phylanx-sdk/src/baseline_provenance.ts` (`verifyBaselineProvenance`)
+- `phylanx-sdk/src/pdas.ts` (`baselineDataPda`)
 - `audit/baseline_provenance_check.py`
 - `launch/runbooks/baseline_provenance.md`
 
@@ -86,7 +86,7 @@ separators=(",", ":"))`. A consumer with only the account can:
 
 No external DA service (Arweave / IPFS / Celestia) is involved. Solana
 itself is the DA layer; the trust domain is unchanged from the rest of
-helixor.
+phylanx.
 
 ### Pointer carved from the registration reserve
 
@@ -128,10 +128,10 @@ keyword-only argument with `default=0`. The default-0 path is reserved
 for legacy/test code that predates AW-03; production callsites pass
 the agent's current nonce explicitly. The audit sweep
 (`audit/baseline_provenance_check.py`) enforces this asymmetry by
-scoping its production-pin scan to `helixor-oracle/oracle/...` and
+scoping its production-pin scan to `phylanx-oracle/oracle/...` and
 allowing test code to exercise the legacy path freely.
 
-The TS test harness (`helixor-programs/tests/certificate_issuer.integration.ts`)
+The TS test harness (`phylanx-programs/tests/certificate_issuer.integration.ts`)
 re-implements the digest layout end-to-end and is the canonical fixture
 for the on-chain ↔ off-chain ↔ SDK byte parity guarantee.
 
@@ -156,7 +156,7 @@ External DA layers were considered and rejected:
 
 1. **Trust-domain expansion.** Arweave's permanence depends on its
    own consensus and economic incentives. IPFS pins are best-effort.
-   Celestia adds a second consensus surface. A helixor cert consumer
+   Celestia adds a second consensus surface. A phylanx cert consumer
    already trusts Solana finality for the cert itself; layering a
    second DA system means the consumer now trusts BOTH Solana AND the
    chosen DA layer for a single semantic operation.
@@ -226,7 +226,7 @@ overwrite the payload on each rotation. Rejected:
       keyword-only kwarg with `default=0` for legacy compatibility.
 - [x] Audit sweep `audit/baseline_provenance_check.py` flags any
       production callsite that drops the binding. PYTHON_ROOTS is
-      scoped to `helixor-oracle/oracle/...` so test callers can
+      scoped to `phylanx-oracle/oracle/...` so test callers can
       exercise the legacy default freely. Self-test
       `audit/test_baseline_provenance_check.py` pins the detector
       contract (10 passing).
@@ -241,7 +241,7 @@ overwrite the payload on each rotation. Rejected:
       31 certificate-issuer tests, 5 integration test scenarios in
       `certificate_issuer.integration.ts` exercising the full
       baseline-commit → record-baseline → issue-certificate flow.
-- [x] SDK tests: 9 cases in `helixor-sdk/test/baseline_provenance.test.ts`
+- [x] SDK tests: 9 cases in `phylanx-sdk/test/baseline_provenance.test.ts`
       (happy path + every rejection variant).
 - [x] Python tests: digest changes with nonce, default == 0,
       out-of-range rejected.
@@ -261,7 +261,7 @@ at `layout_version = 6` with `baseline_commit_nonce > 0`. Any DeFi
 consumer can:
 
 ```ts
-import { verifyBaselineProvenance } from "@helixor/sdk";
+import { verifyBaselineProvenance } from "@phylanx/sdk";
 
 const result = await verifyBaselineProvenance(cert, connection);
 if (!result.ok) {

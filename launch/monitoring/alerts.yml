@@ -44,7 +44,7 @@ groups:
     rules:
 
       - alert: ByzantineNodeDetected
-        expr: increase(helixor_byzantine_flags_total[10m]) > 0
+        expr: increase(phylanx_byzantine_flags_total[10m]) > 0
         for: 0m
         labels: { severity: page }
         annotations:
@@ -56,7 +56,7 @@ groups:
             reaches threshold, challenge_oracle will fire.
 
       - alert: ChallengeOracleFiled
-        expr: increase(helixor_challenges_filed_total[1h]) > 0
+        expr: increase(phylanx_challenges_filed_total[1h]) > 0
         for: 0m
         labels: { severity: page }
         annotations:
@@ -68,7 +68,7 @@ groups:
             adversarial detection, not a false positive.
 
       - alert: CertSubmissionFailureSpike
-        expr: rate(helixor_cert_submit_failures_total[5m]) > 0.05
+        expr: rate(phylanx_cert_submit_failures_total[5m]) > 0.05
         for: 5m
         labels: { severity: page }
         annotations:
@@ -83,7 +83,7 @@ groups:
     rules:
 
       - alert: EpochLatencyHigh
-        expr: histogram_quantile(0.95, rate(helixor_epoch_seconds_bucket[10m])) > 60
+        expr: histogram_quantile(0.95, rate(phylanx_epoch_seconds_bucket[10m])) > 60
         for: 10m
         labels: { severity: ticket }
         annotations:
@@ -95,7 +95,7 @@ groups:
             regression vs the ~6s baseline. Investigate.
 
       - alert: ApiP95LatencyHigh
-        expr: histogram_quantile(0.95, rate(helixor_api_request_seconds_bucket[5m])) > 0.5
+        expr: histogram_quantile(0.95, rate(phylanx_api_request_seconds_bucket[5m])) > 0.5
         for: 5m
         labels: { severity: ticket }
         annotations:
@@ -103,21 +103,21 @@ groups:
           runbook: "launch/runbooks/api_slow.md"
 
   # ── 4. Mainnet refusal heartbeat ───────────────────────────────────────────
-  # If a node ever starts against mainnet without HELIXOR_MAINNET_OK,
+  # If a node ever starts against mainnet without PHYLANX_MAINNET_OK,
   # this counter increments. Anything > 0 in steady state is an instant
   # page.
   - name: mainnet-refusal
     rules:
 
       - alert: ProductionRefusalTriggered
-        expr: increase(helixor_production_refusal_total[5m]) > 0
+        expr: increase(phylanx_production_refusal_total[5m]) > 0
         for: 0m
         labels: { severity: page }
         annotations:
           summary: "Network guard refused production start on {{ $labels.service }}"
           runbook: "launch/runbooks/mainnet_refusal_triggered.md"
           description: >
-            A Helixor service tried to start against mainnet without
-            HELIXOR_MAINNET_OK=1. This is the SAFETY BELT firing —
+            A Phylanx service tried to start against mainnet without
+            PHYLANX_MAINNET_OK=1. This is the SAFETY BELT firing —
             confirm the start was intentional. If yes, set the env var.
             If no, the env file was misconfigured — fix and redeploy.

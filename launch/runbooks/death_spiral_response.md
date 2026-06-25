@@ -123,7 +123,7 @@ genuine population shift the gate is rightly refusing:
 
 1. Inspect `report.high_band_fraction` against the prior-day
    baseline (Prometheus
-   `helixor_agent_score_band{band="HIGH"}`). A jump from ~30% to
+   `phylanx_agent_score_band{band="HIGH"}`). A jump from ~30% to
    ~70% within ONE epoch with no announced market event is the
    poisoning fingerprint.
 2. Cross-check against PDS-3's rolling-window report — if PDS-3
@@ -284,9 +284,9 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest audit/test_death_spiral_check.py -v
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest \
-    helixor-oracle/tests/oracle/test_pds1_saturation_gate.py \
-    helixor-oracle/tests/oracle/test_pds2_score_velocity.py \
-    helixor-oracle/tests/oracle/test_pds3_correlated_inflation.py -v
+    phylanx-oracle/tests/oracle/test_pds1_saturation_gate.py \
+    phylanx-oracle/tests/oracle/test_pds2_score_velocity.py \
+    phylanx-oracle/tests/oracle/test_pds3_correlated_inflation.py -v
 ```
 
 All three MUST be green before the PR is mergeable. For a runtime

@@ -1,6 +1,6 @@
 {
   "checked": [
-    "helixor-oracle/oracle/cert_refusal_log.py",
+    "phylanx-oracle/oracle/cert_refusal_log.py",
     "oracle.cert_refusal_log:exports",
     "eventbus.types:Topic.CERT_REFUSED",
     "eventbus.serialization:cert_refused"

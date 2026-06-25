@@ -76,8 +76,8 @@ cat /tmp/ta.json | python3 -m json.tool | head -80
 ```bash
 docker compose -f launch/deploy/docker-compose.indexer.yml logs indexer | tail -50
 # Look for: "TA-2: cluster 'mainnet' requires a verified ConsensusStream"
-echo "$HELIXOR_GEYSER_ENDPOINTS"
-echo "$HELIXOR_SOLANA_CLUSTER"
+echo "$PHYLANX_GEYSER_ENDPOINTS"
+echo "$PHYLANX_SOLANA_CLUSTER"
 ```
 
 ### Action
@@ -86,7 +86,7 @@ The mitigation engaged — the indexer EXITED at boot rather than ingest
 single-endpoint mainnet data. DO NOT downgrade the cluster env var.
 Instead:
 
-1. Verify `HELIXOR_GEYSER_ENDPOINTS` lists at least 3 independent
+1. Verify `PHYLANX_GEYSER_ENDPOINTS` lists at least 3 independent
    endpoints (no duplicates, no shared upstream).
 2. Verify the construction path goes through
    `build_production_geyser_config()` + `ConsensusStream`. A raw

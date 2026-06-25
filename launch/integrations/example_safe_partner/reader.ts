@@ -5,15 +5,15 @@
 // This file is the REFERENCE IMPLEMENTATION cited by the audit linter
 // (`audit/consumer_integration_check.py`). A DeFi partner who copy-pastes
 // this file and points their manifest at it is by construction safe along
-// every Helixor-defined axis:
+// every Phylanx-defined axis:
 //
-//   * VULN-23 freshness + velocity floor (SafeCertReader from @helixor/sdk)
+//   * VULN-23 freshness + velocity floor (SafeCertReader from @phylanx/sdk)
 //   * SOL-3 per-operation freshness contract (loan-issue 4h / loan-increase
 //     8h / liquidation 12h / status-read 48h)
 //   * AW-01-EXT slot-anchor cross-check (verifyAgainstSolanaLedger)
 //
 // Path 4 of the red-team attack tree ("DeFi Bypass") is the residual that
-// lives ENTIRELY in the consumer's code. Helixor cannot close it from its
+// lives ENTIRELY in the consumer's code. Phylanx cannot close it from its
 // own substrate — the only durable mitigation is making the safe path the
 // easy path. This file IS the safe path: opinionated, no escape hatches,
 // no `getScore()` fallback. A consumer that adopts it cannot accidentally
@@ -33,11 +33,11 @@ import {
   MAX_SCORE_VELOCITY,
   // SEC-1 — the canonical advisory disclaimer surfaced alongside every
   // returned score. Mirrored byte-for-byte from
-  // helixor-oracle/oracle/securities_compliance.py.
+  // phylanx-oracle/oracle/securities_compliance.py.
   ADVISORY_DISCLAIMER,
   // AML-1 — the canonical KYC/AML disclaimer surfaced alongside the
   // SEC-1 disclaimer. Mirrored byte-for-byte from
-  // helixor-oracle/oracle/aml_compliance.py.
+  // phylanx-oracle/oracle/aml_compliance.py.
   AML_KYC_DISCLAIMER,
   // AW-01-EXT — slot-anchor ledger re-verification.
   verifyAgainstSolanaLedger,
@@ -50,12 +50,12 @@ import {
   // Decoded cert + helper types.
   decodeHealthCertificate,
   type DecodedHealthCertificate,
-} from "@helixor/sdk";
+} from "@phylanx/sdk";
 
 
 // =============================================================================
 // SOL-3 per-operation freshness floors — mirror of
-// helixor-oracle/oracle/operation_freshness.py constants.
+// phylanx-oracle/oracle/operation_freshness.py constants.
 //
 // These are NOT bumpable knobs. They are the audit-mandated risk-asymmetric
 // contract: high-stakes write operations (LOAN_ISSUE) refuse against older
@@ -99,7 +99,7 @@ export type SafeOperationOk = {
   /**
    * SEC-1 — the canonical advisory disclaimer rendered alongside the
    * returned score. Mirrored from
-   * `helixor-oracle/oracle/securities_compliance.py`. Consumer-side UIs /
+   * `phylanx-oracle/oracle/securities_compliance.py`. Consumer-side UIs /
    * API responses MUST surface this text to the end-user. The audit gate
    * (`audit/securities_compliance_check.py`) verifies this field is
    * populated from the SDK constant — drift here breaks the cluster's
@@ -109,7 +109,7 @@ export type SafeOperationOk = {
   /**
    * AML-1 — the canonical KYC/AML disclaimer rendered alongside the
    * returned score. Mirrored from
-   * `helixor-oracle/oracle/aml_compliance.py`. Consumer-side UIs / API
+   * `phylanx-oracle/oracle/aml_compliance.py`. Consumer-side UIs / API
    * responses MUST surface this text to the end-user so a downstream
    * lending protocol cannot misuse the score as a substitute for its
    * own customer due-diligence. The audit gate
@@ -141,7 +141,7 @@ export type SafeOperationResult = SafeOperationOk | SafeOperationRejected;
 export interface SafePartnerReaderOptions {
   /** Solana connection used to fetch the on-chain cert + sysvars. */
   connection: Connection;
-  /** SDK ChainReader (HelixorChainClient or any equivalent). */
+  /** SDK ChainReader (PhylanxChainClient or any equivalent). */
   chainReader: ChainReader;
   /** Slot-hashes provider, typically `() => connection.getSlotHashes()`. */
   slotHashesProvider: SlotHashesProvider;
@@ -165,7 +165,7 @@ export class SafePartnerReader {
   }
 
   /**
-   * Resolve a Helixor cert for the given agent + operation under the FULL
+   * Resolve a Phylanx cert for the given agent + operation under the FULL
    * Verified-Integrator contract: VULN-23 + SOL-3 + AW-01 + AW-01-EXT.
    *
    * NEVER fall through to a default-allow on `ok: false` — the whole point

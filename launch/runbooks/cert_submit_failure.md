@@ -24,7 +24,7 @@ causes:
 
 ```bash
 # 1. Top error from last 5 min:
-journalctl -u helixor-submitter -n 500 | grep -oE 'error: [A-Za-z]+' \
+journalctl -u phylanx-submitter -n 500 | grep -oE 'error: [A-Za-z]+' \
     | sort | uniq -c | sort -rn
 
 # 2. RPC health:

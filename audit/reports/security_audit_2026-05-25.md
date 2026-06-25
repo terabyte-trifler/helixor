@@ -1,13 +1,13 @@
-# Helixor Security Audit Snapshot — 2026-05-25
+# Phylanx Security Audit Snapshot — 2026-05-25
 
 ## Scope
 
-Audited the Helixor V2 monorepo across:
+Audited the Phylanx V2 monorepo across:
 
-- `helixor-programs` Anchor programs
-- `helixor-oracle` scoring, cluster, signing, and gRPC node code
-- `helixor-api`, `helixor-indexer`, `helixor-sdk`, `helixor-web`
-- `helixor-integration` hardening scripts
+- `phylanx-programs` Anchor programs
+- `phylanx-oracle` scoring, cluster, signing, and gRPC node code
+- `phylanx-api`, `phylanx-indexer`, `phylanx-sdk`, `phylanx-web`
+- `phylanx-integration` hardening scripts
 - `audit/` launch and audit gates
 
 ## High-Impact Findings Fixed
@@ -59,11 +59,11 @@ Resolution:
 
 ## Dependency Fixes Applied
 
-- `helixor-programs`: upgraded on-chain dependencies from `anchor-lang 0.30.1` / `solana-program 1.18.26` to `anchor-lang 1.0.2` / `solana-program 3.0.0`; this removes `curve25519-dalek 3.2.1` and resolves `RUSTSEC-2024-0344`.
-- `helixor-api`: upgraded FastAPI/Starlette path; `pip-audit` clean.
-- `helixor-web`: upgraded to a Next.js canary release that removes the vulnerable PostCSS dependency; `npm audit` clean.
-- `helixor-sdk`: added `uuid` override; `npm audit` clean.
-- `helixor-integration`: upgraded Vitest/Vite path and added overrides for `uuid`, `ws`, and `esbuild`; `npm audit` clean.
+- `phylanx-programs`: upgraded on-chain dependencies from `anchor-lang 0.30.1` / `solana-program 1.18.26` to `anchor-lang 1.0.2` / `solana-program 3.0.0`; this removes `curve25519-dalek 3.2.1` and resolves `RUSTSEC-2024-0344`.
+- `phylanx-api`: upgraded FastAPI/Starlette path; `pip-audit` clean.
+- `phylanx-web`: upgraded to a Next.js canary release that removes the vulnerable PostCSS dependency; `npm audit` clean.
+- `phylanx-sdk`: added `uuid` override; `npm audit` clean.
+- `phylanx-integration`: upgraded Vitest/Vite path and added overrides for `uuid`, `ws`, and `esbuild`; `npm audit` clean.
 
 ## Audit Gates Passing
 
@@ -99,7 +99,7 @@ Remaining dependency note:
 
 ## Local Secret Note
 
-`helixor-e2e/.env` exists locally but is ignored by `helixor-e2e/.gitignore` and is not tracked.
+`phylanx-e2e/.env` exists locally but is ignored by `phylanx-e2e/.gitignore` and is not tracked.
 
 ## Adversarial-Audit Findings — Verified-Invalid
 
@@ -139,7 +139,7 @@ authority — i.e. a self-DoS, not an external attack.
 
 Defence-in-depth pins added:
 
-- `helixor-programs/programs/health-oracle/tests/epoch_logic.rs::c01_advance_digest_separates_pre_and_post_tick_attestations`
+- `phylanx-programs/programs/health-oracle/tests/epoch_logic.rs::c01_advance_digest_separates_pre_and_post_tick_attestations`
   asserts the advance digest differs across the exact pre-tick / post-tick
   pair the race posits. A future refactor that weakened the per-tick
   binding would fail this test.

@@ -6,16 +6,16 @@ launch-readiness audit (TA-1..TA-8).
 **Owners:** protocol engineering (TA-1, TA-6, TA-7), oracle engineering
 (TA-3, TA-4, TA-5, TA-8), platform engineering (TA-2).
 **Related code / config:**
-- `helixor-oracle/slashing/divergence.py` (TA-1)
-- `helixor-indexer/indexer/production_config.py` (TA-2 — `assert_source_verified_for_cluster`)
-- `helixor-indexer/indexer/consensus.py` (TA-2 — `is_verified_consensus_source` marker)
-- `helixor-indexer/indexer/runner.py` (TA-2 — pre-flight call site)
-- `helixor-oracle/tests/scoring/test_ta3_property_invariants.py` (TA-3)
-- `helixor-oracle/oracle/library_verification.py` (TA-4)
-- `helixor-oracle/oracle/tx_window_digest.py` (TA-5)
-- `helixor-programs/programs/certificate-issuer/src/state/health_certificate.rs` (TA-6 — `MAX_AGE_SECONDS`, `is_fresh_at`)
-- `helixor-programs/programs/slash-authority/src/state/squads_transition.rs` (TA-7)
-- `helixor-oracle/oracle/multi_rpc.py` (TA-8)
+- `phylanx-oracle/slashing/divergence.py` (TA-1)
+- `phylanx-indexer/indexer/production_config.py` (TA-2 — `assert_source_verified_for_cluster`)
+- `phylanx-indexer/indexer/consensus.py` (TA-2 — `is_verified_consensus_source` marker)
+- `phylanx-indexer/indexer/runner.py` (TA-2 — pre-flight call site)
+- `phylanx-oracle/tests/scoring/test_ta3_property_invariants.py` (TA-3)
+- `phylanx-oracle/oracle/library_verification.py` (TA-4)
+- `phylanx-oracle/oracle/tx_window_digest.py` (TA-5)
+- `phylanx-programs/programs/certificate-issuer/src/state/health_certificate.rs` (TA-6 — `MAX_AGE_SECONDS`, `is_fresh_at`)
+- `phylanx-programs/programs/slash-authority/src/state/squads_transition.rs` (TA-7)
+- `phylanx-oracle/oracle/multi_rpc.py` (TA-8)
 - `audit/trust_assumption_check.py` + `audit/test_trust_assumption_check.py` (mechanical regression gate)
 
 ---
@@ -70,7 +70,7 @@ nothing produced a deterministic, on-chain-anchorable record of
 "node X diverged on epoch Y."
 
 `DivergenceDetector.detect(agent, epoch, verdicts)` (in
-`helixor-oracle/slashing/divergence.py`) takes the per-node submissions
+`phylanx-oracle/slashing/divergence.py`) takes the per-node submissions
 for one epoch and computes:
 
 - the cluster's MEDIAN score (Byzantine-robust — a Byzantine minority
@@ -99,7 +99,7 @@ The fix is a duck-typed marker + a load-time pre-flight:
 - `ConsensusStream` declares `is_verified_consensus_source: bool = True`
   in its class body. Any other source omits the attribute.
 - `indexer.production_config.assert_source_verified_for_cluster(source)`
-  reads `HELIXOR_SOLANA_CLUSTER`; on mainnet, refuses any source whose
+  reads `PHYLANX_SOLANA_CLUSTER`; on mainnet, refuses any source whose
   marker is not `True`, raising `UnverifiedStreamSourceError`.
 - `GeyserIndexer.__init__` calls the pre-flight before storing the
   source. A mainnet runner with a single-endpoint source EXITS at

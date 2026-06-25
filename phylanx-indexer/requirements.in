@@ -1,0 +1,13 @@
+# =============================================================================
+# phylanx-indexer/requirements.in — direct, pinned production dependencies.
+#
+# VULN-25 SUPPLY CHAIN — see phylanx-oracle/requirements.in for the
+# full policy. Same pin discipline applies.
+#
+# The indexer currently has ZERO third-party runtime dependencies — it
+# is pure stdlib + sibling phylanx-oracle imports. The file exists so
+# the supply-chain sweep can audit its closure (and so a future direct
+# dep is added the right way).
+# =============================================================================
+
+# (no third-party runtime dependencies — pure stdlib)

@@ -10,12 +10,12 @@ defaults at once.
 **Owners:** oracle engineering (PDS-1, PDS-3), platform / SDK
 engineering (PDS-2).
 **Related code / config:**
-- `helixor-oracle/oracle/cluster/saturation_gate.py` (PDS-1)
-- `helixor-oracle/oracle/score_velocity.py` (PDS-2)
-- `helixor-oracle/oracle/cluster/correlated_inflation.py` (PDS-3)
-- `helixor-oracle/tests/oracle/test_pds1_saturation_gate.py`
-- `helixor-oracle/tests/oracle/test_pds2_score_velocity.py`
-- `helixor-oracle/tests/oracle/test_pds3_correlated_inflation.py`
+- `phylanx-oracle/oracle/cluster/saturation_gate.py` (PDS-1)
+- `phylanx-oracle/oracle/score_velocity.py` (PDS-2)
+- `phylanx-oracle/oracle/cluster/correlated_inflation.py` (PDS-3)
+- `phylanx-oracle/tests/oracle/test_pds1_saturation_gate.py`
+- `phylanx-oracle/tests/oracle/test_pds2_score_velocity.py`
+- `phylanx-oracle/tests/oracle/test_pds3_correlated_inflation.py`
 - `audit/death_spiral_check.py` + `audit/test_death_spiral_check.py`
   (mechanical regression gate)
 

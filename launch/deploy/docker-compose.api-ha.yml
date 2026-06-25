@@ -45,14 +45,14 @@
 version: "3.9"
 
 x-api-common: &api-common
-  image: helixor/api:${HELIXOR_VERSION:?HELIXOR_VERSION must be set}
+  image: phylanx/api:${PHYLANX_VERSION:?PHYLANX_VERSION must be set}
   restart: unless-stopped
   environment: &api-common-env
-    HELIXOR_NETWORK:      "${HELIXOR_NETWORK:-devnet}"
-    HELIXOR_MAINNET_OK:   "${HELIXOR_MAINNET_OK:-}"
-    DATABASE_URL:         "postgres://helixor_indexer:${TIMESCALE_PASSWORD}@timescale-primary/helixor"
-    READ_DATABASE_URL:    "postgres://helixor_indexer:${TIMESCALE_PASSWORD}@timescale-standby/helixor"
-    HELIXOR_API_PORT:     "8080"
+    PHYLANX_NETWORK:      "${PHYLANX_NETWORK:-devnet}"
+    PHYLANX_MAINNET_OK:   "${PHYLANX_MAINNET_OK:-}"
+    DATABASE_URL:         "postgres://phylanx_indexer:${TIMESCALE_PASSWORD}@timescale-primary/phylanx"
+    READ_DATABASE_URL:    "postgres://phylanx_indexer:${TIMESCALE_PASSWORD}@timescale-standby/phylanx"
+    PHYLANX_API_PORT:     "8080"
     LOG_LEVEL:            "INFO"
     SCORING_ALGO_VERSION:    "${SCORING_ALGO_VERSION:-}"
     SCORING_WEIGHTS_VERSION: "${SCORING_WEIGHTS_VERSION:-}"
@@ -79,7 +79,7 @@ services:
     <<: *api-common
     environment:
       <<: *api-common-env
-      HELIXOR_API_REPLICA_ID: "api-1"
+      PHYLANX_API_REPLICA_ID: "api-1"
     depends_on:
       timescale-primary: { condition: service_healthy, required: false }
       indexer:           { condition: service_started }
@@ -88,7 +88,7 @@ services:
     <<: *api-common
     environment:
       <<: *api-common-env
-      HELIXOR_API_REPLICA_ID: "api-2"
+      PHYLANX_API_REPLICA_ID: "api-2"
     depends_on:
       timescale-primary: { condition: service_healthy, required: false }
       indexer:           { condition: service_started }
@@ -97,7 +97,7 @@ services:
     <<: *api-common
     environment:
       <<: *api-common-env
-      HELIXOR_API_REPLICA_ID: "api-3"
+      PHYLANX_API_REPLICA_ID: "api-3"
     depends_on:
       timescale-primary: { condition: service_healthy, required: false }
       indexer:           { condition: service_started }

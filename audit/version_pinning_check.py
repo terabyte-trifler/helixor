@@ -52,11 +52,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # Targets — the exact files this audit pins
 # =============================================================================
 
-MESSAGES_PY            = REPO_ROOT / "helixor-oracle" / "oracle" / "cluster" / "messages.py"
-COMMIT_REVEAL_PY       = REPO_ROOT / "helixor-oracle" / "oracle" / "cluster" / "commit_reveal.py"
-COMMIT_REVEAL_ROUND_PY = REPO_ROOT / "helixor-oracle" / "oracle" / "cluster" / "commit_reveal_round.py"
-BYZANTINE_RUNNER_PY    = REPO_ROOT / "helixor-oracle" / "oracle" / "cluster" / "byzantine_runner.py"
-NODE_PY                = REPO_ROOT / "helixor-oracle" / "oracle" / "node.py"
+MESSAGES_PY            = REPO_ROOT / "phylanx-oracle" / "oracle" / "cluster" / "messages.py"
+COMMIT_REVEAL_PY       = REPO_ROOT / "phylanx-oracle" / "oracle" / "cluster" / "commit_reveal.py"
+COMMIT_REVEAL_ROUND_PY = REPO_ROOT / "phylanx-oracle" / "oracle" / "cluster" / "commit_reveal_round.py"
+BYZANTINE_RUNNER_PY    = REPO_ROOT / "phylanx-oracle" / "oracle" / "cluster" / "byzantine_runner.py"
+NODE_PY                = REPO_ROOT / "phylanx-oracle" / "oracle" / "node.py"
 
 
 # =============================================================================

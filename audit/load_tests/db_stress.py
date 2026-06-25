@@ -15,13 +15,13 @@ HONEST EXECUTION
 This harness is the load runner — it talks to a live TimescaleDB via
 $DATABASE_URL. The audit operator runs:
 
-    DATABASE_URL=postgres://helixor:...@db/helixor \\
+    DATABASE_URL=postgres://phylanx:...@db/phylanx \\
         python audit/load_tests/db_stress.py --rows 50_000_000
 
 For a quick sanity slice (local dev / CI), --rows 100_000 validates the
 harness itself and the schema migrations:
 
-    DATABASE_URL=postgres://localhost/helixor \\
+    DATABASE_URL=postgres://localhost/phylanx \\
         python audit/load_tests/db_stress.py --rows 100_000
 
 The smoke run extrapolates: if 100K rows insert at 12K rows/s on local
@@ -30,7 +30,7 @@ audit window.
 
 REQUIRED SCHEMA
 ---------------
-The harness expects the helixor-indexer schema from Day 17:
+The harness expects the phylanx-indexer schema from Day 17:
   * Hypertable `agent_transactions` (time-bucketed by block_time)
   * Hypertable `agent_score_history` (time-bucketed by epoch_end)
 The harness creates them with `CREATE TABLE IF NOT EXISTS` so a fresh DB

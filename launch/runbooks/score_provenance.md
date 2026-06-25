@@ -82,7 +82,7 @@ A divergence means one of:
    the cert. The cluster will re-emit on the next epoch;
    `AccountNotFound` should self-heal within ~30s.
 4. **Wrong PDA derivation in the partner's SDK fork.** If the
-   partner pinned an old `@helixor/sdk` minor that predates the
+   partner pinned an old `@phylanx/sdk` minor that predates the
    `scoreComponentsPda` helper, their PDA derivation can diverge
    from the on-chain seed scheme. Pin them to current SDK.
 5. **Pinned kernel hash drifted.** The partner pinned
@@ -103,30 +103,30 @@ A divergence means one of:
 ```bash
 # 1. What's the cert claiming?
 CERT_PDA=...   # from the consumer's bug report
-helixor-cli cert-show "$CERT_PDA" --field \
+phylanx-cli cert-show "$CERT_PDA" --field \
   agent,layout_version,epoch,score,scoring_code_hash,score_components_hash
 
 # 2. Does the on-chain ScoreComponentsAccount exist at that epoch?
 AGENT=$(...)
 EPOCH=$(...)
-helixor-cli score-components-show \
+phylanx-cli score-components-show \
   --agent "$AGENT" --epoch "$EPOCH" \
   --field epoch,agent,components_hash,payload_len
 
 # 3. Re-derive the hash from the on-chain payload.
-helixor-cli score-components-show --agent "$AGENT" --epoch "$EPOCH" \
+phylanx-cli score-components-show --agent "$AGENT" --epoch "$EPOCH" \
   --field payload --raw | sha256sum
 # Compare bytes-for-bytes with the cert's score_components_hash.
 
 # 4. Re-derive the score from the payload contribs.
-helixor-cli score-components-show --agent "$AGENT" --epoch "$EPOCH" \
+phylanx-cli score-components-show --agent "$AGENT" --epoch "$EPOCH" \
   --field payload --raw | jq '
     {claimed_score: .score,
      replay: ([.dims[].contrib] | add | (if . > 1000 then 1000 elif . < 0 then 0 else . end))}'
 # These MUST match (modulo delta_guard_rail clamp).
 
 # 5. Pull the cluster's view of the deployed kernel hash.
-helixor-cli oracle-config-show --field scoring_code_hash
+phylanx-cli oracle-config-show --field scoring_code_hash
 # Confirm matches the cert's scoring_code_hash AND the partner's
 # pinned EXPECTED_SCORING_CODE_HASH.
 ```
@@ -155,7 +155,7 @@ helixor-cli oracle-config-show --field scoring_code_hash
 
 - **`AccountNotFound` and the cert is > 30s old** → P0. The cluster's
   on-chain components state diverges from what the cert claims.
-  Halt cert issuance (`helixor-cli pause cert-writes`), investigate.
+  Halt cert issuance (`phylanx-cli pause cert-writes`), investigate.
   This is by-construction impossible if the CPI handler ran
   correctly: `issue_certificate` initialises BOTH the cert PDA AND
   the components PDA atomically. A cert without its components is
@@ -163,7 +163,7 @@ helixor-cli oracle-config-show --field scoring_code_hash
 
 - **`AccountUnreadable`** → P0 with a different shape. The bytes
   are there but deserialise fails. Almost always a program-version /
-  client-version mismatch. Confirm the partner's `helixor-sdk` IDL
+  client-version mismatch. Confirm the partner's `phylanx-sdk` IDL
   hash matches the deployed program's IDL hash. Run
   `audit/artifact_verification/verify_so_match.ts`.
 
@@ -228,7 +228,7 @@ helixor-cli oracle-config-show --field scoring_code_hash
 
 - **`AgentMismatch` / `EpochMismatch`** → SDK fork bug. The
   partner's PDA derivation diverged from the canonical seeds. Pin
-  them to the current `@helixor/sdk`.
+  them to the current `@phylanx/sdk`.
 
 ## On-chain rejections to watch
 
@@ -244,7 +244,7 @@ chain state diverges:
 | (see `errors.rs`) | `MissingScoreComponentsHash`    | Derived components hash is all-zero (sha256 of empty input). This should be caught by `ScoreComponentsPayloadEmpty` first — if it fires alone, the on-chain hash function is broken (impossible by construction; treat as catastrophic). |
 
 Any non-zero rate on the Prometheus
-`helixor_score_components_writetime_rejections_total{kind="*"}`
+`phylanx_score_components_writetime_rejections_total{kind="*"}`
 counter is a P1 in steady state — the cluster's serializer + writer
 should be self-consistent; a rejection means a deploy landed without
 the audit sweep catching the regression.

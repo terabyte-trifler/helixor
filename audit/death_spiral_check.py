@@ -6,7 +6,7 @@ The audit's catastrophic Scenario A enumerated a 7-step Protocol Death
 Spiral: attacker compromises 2 oracle nodes → runs slow-drift inflation
 for 30 epochs → all agent scores reach 900+ → DeFi protocols issue max
 loans → attacker triggers mass agent failures → loans default at once →
-Helixor's credibility is destroyed.
+Phylanx's credibility is destroyed.
 
 The mitigations (PDS-1..PDS-3) each close one substrate of the spiral:
 
@@ -112,14 +112,14 @@ def check_pds1_saturation_gate(report: Report) -> None:
     report.checked.append("PDS-1 cluster saturation gate")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "cluster" / "saturation_gate.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "cluster" / "saturation_gate.py"
     )
     _require(
         report, pds="PDS-1",
         rule="saturation-gate-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/cluster/saturation_gate.py is missing — "
+            "phylanx-oracle/oracle/cluster/saturation_gate.py is missing — "
             "the PDS-1 cross-agent saturation gate has been removed."
         ),
     )
@@ -191,14 +191,14 @@ def check_pds2_score_velocity(report: Report) -> None:
     report.checked.append("PDS-2 SDK score-velocity contract")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "score_velocity.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "score_velocity.py"
     )
     _require(
         report, pds="PDS-2",
         rule="score-velocity-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/score_velocity.py is missing — the "
+            "phylanx-oracle/oracle/score_velocity.py is missing — the "
             "PDS-2 score-velocity contract has been removed."
         ),
     )
@@ -253,7 +253,7 @@ def check_pds2_score_velocity(report: Report) -> None:
     # MUST still ship a MAX_SCORE_DELTA = 200 — PDS-2's SDK cap is
     # supposed to mirror it.
     gaming_src = _read(
-        REPO_ROOT / "helixor-oracle" / "scoring" / "_gaming.py"
+        REPO_ROOT / "phylanx-oracle" / "scoring" / "_gaming.py"
     )
     _require(
         report, pds="PDS-2",
@@ -277,7 +277,7 @@ def check_pds3_correlated_inflation(report: Report) -> None:
     report.checked.append("PDS-3 correlated-inflation detector")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "cluster"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "cluster"
         / "correlated_inflation.py"
     )
     _require(
@@ -285,7 +285,7 @@ def check_pds3_correlated_inflation(report: Report) -> None:
         rule="correlated-inflation-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/cluster/correlated_inflation.py is "
+            "phylanx-oracle/oracle/cluster/correlated_inflation.py is "
             "missing — the PDS-3 multi-epoch correlation detector has "
             "been removed."
         ),

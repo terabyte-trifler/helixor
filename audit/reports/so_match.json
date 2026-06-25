@@ -3,7 +3,7 @@
   "programs": {
     "health_oracle": {
       "programId": "EKK2Aj4C9GW8yt4rE2DmYN9A69LFmazGZgfWsFGwuaRN",
-      "local_path": "/Users/terabyte_trifler/Documents/helixor/helixor-programs/target/deploy/health_oracle.so",
+      "local_path": "/Users/terabyte_trifler/Documents/phylanx/phylanx-programs/target/deploy/health_oracle.so",
       "local_size": 285081,
       "local_size_raw": 285096,
       "local_sha256": "9f4922627a3f47e32fc8da01ce8a34d745678fe64f008df2e837b8ce99a694ed",
@@ -13,7 +13,7 @@
     },
     "certificate_issuer": {
       "programId": "4bsGcUKUmvE7JHXEUFwnDYc9ejh4zfpuTuugz1ghMQW7",
-      "local_path": "/Users/terabyte_trifler/Documents/helixor/helixor-programs/target/deploy/certificate_issuer.so",
+      "local_path": "/Users/terabyte_trifler/Documents/phylanx/phylanx-programs/target/deploy/certificate_issuer.so",
       "local_size": 240257,
       "local_size_raw": 240272,
       "local_sha256": "575d0fbc6ffca2d96f1319740238b157553c125bcb460668b2d939cdcf1bf234",
@@ -23,7 +23,7 @@
     },
     "slash_authority": {
       "programId": "8hicwiqhYw68MF4pK8ngoDCH875iXHj8xeLCgbsFYq1r",
-      "local_path": "/Users/terabyte_trifler/Documents/helixor/helixor-programs/target/deploy/slash_authority.so",
+      "local_path": "/Users/terabyte_trifler/Documents/phylanx/phylanx-programs/target/deploy/slash_authority.so",
       "local_size": 296673,
       "local_size_raw": 296688,
       "local_sha256": "92229e2ef75eb4c0b997bd5076def5079b4dce412a23d71d87da02c3e80f562c",

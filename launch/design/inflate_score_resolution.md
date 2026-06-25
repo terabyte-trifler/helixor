@@ -2,7 +2,7 @@
 
 **Status:** IMPLEMENTED.
 **Red-team finding:** Path 2 from the red-team attack tree (root:
-"Drain DeFi Protocol Integrated with Helixor") — "Inflate Legitimate
+"Drain DeFi Protocol Integrated with Phylanx") — "Inflate Legitimate
 Score" — three sub-leaves:
 
   2a. Exploit VULN-06 (baseline overwrite)           [LOW EFFORT]
@@ -14,22 +14,22 @@ indexer / cluster anchors continue to be owned by the
 certificate-issuer (VULN-06), indexer (VULN-07), and cluster
 (VULN-03) program teams.
 **Related code / config:**
-- `helixor-oracle/oracle/baseline_rotation_guard.py` (ILS-1)
-- `helixor-oracle/oracle/feature_corroboration.py` (ILS-2)
-- `helixor-oracle/oracle/score_drift_ceiling.py` (ILS-3)
-- `helixor-oracle/tests/oracle/test_ils1_baseline_rotation_guard.py`
-- `helixor-oracle/tests/oracle/test_ils2_feature_corroboration.py`
-- `helixor-oracle/tests/oracle/test_ils3_score_drift_ceiling.py`
+- `phylanx-oracle/oracle/baseline_rotation_guard.py` (ILS-1)
+- `phylanx-oracle/oracle/feature_corroboration.py` (ILS-2)
+- `phylanx-oracle/oracle/score_drift_ceiling.py` (ILS-3)
+- `phylanx-oracle/tests/oracle/test_ils1_baseline_rotation_guard.py`
+- `phylanx-oracle/tests/oracle/test_ils2_feature_corroboration.py`
+- `phylanx-oracle/tests/oracle/test_ils3_score_drift_ceiling.py`
 - `audit/inflate_score_check.py` +
   `audit/test_inflate_score_check.py` (mechanical regression gate)
 - On-chain / indexer / cluster anchors (UNCHANGED, cross-referenced
   by the ILS audit gate):
-  - `helixor-programs/programs/certificate-issuer/src/instructions/record_baseline.rs`
+  - `phylanx-programs/programs/certificate-issuer/src/instructions/record_baseline.rs`
     (`is_authorised_baseline_writer` + `BaselineRotationTooSoon` +
     `BaselineEpochNotMonotonic`)
-  - `helixor-indexer/eventbus/consumer.py`
+  - `phylanx-indexer/eventbus/consumer.py`
     (`TrustedProducerSet` + `verify_record_headers`)
-  - `helixor-oracle/oracle/cluster/drift_detector.py`
+  - `phylanx-oracle/oracle/cluster/drift_detector.py`
     (`VELOCITY_THRESHOLD = 0.20` + `DRIFT_REASON_VELOCITY`)
 
 ---
@@ -42,7 +42,7 @@ cluster's signing authority (Path 1) nor the consumer's verifier
 (Paths 3/4). Reproduced verbatim from the tree:
 
 ```
-ROOT: Drain DeFi Protocol Integrated with Helixor
+ROOT: Drain DeFi Protocol Integrated with Phylanx
 ├── Path 2: Inflate Legitimate Score
 │   ├── 2a. Exploit VULN-06 (baseline overwrite)           [LOW EFFORT]
 │   ├── 2b. Exploit VULN-07 (feature poisoning)            [MEDIUM EFFORT]
@@ -251,7 +251,7 @@ epochs. ILS-3 reifies the cumulative-drift contract:
   `(score - baseline) / baseline`) is REFUSED with
   `DRIFT_OVER_CUMULATIVE_CEILING`. Calibrated against the
   inflation magnitude a DeFi consumer would care about — a
-  borrower whose Helixor score has inflated 30% above baseline
+  borrower whose Phylanx score has inflated 30% above baseline
   has materially changed their risk profile.
 - `MAX_DRIFT_PER_EPOCH_RATIO = 0.05` — the per-epoch sub-pin. A
   per-epoch jump above 5% (a quarter of the cluster's velocity

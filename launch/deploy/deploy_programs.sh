@@ -187,7 +187,7 @@ fi
 
 # ── 1. Reproducible build ────────────────────────────────────────────────────
 echo "── building all 3 programs with anchor build --verifiable ──"
-(cd helixor-programs && anchor build --verifiable)
+(cd phylanx-programs && anchor build --verifiable)
 
 # ── 2. Per-program: deploy → transfer → verify ───────────────────────────────
 ALL_TRANSFERRED=1
@@ -209,7 +209,7 @@ for prog in "${PROGRAMS[@]}"; do
         echo "  ⊘  deploy already recorded: $deployed_id"
     fi
 
-    so_path="helixor-programs/target/deploy/${prog//-/_}.so"
+    so_path="phylanx-programs/target/deploy/${prog//-/_}.so"
     if [[ ! -f "$so_path" ]]; then
         echo "❌ build artifact missing: $so_path" >&2
         exit 2
@@ -220,7 +220,7 @@ for prog in "${PROGRAMS[@]}"; do
         # The deploy itself. anchor deploy reads Anchor.toml and uses the
         # configured cluster + wallet.
         deploy_out=$(
-            cd helixor-programs && \
+            cd phylanx-programs && \
             anchor deploy --provider.cluster "$CLUSTER_URL" --program-name "$prog"
         )
         echo "$deploy_out"
@@ -288,7 +288,7 @@ if command -v npx >/dev/null; then
     (
         cd audit/artifact_verification && \
         npx ts-node verify_so_match.ts --cluster "$CLUSTER" \
-            --build-dir ../../helixor-programs/target/deploy
+            --build-dir ../../phylanx-programs/target/deploy
     )
 else
     echo "⚠️  npx not installed — run audit/artifact_verification manually"

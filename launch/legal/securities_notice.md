@@ -1,12 +1,12 @@
-# Helixor Securities & Investment-Advice Notice
+# Phylanx Securities & Investment-Advice Notice
 
 **Effective:** mainnet launch date (see `launch/LAUNCH_CHECKLIST.md`).
 **Last reviewed:** 2026-05-27.
-**Canonical substrate:** `helixor-oracle/oracle/securities_compliance.py`.
+**Canonical substrate:** `phylanx-oracle/oracle/securities_compliance.py`.
 **Audit gate:** `audit/securities_compliance_check.py`.
 
 This notice is the public-facing surface of the SEC-1 mitigation
-suite. It describes (a) what a Helixor cert score IS and IS NOT, (b)
+suite. It describes (a) what a Phylanx cert score IS and IS NOT, (b)
 how oracle cluster operators are compensated, (c) what financial
 relationships an operator may have with rated agents and how those
 are disclosed, and (d) the channel a regulator may use to obtain
@@ -20,11 +20,11 @@ updated to match.
 
 ---
 
-## 1. What Helixor IS
+## 1. What Phylanx IS
 
-Helixor is a Solana-based trust-scoring protocol for autonomous AI
+Phylanx is a Solana-based trust-scoring protocol for autonomous AI
 agents. The oracle cluster ingests observable on-chain behaviour
-(per `helixor-oracle/oracle/data_protection_policy.py` §`TRANSACTION_HISTORY`)
+(per `phylanx-oracle/oracle/data_protection_policy.py` §`TRANSACTION_HISTORY`)
 and computes a numeric score and an alert tier per agent per epoch.
 The output is an on-chain `HealthCertificate` PDA signed by 3-of-5
 cluster operators (`programs/certificate-issuer/src/signing.rs`).
@@ -32,18 +32,18 @@ cluster operators (`programs/certificate-issuer/src/signing.rs`).
 The score is a **technical trust signal** — it reflects what the
 cluster has observed about an agent's on-chain conduct, weighed
 against the cluster's published scoring kernel
-(`helixor-oracle/oracle/scoring/_scoring.py`, hash-bound into the
+(`phylanx-oracle/oracle/scoring/_scoring.py`, hash-bound into the
 cert via AW-04). The score does NOT incorporate, predict, or
 recommend any market price or rate of return.
 
 **Source of truth:** `ADVISORY_DISCLAIMER` in
-`helixor-oracle/oracle/securities_compliance.py`. Every consumer-
+`phylanx-oracle/oracle/securities_compliance.py`. Every consumer-
 facing SDK surface that returns a score renders this text
 verbatim — see §1.1.
 
-### 1.1 What a Helixor cert score is NOT
+### 1.1 What a Phylanx cert score is NOT
 
-A Helixor cert score is **NOT**:
+A Phylanx cert score is **NOT**:
 
   * **Investment advice** under Investment Advisers Act §202(a)(11)
     (US), MiCA Title V (EU), SEBI's Investment Advisers Regulations
@@ -56,7 +56,7 @@ A Helixor cert score is **NOT**:
   * **Issued by a registered investment adviser, broker-dealer,
     credit rating agency, CASP (under MiCA), or registered IA
     (under SEBI).** No cluster operator holds any of those
-    registrations in their capacity as a Helixor operator. An
+    registrations in their capacity as a Phylanx operator. An
     operator may hold such a registration in a separate capacity;
     that registration is theirs alone and does not extend to their
     operator activity.
@@ -65,7 +65,7 @@ A Helixor cert score is **NOT**:
     the rated agent's wallet, any token associated with it, or any
     other party's asset.
 
-Consumers integrating Helixor MUST NOT present a Helixor cert score
+Consumers integrating Phylanx MUST NOT present a Phylanx cert score
 as any of the above to their own users. The
 `ADVISORY_DISCLAIMER` constant is provided in the SDK precisely so
 this carve-out can travel with the score verbatim.
@@ -75,9 +75,9 @@ this carve-out can travel with the score verbatim.
 ## 2. Cluster operator compensation
 
 **Source of truth:** `OperatorAttestation.compensation_model` in
-`helixor-oracle/oracle/operator_manifest.py` +
+`phylanx-oracle/oracle/operator_manifest.py` +
 `ALLOWED_COMPENSATION_MODELS` in
-`helixor-oracle/oracle/securities_compliance.py`.
+`phylanx-oracle/oracle/securities_compliance.py`.
 
 Each cluster operator declares their compensation model in their
 signed attestation. The set of allowed models is closed and pinned
@@ -103,7 +103,7 @@ Models intentionally **NOT** allowed (and refused at the boot gate):
   * Performance-fee or revenue-share arrangements.
   * Token grants whose value tracks protocol TVL or cert-gated
     capital flows.
-  * Equity in any Helixor-affiliated entity that does not exist
+  * Equity in any Phylanx-affiliated entity that does not exist
     purely for service delivery.
 
 The audit-mandated reading is: under this compensation model, the
@@ -125,9 +125,9 @@ protocol assumes the adversary cannot perform.
 ## 3. Conflict-of-interest disclosure
 
 **Source of truth:** `OperatorAttestation.conflicts_disclosed` in
-`helixor-oracle/oracle/operator_manifest.py` +
+`phylanx-oracle/oracle/operator_manifest.py` +
 `ConflictDisclosure(rated_wallet, relationship_type)` in
-`helixor-oracle/oracle/securities_compliance.py`.
+`phylanx-oracle/oracle/securities_compliance.py`.
 
 Each operator declares, in their signed attestation, every
 financial relationship they have with any rated `agent_wallet`.
@@ -169,7 +169,7 @@ posture below applies symmetrically across them:
     adviser definition); SEC v. Howey Co., 328 U.S. 293 (1946);
     Reves v. Ernst & Young, 494 U.S. 56 (1990) for note-like
     instruments. No cluster operator acts in an IA capacity
-    through their Helixor operator activity.
+    through their Phylanx operator activity.
   * **European Union / EEA** — MiCA Regulation (2023/1114), Title
     V on Crypto-Asset Service Providers, and the MiFID II
     investment-advice definition. The cluster's output is not a
@@ -200,7 +200,7 @@ Regulators with proper authority over an operator's home
 jurisdiction may contact that operator-of-record via:
 
   1. The contact channel published in
-     `helixor-oracle/deploy/operator_manifest.json`'s
+     `phylanx-oracle/deploy/operator_manifest.json`'s
      `operator_contact` field. This is the canonical inbound for
      subpoenas, no-action letters, and information requests.
   2. The DP-1 privacy-notice channel
@@ -235,7 +235,7 @@ operator who you believe is in violation of the
 compensation-independence or conflict-disclosure substrate:
 
   * **Operator-of-record:**
-    `helixor-oracle/deploy/operator_manifest.json`
+    `phylanx-oracle/deploy/operator_manifest.json`
     `operator_contact` field.
   * **Per-jurisdiction regulator inquiry path:**
     `launch/runbooks/securities_inquiry_response.md`.

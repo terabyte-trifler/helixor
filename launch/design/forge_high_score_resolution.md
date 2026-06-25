@@ -2,7 +2,7 @@
 
 **Status:** IMPLEMENTED.
 **Red-team finding:** Path 1 from the red-team attack tree (root:
-"Drain DeFi Protocol Integrated with Helixor") — "Forge High-Score
+"Drain DeFi Protocol Integrated with Phylanx") — "Forge High-Score
 Cert" — three sub-leaves:
 
   1a. Compromise 3 oracle keys                          [HIGH EFFORT]
@@ -13,18 +13,18 @@ Cert" — three sub-leaves:
 anchors continue to be owned by the certificate-issuer (VULN-01) and
 health-oracle (VULN-13) program teams.
 **Related code / config:**
-- `helixor-oracle/oracle/key_rotation_cadence.py` (FHS-1)
-- `helixor-oracle/oracle/signer_provenance.py` (FHS-2)
-- `helixor-oracle/oracle/rotation_overlap_guard.py` (FHS-3)
-- `helixor-oracle/tests/oracle/test_fhs1_key_rotation_cadence.py`
-- `helixor-oracle/tests/oracle/test_fhs2_signer_provenance.py`
-- `helixor-oracle/tests/oracle/test_fhs3_rotation_overlap_guard.py`
+- `phylanx-oracle/oracle/key_rotation_cadence.py` (FHS-1)
+- `phylanx-oracle/oracle/signer_provenance.py` (FHS-2)
+- `phylanx-oracle/oracle/rotation_overlap_guard.py` (FHS-3)
+- `phylanx-oracle/tests/oracle/test_fhs1_key_rotation_cadence.py`
+- `phylanx-oracle/tests/oracle/test_fhs2_signer_provenance.py`
+- `phylanx-oracle/tests/oracle/test_fhs3_rotation_overlap_guard.py`
 - `audit/forge_high_score_check.py` +
   `audit/test_forge_high_score_check.py` (mechanical regression gate)
 - On-chain anchors (UNCHANGED, cross-referenced by FHS-3 / VULN-01):
-  - `helixor-programs/programs/health-oracle/src/state/pending_oracle_rotation.rs`
+  - `phylanx-programs/programs/health-oracle/src/state/pending_oracle_rotation.rs`
     (`MIN_TIMELOCK_SECONDS = 48 * 60 * 60`)
-  - `helixor-programs/programs/certificate-issuer/src/signing.rs`
+  - `phylanx-programs/programs/certificate-issuer/src/signing.rs`
     (`verify_threshold_signatures` + `expected_digest` filtering)
 
 ---
@@ -36,7 +36,7 @@ one whose substrate is the cluster's signing authority. Reproduced
 verbatim from the tree:
 
 ```
-ROOT: Drain DeFi Protocol Integrated with Helixor
+ROOT: Drain DeFi Protocol Integrated with Phylanx
 ├── Path 1: Forge High-Score Cert
 │   ├── 1a. Compromise 3 oracle keys                       [HIGH EFFORT]
 │   ├── 1b. Exploit VULN-01 (sig verification bypass)      [MEDIUM EFFORT]

@@ -1,12 +1,12 @@
-# Helixor Privacy Notice
+# Phylanx Privacy Notice
 
 **Effective:** mainnet launch date (see `launch/LAUNCH_CHECKLIST.md`).
 **Last reviewed:** 2026-05-27.
-**Canonical substrate:** `helixor-oracle/oracle/data_protection_policy.py`.
+**Canonical substrate:** `phylanx-oracle/oracle/data_protection_policy.py`.
 **Audit gate:** `audit/data_protection_check.py`.
 
 This notice is the public-facing surface of the DP-1 mitigation
-suite. It describes what data Helixor collects about agent
+suite. It describes what data Phylanx collects about agent
 operators, on what legal basis, for how long, where it lives, and
 how to exercise data-subject rights against it. The notice is
 written for three jurisdictions whose laws converge on the same
@@ -24,9 +24,9 @@ diverge, the code wins and this notice must be updated to match.
 
 ## 1. Who we are
 
-Helixor is a Solana-based trust-scoring protocol for autonomous AI
+Phylanx is a Solana-based trust-scoring protocol for autonomous AI
 agents. The protocol is operated by a 3-of-5 multi-jurisdiction
-oracle cluster (see HCR-4 + OFAC-1, `helixor-oracle/oracle/
+oracle cluster (see HCR-4 + OFAC-1, `phylanx-oracle/oracle/
 operator_manifest.py`); the cluster operators are the joint
 "controllers" of the personal data described below within the
 meaning of GDPR Art. 4(7). The Verified Integrators consuming
@@ -34,13 +34,13 @@ issued certificates are independent controllers for their own
 processing; this notice does not cover them.
 
 For data-subject requests, contact the operator-of-record listed
-in `helixor-oracle/deploy/operator_manifest.json`.
+in `phylanx-oracle/deploy/operator_manifest.json`.
 
 ---
 
 ## 2. What is "personal data" here
 
-Helixor identifies agent operators by their Solana wallet pubkey
+Phylanx identifies agent operators by their Solana wallet pubkey
 (a base58 string of 32–44 characters). The wallet pubkey is a
 **pseudonymous identifier** in the GDPR Recital 26 sense: it
 does not directly name the operator, but it is linkable to one,
@@ -83,12 +83,12 @@ is rendered from `RETENTION_POLICIES` and pinned in code:
 | **OPERATIONAL_TELEMETRY** | Prometheus TSDB | 30 days (retention rotation) | Legitimate interest — fraud prevention | **Yes** (by rotation) |
 
 **Source of truth:**
-- TimescaleDB retention: `helixor-oracle/db/migrations/0009_timescaledb.sql`
+- TimescaleDB retention: `phylanx-oracle/db/migrations/0009_timescaledb.sql`
   pins `INTERVAL '180 days'`.
 - Prometheus retention: `launch/deploy/docker-compose.indexer.yml`
   pins `--storage.tsdb.retention.time=30d`.
 - All retention seconds and lawful-basis values:
-  `helixor-oracle/oracle/data_protection_policy.py`.
+  `phylanx-oracle/oracle/data_protection_policy.py`.
 
 ---
 
@@ -96,14 +96,14 @@ is rendered from `RETENTION_POLICIES` and pinned in code:
 
 GDPR Art. 5(1)(b), DPDP s.7(c), and CCPA §1798.100(c) all require
 that data be processed only for declared, compatible purposes.
-Helixor processes the data above for **exactly two** purposes:
+Phylanx processes the data above for **exactly two** purposes:
 
   1. **Trust-scoring of autonomous agents.** The
      TRANSACTION_HISTORY + SCORE_HISTORY + OPERATIONAL_TELEMETRY
      categories feed the per-epoch scoring pipeline. These are
      the inputs the scoring functions need; nothing else is fed
-     into them. Source: `helixor-oracle/features/extract.py` +
-     `helixor-oracle/scoring/`.
+     into them. Source: `phylanx-oracle/features/extract.py` +
+     `phylanx-oracle/scoring/`.
   2. **Tamper-resistant audit trail.** The CERT_HISTORY +
      REGISTRATION_METADATA + REFUSAL_LOG + CHALLENGE_HISTORY
      categories exist so that any party — auditor, integrator,
@@ -214,7 +214,7 @@ erasable on request** for the following reasons:
   - **Public ledger immutability.** The Solana ledger is
     append-only by design. Removing or rewriting a confirmed
     account is mechanically infeasible at the program layer.
-    Helixor does not, and cannot, hold a private key with
+    Phylanx does not, and cannot, hold a private key with
     authority to mutate every operator's `HealthCertificate`.
   - **Audit-trail load-bearing.** The on-chain audit trail is
     what proves the cluster did not silently delist your agent
@@ -236,7 +236,7 @@ ledger.
 **Cohort-level pseudonymity.** A wallet pubkey is linkable to a
 natural person ONLY if the linker holds an off-chain mapping
 (KYC record at an exchange, social-media post claiming the
-wallet, etc.). Helixor does not collect, hold, or publish such
+wallet, etc.). Phylanx does not collect, hold, or publish such
 mappings. Pseudonymous wallet data on a public ledger is the
 state-of-the-art baseline under GDPR Art. 4(5) /
 Art. 25 (pseudonymisation by design).
@@ -254,7 +254,7 @@ The 3-of-5 oracle cluster operators run nodes in at least 2
 distinct jurisdictions (HCR-4 floor in
 `oracle/operator_manifest.py`; see also OFAC-1 sig binding). The
 exact jurisdictions are published in
-`helixor-oracle/deploy/operator_manifest.json` and verifiable via
+`phylanx-oracle/deploy/operator_manifest.json` and verifiable via
 `verify_attestation_signatures`. Off-chain stores (TimescaleDB,
 Kafka, Prometheus) live in the operator's hosting region; the
 audit / privacy notice surfaces this. For GDPR Chapter V
@@ -291,7 +291,7 @@ requirement.
 ## 9. Contact
 
 Operator-of-record contact: see
-`helixor-oracle/deploy/operator_manifest.json`.
+`phylanx-oracle/deploy/operator_manifest.json`.
 Audit log of past DSAR requests: see
 `launch/runbooks/data_subject_request_response.md` (operator-only,
 not publicly readable; the existence of the log is disclosed

@@ -45,9 +45,9 @@ fire them.
 **Substrate:** the two-step propose / enact rotation flow on
 `health-oracle`, both gated by the Squads vault.
 
-  - `helixor-programs/programs/health-oracle/src/instructions/propose_oracle_key_rotation.rs`
-  - `helixor-programs/programs/health-oracle/src/instructions/enact_oracle_key_rotation.rs`
-  - `helixor-programs/programs/health-oracle/src/state/pending_oracle_rotation.rs`
+  - `phylanx-programs/programs/health-oracle/src/instructions/propose_oracle_key_rotation.rs`
+  - `phylanx-programs/programs/health-oracle/src/instructions/enact_oracle_key_rotation.rs`
+  - `phylanx-programs/programs/health-oracle/src/state/pending_oracle_rotation.rs`
     pins `MIN_TIMELOCK_SECONDS = 48 * 60 * 60` (48-hour minimum
     between propose and enact).
 
@@ -151,7 +151,7 @@ Any DeFi integrator running the FHS-1b cross-check (replay the
 verifier against the canonical digest) will automatically refuse certs
 whose declared signers don't intersect the post-rotation cluster.
 
-**Test pin:** `helixor-sdk/test/verified_consumer.test.ts` exercises
+**Test pin:** `phylanx-sdk/test/verified_consumer.test.ts` exercises
 the `Active → Revoked` transition and the layout-pinned decode.
 
 ---
@@ -160,7 +160,7 @@ the `Active → Revoked` transition and the layout-pinned decode.
 
 **Substrate:** FRP-3 cluster-side cert-reissue cadence floor.
 
-`helixor-oracle/oracle/cert_reissue_cadence.py` pins
+`phylanx-oracle/oracle/cert_reissue_cadence.py` pins
 `MAX_CERT_REISSUE_INTERVAL_SECONDS = 4 * 3600` (4 hours). The cluster
 re-signs every active agent's cert at least every 4 hours, REGARDLESS
 of whether the score changed. After the rotation enacts in step 1,
@@ -184,7 +184,7 @@ upgrade is needed).
 ```bash
 # For each active agent, the cluster's most recent cert should carry
 # `signers` (off-chain telemetry) intersecting the new cluster_keys.
-helixor-oracle-cli cert latest --agent <pubkey> | jq '.signers'
+phylanx-oracle-cli cert latest --agent <pubkey> | jq '.signers'
 # Should NOT include the rotated-out key.
 ```
 
@@ -198,7 +198,7 @@ helixor-oracle-cli cert latest --agent <pubkey> | jq '.signers'
   reissue ix is on the LONG-TERM roadmap as a *visibility* feature,
   not a correctness one.
 
-**Test pin:** `helixor-oracle/tests/oracle/test_frp3_cert_reissue_cadence.py`.
+**Test pin:** `phylanx-oracle/tests/oracle/test_frp3_cert_reissue_cadence.py`.
 
 ---
 
@@ -227,16 +227,16 @@ WITHOUT any new on-chain or off-chain action:
 **Procedure (responder):**
 
 1. **Confirm the cluster is in halt-issuance state.** Check
-   `helixor-oracle-cli cluster status` — `signing.suspended == true`.
+   `phylanx-oracle-cli cluster status` — `signing.suspended == true`.
 2. **Post the incident notice** to the Verified Integrator channel
-   (the email / Slack list maintained alongside `HELIXOR_WEBHOOKS`).
+   (the email / Slack list maintained alongside `PHYLANX_WEBHOOKS`).
    The notice should reference this runbook section and the expected
    resume time. The notice is courtesy; the freshness floors are the
    binding mechanism.
 3. **Wait for the DBP-4 webhook to fire.** Within 36h, every Insured-
    tier subscriber receives a `cert.degrading` event signed by HMAC-
    SHA256 with their per-partner secret
-   (`helixor-api/api/webhooks.py:SIGNATURE_HEADER`). Partners that
+   (`phylanx-api/api/webhooks.py:SIGNATURE_HEADER`). Partners that
    wire this event to their own monitoring see a pause signal even if
    they missed the courtesy notice.
 4. **After audit completes** and step 1 has rotated the compromised
@@ -256,18 +256,18 @@ WITHOUT any new on-chain or off-chain action:
 - Lift the cluster's signing halt until step 1 enacts.
 
 **Anchor pins:**
-- `helixor-sdk/src/safe_reader.ts` — `SafeCertReader` reject reasons
+- `phylanx-sdk/src/safe_reader.ts` — `SafeCertReader` reject reasons
   (`StaleCert`, `VelocityExceeded`, `InsufficientHistory`).
 - `launch/integrations/example_safe_partner/reader.ts` — SOL-3
   per-operation freshness floors:
   `LOAN_ISSUE_MAX_AGE_SECONDS = 4*60*60`,
   `LIQUIDATION_CHECK_MAX_AGE_SECONDS = 12*60*60`.
-- `helixor-api/api/webhooks.py` — `DEGRADING_THRESHOLD_FRACTION = 0.75`
+- `phylanx-api/api/webhooks.py` — `DEGRADING_THRESHOLD_FRACTION = 0.75`
   fires the `cert.degrading` event at 36h.
 
 **Test pins:**
-- `helixor-sdk/test/safe_reader.test.ts` — reject-reason coverage.
-- `helixor-api/tests/test_dbp4_webhooks.py` — webhook trigger fires
+- `phylanx-sdk/test/safe_reader.test.ts` — reject-reason coverage.
+- `phylanx-api/tests/test_dbp4_webhooks.py` — webhook trigger fires
   inside the age window and dedupes per (partner, agent, epoch).
 
 ---

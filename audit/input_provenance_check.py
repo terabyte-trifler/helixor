@@ -43,24 +43,24 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 # =============================================================================
-# Scan roots — where Helixor calls live
+# Scan roots — where Phylanx calls live
 # =============================================================================
 
 PYTHON_ROOTS: tuple[Path, ...] = (
-    REPO_ROOT / "helixor-oracle" / "oracle",
-    REPO_ROOT / "helixor-oracle" / "tests",
-    REPO_ROOT / "helixor-api",
-    REPO_ROOT / "helixor-indexer",
+    REPO_ROOT / "phylanx-oracle" / "oracle",
+    REPO_ROOT / "phylanx-oracle" / "tests",
+    REPO_ROOT / "phylanx-api",
+    REPO_ROOT / "phylanx-indexer",
 )
 
 TS_ROOTS: tuple[Path, ...] = (
-    REPO_ROOT / "helixor-programs" / "tests",
-    REPO_ROOT / "helixor-sdk" / "src",
-    REPO_ROOT / "helixor-sdk" / "test",
+    REPO_ROOT / "phylanx-programs" / "tests",
+    REPO_ROOT / "phylanx-sdk" / "src",
+    REPO_ROOT / "phylanx-sdk" / "test",
 )
 
 RUST_ROOTS: tuple[Path, ...] = (
-    REPO_ROOT / "helixor-programs" / "programs",
+    REPO_ROOT / "phylanx-programs" / "programs",
 )
 
 

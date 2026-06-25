@@ -15,7 +15,7 @@
 // -----
 //   npx ts-node audit/artifact_verification/verify_so_match.ts \\
 //     --cluster mainnet-beta \\
-//     --build-dir helixor-programs/target/deploy
+//     --build-dir phylanx-programs/target/deploy
 // =============================================================================
 
 import { Connection, PublicKey } from "@solana/web3.js";
@@ -55,7 +55,7 @@ function parseArgs(): {
     const programsFile = argv.indexOf("--programs-file");
     return {
         cluster:      get("cluster", "mainnet-beta"),
-        buildDir:     get("build-dir", "helixor-programs/target/deploy"),
+        buildDir:     get("build-dir", "phylanx-programs/target/deploy"),
         report:       get("report", "audit/reports/so_match.json"),
         programsFile: programsFile < 0 ? null : argv[programsFile + 1],
     };
@@ -116,7 +116,7 @@ async function main(): Promise<number> {
 
         if (!fs.existsSync(localPath)) {
             console.log(`❌ [${name}] local build missing: ${localPath}`);
-            console.log(`   run: cd helixor-programs && anchor build --verifiable`);
+            console.log(`   run: cd phylanx-programs && anchor build --verifiable`);
             failed = true;
             continue;
         }

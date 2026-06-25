@@ -77,7 +77,7 @@ cat /tmp/nss.json | python3 -m json.tool | head -80
   `unknown:<label>` and the per-provider cap may not bind correctly.
   Restore the entry.
 - **NSS-2 env-var or bucket constant changed**
-  (`HELIXOR_INPROCESS_SIGNER_OK`, `SIGNER_BUCKET_IN_PROCESS = "in-process"`,
+  (`PHYLANX_INPROCESS_SIGNER_OK`, `SIGNER_BUCKET_IN_PROCESS = "in-process"`,
   `SIGNER_BUCKET_HSM = "hsm"`, `SIGNER_BUCKET_UNKNOWN = "unknown"`):
   the boot-log and audit-report consumers grep these literals.
   Restore them. Never rename the env var — operators' opt-in scripts
@@ -102,7 +102,7 @@ cat /tmp/nss.json | python3 -m json.tool | head -80
   setup-and-borrow detectability, not honest-user ergonomics.
 - **VULN-23 consumer-side `MIN_HISTORY_REQUIRED` disappeared** (soft
   finding): the consumer-side gate that complements NSS-3 has
-  shifted. Investigate `helixor-sdk/src/lib/cert_reader.ts`. NSS-3
+  shifted. Investigate `phylanx-sdk/src/lib/cert_reader.ts`. NSS-3
   remains load-bearing alone, but defence-in-depth is reduced.
 
 ### After every fix
@@ -122,7 +122,7 @@ Both MUST be green before the PR is mergeable.
 ### Triage (60s)
 
 ```bash
-journalctl -u helixor-cluster-bootstrap --since "10 min ago" \
+journalctl -u phylanx-cluster-bootstrap --since "10 min ago" \
   | grep -A 20 "NSS-1"
 # The exception's .report carries:
 #   - cloud_counts: {"aws": 3, "gcp": 1, "hetzner": 1}
@@ -198,7 +198,7 @@ gate:
    Re-deploy.
 3. **HSM outage that requires a temporary in-process signer**: this
    is the documented opt-in path. Set
-   `HELIXOR_INPROCESS_SIGNER_OK=1` in the affected node's
+   `PHYLANX_INPROCESS_SIGNER_OK=1` in the affected node's
    environment AND record the justification in
    `audit/reports/inprocess_signer_optin.md` with the start / end
    timestamps. The boot path will log at ERROR, the operator sees it
@@ -206,11 +206,11 @@ gate:
    var as soon as the HSM is back; do not leave it set across deploys.
 4. **`network == "devnet"` / `localnet`**: NSS-2 should NOT refuse on
    dev networks. If it did, something is wrong with the network
-   detection. Check `HELIXOR_NETWORK` is set correctly and that
+   detection. Check `PHYLANX_NETWORK` is set correctly and that
    `network_guard.evaluate()` returns the expected verdict. The
    bucket constants and env var should not be touched.
 
-DO NOT set `HELIXOR_INPROCESS_SIGNER_OK=1` as a permanent workaround.
+DO NOT set `PHYLANX_INPROCESS_SIGNER_OK=1` as a permanent workaround.
 The opt-in path is logged at ERROR for a reason — it is a temporary,
 auditable escape hatch, not a deploy-config setting.
 
@@ -290,9 +290,9 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest audit/test_nation_state_check.py -v
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest \
-    helixor-oracle/tests/oracle/test_nss1_cloud_diversity.py \
-    helixor-oracle/tests/oracle/test_nss2_signer_enforcement.py \
-    helixor-oracle/tests/oracle/test_nss3_agent_age_gate.py -v
+    phylanx-oracle/tests/oracle/test_nss1_cloud_diversity.py \
+    phylanx-oracle/tests/oracle/test_nss2_signer_enforcement.py \
+    phylanx-oracle/tests/oracle/test_nss3_agent_age_gate.py -v
 ```
 
 All three MUST be green before the PR is mergeable. For a boot /

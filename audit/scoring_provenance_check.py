@@ -58,20 +58,20 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 # =============================================================================
-# Scan roots — where Helixor calls live
+# Scan roots — where Phylanx calls live
 # =============================================================================
 
 # Scoped narrowly to PRODUCTION oracle code. Test files deliberately
 # exercise the kwarg-defaults path; the audit's job is to enforce that
 # production callers always thread the AW-04 hashes explicitly.
 PYTHON_ROOTS: tuple[Path, ...] = (
-    REPO_ROOT / "helixor-oracle" / "oracle",
+    REPO_ROOT / "phylanx-oracle" / "oracle",
 )
 
 TS_ROOTS: tuple[Path, ...] = (
-    REPO_ROOT / "helixor-programs" / "tests",
-    REPO_ROOT / "helixor-sdk" / "src",
-    REPO_ROOT / "helixor-sdk" / "test",
+    REPO_ROOT / "phylanx-programs" / "tests",
+    REPO_ROOT / "phylanx-sdk" / "src",
+    REPO_ROOT / "phylanx-sdk" / "test",
 )
 
 

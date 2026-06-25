@@ -54,13 +54,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # Targets
 # =============================================================================
 
-ORACLE_WINDOW_JITTER_PY  = REPO_ROOT / "helixor-oracle" / "detection" / "window_jitter.py"
-ORACLE_GAMING_PY         = REPO_ROOT / "helixor-oracle" / "scoring" / "_gaming.py"
-ORACLE_COMPOSITE_PY      = REPO_ROOT / "helixor-oracle" / "scoring" / "composite.py"
-ORACLE_TYPES_PY          = REPO_ROOT / "helixor-oracle" / "detection" / "types.py"
-API_FLAG_OBFUSCATION_PY  = REPO_ROOT / "helixor-api" / "api" / "flag_obfuscation.py"
-API_SCHEMAS_PY           = REPO_ROOT / "helixor-api" / "api" / "schemas.py"
-API_APP_PY               = REPO_ROOT / "helixor-api" / "api" / "app.py"
+ORACLE_WINDOW_JITTER_PY  = REPO_ROOT / "phylanx-oracle" / "detection" / "window_jitter.py"
+ORACLE_GAMING_PY         = REPO_ROOT / "phylanx-oracle" / "scoring" / "_gaming.py"
+ORACLE_COMPOSITE_PY      = REPO_ROOT / "phylanx-oracle" / "scoring" / "composite.py"
+ORACLE_TYPES_PY          = REPO_ROOT / "phylanx-oracle" / "detection" / "types.py"
+API_FLAG_OBFUSCATION_PY  = REPO_ROOT / "phylanx-api" / "api" / "flag_obfuscation.py"
+API_SCHEMAS_PY           = REPO_ROOT / "phylanx-api" / "api" / "schemas.py"
+API_APP_PY               = REPO_ROOT / "phylanx-api" / "api" / "app.py"
 
 
 # Audit-mandated numeric values. The scanner refuses to let them be

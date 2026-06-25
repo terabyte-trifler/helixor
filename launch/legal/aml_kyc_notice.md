@@ -1,12 +1,12 @@
-# Helixor KYC / AML Posture Notice
+# Phylanx KYC / AML Posture Notice
 
 **Effective:** mainnet launch date (see `launch/LAUNCH_CHECKLIST.md`).
 **Last reviewed:** 2026-05-27.
-**Canonical substrate:** `helixor-oracle/oracle/aml_compliance.py`.
+**Canonical substrate:** `phylanx-oracle/oracle/aml_compliance.py`.
 **Audit gate:** `audit/aml_compliance_check.py`.
 
 This notice is the public-facing surface of the AML-1 mitigation
-suite. It describes (a) why Helixor's cluster activity does NOT fall
+suite. It describes (a) why Phylanx's cluster activity does NOT fall
 within the customer-due-diligence regimes (BSA / FinCEN, FATF
 Recommendations 10 / 15 / 16, 5AMLD/6AMLD, MiCA CASP, PMLA, MLR 2017,
 PSA 2019), (b) what each cluster operator attests about their own
@@ -23,11 +23,11 @@ to match.
 
 ---
 
-## 1. What Helixor IS
+## 1. What Phylanx IS
 
-Helixor is a Solana-based trust-scoring protocol for autonomous AI
+Phylanx is a Solana-based trust-scoring protocol for autonomous AI
 agents. The oracle cluster ingests observable on-chain behaviour
-(per `helixor-oracle/oracle/data_protection_policy.py` §
+(per `phylanx-oracle/oracle/data_protection_policy.py` §
 `TRANSACTION_HISTORY`) and computes a numeric score and an alert
 tier per agent per epoch. The output is an on-chain
 `HealthCertificate` PDA signed by 3-of-5 cluster operators
@@ -36,19 +36,19 @@ tier per agent per epoch. The output is an on-chain
 The score is a **technical trust signal** — it reflects what the
 cluster has observed about an agent's on-chain conduct, weighed
 against the cluster's published scoring kernel
-(`helixor-oracle/oracle/scoring/_scoring.py`, hash-bound into the
+(`phylanx-oracle/oracle/scoring/_scoring.py`, hash-bound into the
 cert via AW-04). The cluster does NOT take custody of any asset,
 move value between parties, or hold an account-of-record for any
 natural or legal person.
 
 **Source of truth:** `AML_KYC_DISCLAIMER` in
-`helixor-oracle/oracle/aml_compliance.py`. Every consumer-facing
+`phylanx-oracle/oracle/aml_compliance.py`. Every consumer-facing
 SDK surface that returns a score renders this text verbatim — see
 §1.1.
 
-### 1.1 What a Helixor cert score is NOT
+### 1.1 What a Phylanx cert score is NOT
 
-A Helixor cert score is **NOT**:
+A Phylanx cert score is **NOT**:
 
   * **A KYC control.** The cluster has no customer-identity
     information about any rated `agent_wallet` and no mechanism to
@@ -66,11 +66,11 @@ A Helixor cert score is **NOT**:
     FATF Recommendation 16 / 5AMLD Art. 32a / FinCEN's Travel Rule
     require an entity that "transmits funds"; the cluster does not.
   * **A substitute for the consumer's own customer due-diligence.**
-    A DeFi lender, exchange, or wallet that consumes a Helixor cert
+    A DeFi lender, exchange, or wallet that consumes a Phylanx cert
     score in its own risk decision REMAINS the obligated party for
     its own KYC/AML/CTF program under its home jurisdiction.
 
-Consumers integrating Helixor MUST NOT present a Helixor cert score
+Consumers integrating Phylanx MUST NOT present a Phylanx cert score
 as any of the above to their own users. The `AML_KYC_DISCLAIMER`
 constant is provided in the SDK precisely so this carve-out can
 travel with the score verbatim.
@@ -81,9 +81,9 @@ travel with the score verbatim.
 
 **Source of truth:**
 `OperatorAttestation.aml_program_attestation` in
-`helixor-oracle/oracle/operator_manifest.py` +
+`phylanx-oracle/oracle/operator_manifest.py` +
 `AmlProgramAttestation` + `ALLOWED_AML_ATTESTATIONS` in
-`helixor-oracle/oracle/aml_compliance.py`.
+`phylanx-oracle/oracle/aml_compliance.py`.
 
 Each cluster operator declares their AML-program posture in their
 signed attestation. The set of allowed values is closed and pinned
@@ -93,8 +93,8 @@ the audit gate in lockstep, plus public governance disclosure.
 
 The allowed values are:
 
-  * **`NO_AML_PROGRAM_REQUIRED_FOR_HELIXOR_ACTIVITY`** — the
-    operator attests that, with respect to their Helixor operator
+  * **`NO_AML_PROGRAM_REQUIRED_FOR_PHYLANX_ACTIVITY`** — the
+    operator attests that, with respect to their Phylanx operator
     activity, they are not a covered person under their home-
     jurisdiction AML regime. The cluster activity is the
     *observation and signing* of trust signals; it does not involve
@@ -106,7 +106,7 @@ The allowed values are:
     operate a registered exchange or payment service) and discloses
     that posture here so a regulator inspecting the manifest does
     not need to subpoena to find out. This value is NOT an
-    admission that the operator's Helixor activity is itself a
+    admission that the operator's Phylanx activity is itself a
     covered activity — it is a transparency surface for the
     operator's external program.
 
@@ -114,7 +114,7 @@ Postures intentionally **NOT** allowed (and refused at the boot
 gate):
 
   * `OPERATES_AS_MSB` / `OPERATES_AS_VASP` / `OPERATES_AS_CASP` —
-    declaring the operator's Helixor activity itself a covered
+    declaring the operator's Phylanx activity itself a covered
     activity would invert the cluster's posture; the cluster does
     not custody, transmit, or exchange value.
   * Free-text declarations — closed-enum only, so a regulator
@@ -123,7 +123,7 @@ gate):
 An operator who lies about their `aml_program_attestation`
 invalidates the OFAC-1 Ed25519 sig binding over their attestation
 (`attestation_canonical_bytes` includes the AML-1 field — see
-`helixor-oracle/oracle/operator_manifest.py`). The lie costs the
+`phylanx-oracle/oracle/operator_manifest.py`). The lie costs the
 same private-key compromise the rest of the protocol already
 assumes the adversary cannot perform.
 
@@ -134,7 +134,7 @@ assumes the adversary cannot perform.
 **Source of truth:** `_KYC_FORBIDDEN_FIELDS` +
 `assert_no_kyc_fields(name)` +
 `KycFieldRefusedError` in
-`helixor-oracle/oracle/aml_compliance.py`.
+`phylanx-oracle/oracle/aml_compliance.py`.
 
 The cluster's substrate refuses, by construction, to carry
 customer-identity fields. Any future `DataCategory` (DP-1) or
@@ -228,7 +228,7 @@ public who wish to raise an AML/KYC concern may contact the
 operator-of-record via:
 
   1. The contact channel published in
-     `helixor-oracle/deploy/operator_manifest.json`'s
+     `phylanx-oracle/deploy/operator_manifest.json`'s
      `operator_contact` field. This is the canonical inbound for
      regulator inquiries, mutual-evaluation questionnaires, and
      formal complaints.
@@ -278,7 +278,7 @@ you believe is in violation of the AML-program-attestation or
 KYC-field-guard substrate:
 
   * **Operator-of-record:**
-    `helixor-oracle/deploy/operator_manifest.json`
+    `phylanx-oracle/deploy/operator_manifest.json`
     `operator_contact` field.
   * **Per-jurisdiction regulator inquiry path:**
     `launch/runbooks/aml_complaint_response.md`.

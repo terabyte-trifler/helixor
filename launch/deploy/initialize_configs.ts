@@ -1,7 +1,7 @@
 // =============================================================================
 // launch/deploy/initialize_configs.ts
 //
-// Day 30 — initialize the three Helixor on-chain config PDAs after deploy.
+// Day 30 — initialize the three Phylanx on-chain config PDAs after deploy.
 //
 // Idempotent: skips a config that already exists.
 //
@@ -136,7 +136,7 @@ async function initOracleConfig(
     admin: Keypair,
     oracleKeys: PublicKey[],
 ): Promise<void> {
-    const idl = require("../../helixor-programs/target/idl/health_oracle.json");
+    const idl = require("../../phylanx-programs/target/idl/health_oracle.json");
     const programId = new PublicKey(programs["health-oracle"].program_id);
     idl.address = programId.toBase58();
     const program = new Program(idl, provider);
@@ -172,7 +172,7 @@ async function initIssuerConfig(
     // other program that tries to CPI in is rejected with UntrustedCpiCaller.
     healthOracleProgramId:  PublicKey,
 ): Promise<void> {
-    const idl = require("../../helixor-programs/target/idl/certificate_issuer.json");
+    const idl = require("../../phylanx-programs/target/idl/certificate_issuer.json");
     const programId = new PublicKey(programs["certificate-issuer"].program_id);
     idl.address = programId.toBase58();
     const program = new Program(idl, provider);
@@ -215,7 +215,7 @@ async function initSlashConfig(
     treasury:                  PublicKey,
     settlementTimelockSeconds: number,
 ): Promise<void> {
-    const idl = require("../../helixor-programs/target/idl/slash_authority.json");
+    const idl = require("../../phylanx-programs/target/idl/slash_authority.json");
     const programId = new PublicKey(programs["slash-authority"].program_id);
     idl.address = programId.toBase58();
     const program = new Program(idl, provider);

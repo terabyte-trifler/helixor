@@ -4,7 +4,7 @@ audit/freeze_cert_check.py — the unified FREEZE-CERT-AT-HIGH-SCORE
 audit gate.
 
 The red-team attack tree's Path 3 (root: "Drain DeFi Protocol
-Integrated with Helixor") is "Freeze Cert at High Score" — three
+Integrated with Phylanx") is "Freeze Cert at High Score" — three
 sub-leaves:
 
   3a. Exploit VULN-05 (commit-reveal block)              [LOW EFFORT]
@@ -68,15 +68,15 @@ Each is closed by a real module committed into the repo
 regression alarm: it greps each marker so a refactor that quietly
 removes a mitigation lights this red BEFORE mainnet. It ALSO
 cross-checks the existing anchors for VULN-05
-(`helixor-oracle/oracle/cluster/commit_reveal_round.py` —
+(`phylanx-oracle/oracle/cluster/commit_reveal_round.py` —
 `submit_reveal` + `non_revealers` + `reveal_deadline` +
 `min_reveals`), VULN-02
-(`helixor-programs/programs/health-oracle/src/instructions/
+(`phylanx-programs/programs/health-oracle/src/instructions/
 advance_epoch.rs` — `verify_advance_attestations` +
 `InsufficientAdvanceAttestations` and
-`helixor-programs/programs/health-oracle/src/state/epoch_state.rs` —
+`phylanx-programs/programs/health-oracle/src/state/epoch_state.rs` —
 `DEFAULT_DURATION_SECONDS`), and TA-6
-(`helixor-programs/programs/certificate-issuer/src/state/
+(`phylanx-programs/programs/certificate-issuer/src/state/
 health_certificate.rs` — `MAX_AGE_SECONDS = 48 * 60 * 60`) so a
 regression on any existing anchor lights this gate too.
 
@@ -168,7 +168,7 @@ def check_frp1_cluster_participation_floor(report: Report) -> None:
     )
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle"
+        REPO_ROOT / "phylanx-oracle" / "oracle"
         / "cluster_participation_floor.py"
     )
     _require(
@@ -176,7 +176,7 @@ def check_frp1_cluster_participation_floor(report: Report) -> None:
         rule="cluster-participation-floor-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/cluster_participation_floor.py is "
+            "phylanx-oracle/oracle/cluster_participation_floor.py is "
             "missing — the FRP-1 cluster-participation floor has been "
             "removed; an attacker who withholds commit-reveal shares "
             "can keep the cluster minting certs at minimum quorum "
@@ -254,7 +254,7 @@ def check_frp1_cluster_participation_floor(report: Report) -> None:
     # Cross-check: VULN-05's existing commit-reveal anchor must still
     # ship.
     commit_reveal = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "cluster"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "cluster"
         / "commit_reveal_round.py"
     )
     if commit_reveal is not None:
@@ -280,7 +280,7 @@ def check_frp1_cluster_participation_floor(report: Report) -> None:
             frp="FRP-1", severity="HARD",
             rule="vuln05-commit-reveal-module-present",
             detail=(
-                "helixor-oracle/oracle/cluster/commit_reveal_round.py "
+                "phylanx-oracle/oracle/cluster/commit_reveal_round.py "
                 "is missing — the cluster-side VULN-05 commit-reveal "
                 "module has been removed."
             ),
@@ -295,7 +295,7 @@ def check_frp2_epoch_advance_liveness(report: Report) -> None:
     )
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle"
+        REPO_ROOT / "phylanx-oracle" / "oracle"
         / "epoch_advance_liveness.py"
     )
     _require(
@@ -303,7 +303,7 @@ def check_frp2_epoch_advance_liveness(report: Report) -> None:
         rule="epoch-advance-liveness-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/epoch_advance_liveness.py is "
+            "phylanx-oracle/oracle/epoch_advance_liveness.py is "
             "missing — the FRP-2 epoch-advance liveness floor has "
             "been removed; an attacker who withholds advance "
             "attestations can freeze the cluster's epoch indefinitely "
@@ -385,7 +385,7 @@ def check_frp2_epoch_advance_liveness(report: Report) -> None:
 
     # Cross-check: VULN-02's on-chain anchor must still ship.
     advance = _read(
-        REPO_ROOT / "helixor-programs" / "programs" / "health-oracle"
+        REPO_ROOT / "phylanx-programs" / "programs" / "health-oracle"
         / "src" / "instructions" / "advance_epoch.rs"
     )
     if advance is not None:
@@ -417,7 +417,7 @@ def check_frp2_epoch_advance_liveness(report: Report) -> None:
         ))
 
     epoch_state = _read(
-        REPO_ROOT / "helixor-programs" / "programs" / "health-oracle"
+        REPO_ROOT / "phylanx-programs" / "programs" / "health-oracle"
         / "src" / "state" / "epoch_state.rs"
     )
     if epoch_state is not None:
@@ -455,7 +455,7 @@ def check_frp3_cert_reissue_cadence(report: Report) -> None:
     )
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle"
+        REPO_ROOT / "phylanx-oracle" / "oracle"
         / "cert_reissue_cadence.py"
     )
     _require(
@@ -463,7 +463,7 @@ def check_frp3_cert_reissue_cadence(report: Report) -> None:
         rule="cert-reissue-cadence-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/cert_reissue_cadence.py is "
+            "phylanx-oracle/oracle/cert_reissue_cadence.py is "
             "missing — the FRP-3 cert-reissue cadence floor has "
             "been removed; a freshness-blind DeFi consumer could "
             "continue to lend against a frozen cert for up to TA-6's "
@@ -543,7 +543,7 @@ def check_frp3_cert_reissue_cadence(report: Report) -> None:
 
     # Cross-check: TA-6's on-chain anchor must still ship.
     cert = _read(
-        REPO_ROOT / "helixor-programs" / "programs" / "certificate-issuer"
+        REPO_ROOT / "phylanx-programs" / "programs" / "certificate-issuer"
         / "src" / "state" / "health_certificate.rs"
     )
     if cert is not None:

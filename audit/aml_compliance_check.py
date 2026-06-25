@@ -2,7 +2,7 @@
 """
 audit/aml_compliance_check.py — AML-1 KYC/AML posture gate.
 
-The substrate is `helixor-oracle/oracle/aml_compliance.py`, which
+The substrate is `phylanx-oracle/oracle/aml_compliance.py`, which
 declares the closed-enum `AmlProgramAttestation`, the
 `_KYC_FORBIDDEN_FIELDS` guard, and `verify_aml_posture`. The
 `OperatorAttestation` dataclass in `oracle/operator_manifest.py`
@@ -26,7 +26,7 @@ WHAT IT VERIFIES
 3. `ALLOWED_AML_ATTESTATIONS` contains exactly the values declared
    in `AmlProgramAttestation` (no drift between enum and allowlist).
 4. The AML allowlist still contains exactly the governance-pinned
-   today-set ({`NO_AML_PROGRAM_REQUIRED_FOR_HELIXOR_ACTIVITY`,
+   today-set ({`NO_AML_PROGRAM_REQUIRED_FOR_PHYLANX_ACTIVITY`,
    `EXTERNAL_AML_PROGRAM_DECLARED`}). Widening this set requires
    updating PINNED_ALLOWED_AML_ATTESTATIONS in this file in
    lockstep with `launch/legal/aml_kyc_notice.md`.
@@ -75,7 +75,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #: the gate refuses any module-level allowlist that does not match.
 PINNED_ALLOWED_AML_ATTESTATIONS: frozenset[str] = frozenset(
     {
-        "NO_AML_PROGRAM_REQUIRED_FOR_HELIXOR_ACTIVITY",
+        "NO_AML_PROGRAM_REQUIRED_FOR_PHYLANX_ACTIVITY",
         "EXTERNAL_AML_PROGRAM_DECLARED",
     }
 )
@@ -121,7 +121,7 @@ class Report:
 # =============================================================================
 
 def _check_substrate_present(report: Report) -> None:
-    path = REPO_ROOT / "helixor-oracle" / "oracle" / "aml_compliance.py"
+    path = REPO_ROOT / "phylanx-oracle" / "oracle" / "aml_compliance.py"
     report.checked.append(str(path.relative_to(REPO_ROOT)))
     if not path.is_file():
         report.findings.append(Finding(
@@ -138,7 +138,7 @@ def _check_substrate_present(report: Report) -> None:
 def _check_oracle_public_surface(report: Report) -> None:
     import importlib
     import sys as _sys
-    oracle_root = REPO_ROOT / "helixor-oracle"
+    oracle_root = REPO_ROOT / "phylanx-oracle"
     if str(oracle_root) not in _sys.path:
         _sys.path.insert(0, str(oracle_root))
     try:
@@ -215,7 +215,7 @@ def _check_oracle_public_surface(report: Report) -> None:
 def _check_attestation_carries_aml1_field(report: Report) -> None:
     import importlib
     import sys as _sys
-    oracle_root = REPO_ROOT / "helixor-oracle"
+    oracle_root = REPO_ROOT / "phylanx-oracle"
     if str(oracle_root) not in _sys.path:
         _sys.path.insert(0, str(oracle_root))
     try:
@@ -250,7 +250,7 @@ def _check_canonical_bytes_binds_aml1_field(report: Report) -> None:
     format to the pre-AML-1 shape, this lights red."""
     import importlib
     import sys as _sys
-    oracle_root = REPO_ROOT / "helixor-oracle"
+    oracle_root = REPO_ROOT / "phylanx-oracle"
     if str(oracle_root) not in _sys.path:
         _sys.path.insert(0, str(oracle_root))
     try:
@@ -278,7 +278,7 @@ def _check_canonical_bytes_binds_aml1_field(report: Report) -> None:
         jurisdiction="US",
         compensation_model="FLAT_FEE_PER_CERT_FROM_TREASURY",
         conflicts_disclosed=(),
-        aml_program_attestation="NO_AML_PROGRAM_REQUIRED_FOR_HELIXOR_ACTIVITY",
+        aml_program_attestation="NO_AML_PROGRAM_REQUIRED_FOR_PHYLANX_ACTIVITY",
     )
     base = OperatorAttestation(**base_kwargs)
     base_bytes = attestation_canonical_bytes(base)
@@ -306,7 +306,7 @@ def _check_kyc_forbidden_fields_against_data_categories(report: Report) -> None:
     `CUSTOMER_LEGAL_NAME` would silently invert the AML carve-out."""
     import importlib
     import sys as _sys
-    oracle_root = REPO_ROOT / "helixor-oracle"
+    oracle_root = REPO_ROOT / "phylanx-oracle"
     if str(oracle_root) not in _sys.path:
         _sys.path.insert(0, str(oracle_root))
     try:
@@ -351,7 +351,7 @@ def _check_kyc_forbidden_fields_against_data_categories(report: Report) -> None:
 # SDK + integration reader checks — the public-facing surface
 # =============================================================================
 
-_TS_SDK_PATH = REPO_ROOT / "helixor-sdk" / "src" / "safe_reader.ts"
+_TS_SDK_PATH = REPO_ROOT / "phylanx-sdk" / "src" / "safe_reader.ts"
 _INTEGRATIONS_DIR = REPO_ROOT / "launch" / "integrations"
 
 
@@ -458,7 +458,7 @@ def _check_sdk_aml_disclaimer_matches(report: Report) -> None:
 
     import importlib
     import sys as _sys
-    oracle_root = REPO_ROOT / "helixor-oracle"
+    oracle_root = REPO_ROOT / "phylanx-oracle"
     if str(oracle_root) not in _sys.path:
         _sys.path.insert(0, str(oracle_root))
     try:

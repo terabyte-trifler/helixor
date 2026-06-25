@@ -1,10 +1,10 @@
 {
   "checked": [
-    "helixor-oracle/oracle/data_protection_policy.py",
+    "phylanx-oracle/oracle/data_protection_policy.py",
     "oracle.data_protection_policy:exports",
     "oracle.data_protection_policy:every-category-covered",
     "oracle.data_protection_policy:erasability-biconditional",
-    "helixor-oracle/db/migrations/0009_timescaledb.sql",
+    "phylanx-oracle/db/migrations/0009_timescaledb.sql",
     "launch/deploy/docker-compose.indexer.yml"
   ],
   "findings": [],

@@ -26,7 +26,7 @@ command -v trident     >/dev/null || { echo "trident-cli not installed"; exit 2;
 # Build all 3 programs with overflow-checks on (mandatory for fuzz —
 # without it, an arithmetic overflow is silent rather than a panic the
 # fuzzer can catch).
-( cd helixor-programs && cargo build --release )
+( cd phylanx-programs && cargo build --release )
 
 # Clean prior crash corpus — a fresh run should start empty.
 rm -rf  audit/reports/fuzz_crashes

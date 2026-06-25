@@ -45,7 +45,7 @@ from pathlib import Path
 # =============================================================================
 
 REPO_ROOT       = Path(__file__).resolve().parent.parent
-PROGRAMS_DIR    = REPO_ROOT / "helixor-programs" / "programs"
+PROGRAMS_DIR    = REPO_ROOT / "phylanx-programs" / "programs"
 PROGRAM_NAMES   = ("health-oracle", "certificate-issuer", "slash-authority")
 
 # Anchor injects the `pda::Pubkey::find_program_address` pattern for
@@ -412,7 +412,7 @@ def check_authority_constraints(programs_dir: Path, report: Report) -> None:
         report.add(Finding(
             category="design-intent-no-signer-constraint",
             severity="SOFT",
-            file=f"helixor-programs/.../instructions/{handler}.rs",
+            file=f"phylanx-programs/.../instructions/{handler}.rs",
             line=0,
             text=f"{handler}: no signer constraint by design",
             note=justification,
@@ -426,7 +426,7 @@ def check_authority_constraints(programs_dir: Path, report: Report) -> None:
                 report.add(Finding(
                     category="missing-handler",
                     severity="SOFT",
-                    file=f"helixor-programs/programs/{program}",
+                    file=f"phylanx-programs/programs/{program}",
                     line=0,
                     text=f"sensitive handler {handler!r} not found",
                     note="confirm the handler exists or remove from the auditor list",
@@ -485,7 +485,7 @@ def check_workspace_lints(programs_dir: Path, report: Report) -> None:
         report.add(Finding(
             category="missing-workspace-cargo",
             severity="HARD",
-            file="helixor-programs/Cargo.toml", line=0,
+            file="phylanx-programs/Cargo.toml", line=0,
             text="workspace Cargo.toml not found",
         ))
         return

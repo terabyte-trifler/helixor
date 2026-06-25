@@ -1,0 +1,90 @@
+# =============================================================================
+# .github/workflows/audit.yml — the security/architecture AUDIT GATE.
+#
+# audit/run_all.sh has always referenced THIS path ("CI runs the same gates
+# via .github/workflows/audit.yml") but the file never existed at the repo
+# root, so the ~30 audit sweeps (SQLi, Ed25519 strictness, supply-chain,
+# SPOF, trust-assumption, death-spiral, nation-state, …) plus the Python /
+# Rust / SDK suites the driver wraps had never run in CI.
+#
+# run_all.sh is self-describing about its environment: every gate that needs
+# an external service (devnet, a deployed API, TimescaleDB, trident, npx
+# .so verification) SKIPS with an explicit notice rather than failing, and
+# the script exits non-zero iff a RUNNABLE gate fails. So this job installs
+# the toolchains the runnable gates need (Python venv at the path the script
+# hardcodes, Rust + cargo-audit, Node) and lets the externals self-skip.
+# =============================================================================
+
+name: Audit Gates
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+  schedule:
+    - cron: "0 5 * * *"   # nightly at 05:00 UTC
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: audit/run_all.sh
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: phylanx-programs
+
+      # run_all.sh §2 runs `cargo audit`; install it (the script skips this
+      # one gate gracefully if absent, but we want it to actually run).
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked || true
+
+      # The venv at phylanx-api/.venv is the path run_all.sh hardcodes for
+      # the oracle + api pytest gates. The audit *.py sweeps themselves run
+      # under the system python3 (`PYTHON_BIN`), which setup-python provides
+      # — they are pure-stdlib static checkers, so the venv covers the test
+      # gates and python3 covers the sweeps.
+      - name: Create venv + install pinned dependencies
+        run: |
+          python -m venv phylanx-api/.venv
+          ./phylanx-api/.venv/bin/python -m pip install --upgrade pip
+          ./phylanx-api/.venv/bin/python -m pip install \
+            -r phylanx-oracle/requirements.txt \
+            -r phylanx-api/requirements.txt
+          ./phylanx-api/.venv/bin/python -m pip install "pytest>=8"
+
+      - name: Run the full audit gate
+        run: bash audit/run_all.sh
+
+      - name: Upload audit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-reports-${{ github.run_id }}
+          path: audit/reports/
+          if-no-files-found: ignore

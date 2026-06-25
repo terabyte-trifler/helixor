@@ -184,7 +184,7 @@ drops to 14, layout version → v5.
    challenge, challenge-record PDA derivable and uninitialised.
 2. **Parse proof.** For Form B, recover M Ed25519 precompile ixs from
    the Instructions sysvar where the signed message is exactly
-   `b"helixor-aw01-ext-challenge" || cert_pubkey || true_block_hash`.
+   `b"phylanx-aw01-ext-challenge" || cert_pubkey || true_block_hash`.
 3. **Verify M-of-N over attester cluster.** Same pattern as
    `signing::verify_threshold`. Attester cluster keys come from
    `issuer_config.challenge_attester_keys` (new Vec field — adds
@@ -284,7 +284,7 @@ one.
 * `verify_slot_anchor` stays exactly as it is — the write-time check
   is the first line of defence; the challenge ix is the second.
 * The off-chain `verifyAgainstSolanaLedger` in
-  `helixor-sdk/src/input_provenance.ts` already returns
+  `phylanx-sdk/src/input_provenance.ts` already returns
   `AnchorHashMismatch` for the same condition; this design adds the
   on-chain analogue. Consumers who want belt-and-braces can call
   both — the SDK function detects in milliseconds, the on-chain ix

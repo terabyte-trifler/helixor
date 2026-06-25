@@ -106,14 +106,14 @@ def check_hcr1_rpc_provider_diversity(report: Report) -> None:
     report.checked.append("HCR-1 rpc-provider diversity")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "provider_diversity.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "provider_diversity.py"
     )
     _require(
         report, hcr="HCR-1",
         rule="provider-diversity-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/provider_diversity.py is missing — the "
+            "phylanx-oracle/oracle/provider_diversity.py is missing — the "
             "HCR-1 provider-diversity gate has been removed."
         ),
     )
@@ -156,14 +156,14 @@ def check_hcr2_region_diversity(report: Report) -> None:
     report.checked.append("HCR-2 region diversity")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "region_diversity.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "region_diversity.py"
     )
     _require(
         report, hcr="HCR-2",
         rule="region-diversity-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/region_diversity.py is missing — the "
+            "phylanx-oracle/oracle/region_diversity.py is missing — the "
             "HCR-2 cluster-topology gate has been removed."
         ),
     )
@@ -206,14 +206,14 @@ def check_hcr3_state_isolation(report: Report) -> None:
     report.checked.append("HCR-3 state isolation")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "state_isolation.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "state_isolation.py"
     )
     _require(
         report, hcr="HCR-3",
         rule="state-isolation-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/state_isolation.py is missing — the "
+            "phylanx-oracle/oracle/state_isolation.py is missing — the "
             "HCR-3 signing-path isolation gate has been removed."
         ),
     )
@@ -262,7 +262,7 @@ def check_hcr3_state_isolation(report: Report) -> None:
     # test_hcr3_state_isolation.py but having the audit gate run it
     # too means a CI environment without pytest still catches the
     # regression.
-    sys.path.insert(0, str(REPO_ROOT / "helixor-oracle"))
+    sys.path.insert(0, str(REPO_ROOT / "phylanx-oracle"))
     try:
         from oracle.state_isolation import (  # noqa: E402
             _filesystem_source_lookup,
@@ -295,14 +295,14 @@ def check_hcr4_operator_diversity(report: Report) -> None:
     report.checked.append("HCR-4 operator diversity")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "operator_manifest.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "operator_manifest.py"
     )
     _require(
         report, hcr="HCR-4",
         rule="operator-manifest-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/operator_manifest.py is missing — the "
+            "phylanx-oracle/oracle/operator_manifest.py is missing — the "
             "HCR-4 operator-diversity gate has been removed."
         ),
     )

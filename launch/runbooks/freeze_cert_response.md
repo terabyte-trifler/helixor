@@ -23,7 +23,7 @@ The Freeze Cert at High Score path (red-team Path 3) is the three-
 sub-leaf drain in which an attacker stalls the cluster's
 LIVENESS — not its signing authority (Path 1) nor its
 score-formation pipeline (Path 2) — and uses the frozen cert to
-drain a DeFi protocol integrated with Helixor:
+drain a DeFi protocol integrated with Phylanx:
 
   3a. Exploit VULN-05 (commit-reveal block)             [LOW EFFORT]
   3b. Exploit VULN-02 (epoch advancement freeze)        [MEDIUM EFFORT]
@@ -423,9 +423,9 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest audit/test_freeze_cert_check.py -v
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest \
-    helixor-oracle/tests/oracle/test_frp1_cluster_participation_floor.py \
-    helixor-oracle/tests/oracle/test_frp2_epoch_advance_liveness.py \
-    helixor-oracle/tests/oracle/test_frp3_cert_reissue_cadence.py -v
+    phylanx-oracle/tests/oracle/test_frp1_cluster_participation_floor.py \
+    phylanx-oracle/tests/oracle/test_frp2_epoch_advance_liveness.py \
+    phylanx-oracle/tests/oracle/test_frp3_cert_reissue_cadence.py -v
 ```
 
 All three MUST be green before the PR is mergeable. For a

@@ -7,7 +7,7 @@
 - `programs/health-oracle/src/instructions/advance_epoch.rs`
 - `programs/health-oracle/src/state/epoch_state.rs`
 - `programs/health-oracle/src/events.rs` (`EpochAdvancedByThreshold`)
-- `helixor-sdk/src/advance_epoch.ts` (`advancePayloadDigest`)
+- `phylanx-sdk/src/advance_epoch.ts` (`advancePayloadDigest`)
 - `tests/aw02_threshold_advance.integration.ts`
 - `launch/runbooks/epoch_advance_stalled.md`
 
@@ -62,7 +62,7 @@ in the tx's instruction list.
 
 ```
 sha256(
-    "helixor-epoch-advance"        // 21-byte domain tag
+    "phylanx-epoch-advance"        // 21-byte domain tag
     || current_epoch.to_le_bytes() //  8 bytes
     || target_epoch.to_le_bytes()  //  8 bytes (= current_epoch + 1)
     || last_advanced_at.to_le_bytes() // 8 bytes (i64 from EpochState)
@@ -76,8 +76,8 @@ advance at T2, because the `last_advanced_at` snapshot at the moment
 of the previous tick is folded into the digest. Any two real ticks
 differ on this field.
 
-The domain tag `helixor-epoch-advance` is distinct from
-`helixor-cert-v1` (cert signing) and `helixor-aw01-ext-challenge`
+The domain tag `phylanx-epoch-advance` is distinct from
+`phylanx-cert-v1` (cert signing) and `phylanx-aw01-ext-challenge`
 (challenge attestations), so no honest cluster sig produced for any
 other purpose can be lifted into an advance attestation.
 
@@ -166,8 +166,8 @@ shape for RARE, HIGH-STAKES configuration changes.
       field is retained as a non-authoritative hint.
 - [x] Tier-2 liveness fallback unchanged: any single cluster
       member at ≥ 2× duration.
-- [x] Domain-separation tag `helixor-epoch-advance` distinct from
-      `helixor-cert-v1` and `helixor-aw01-ext-challenge`.
+- [x] Domain-separation tag `phylanx-epoch-advance` distinct from
+      `phylanx-cert-v1` and `phylanx-aw01-ext-challenge`.
 - [x] `last_advanced_at` folded into digest — defeats cross-tick
       replay of stashed cluster sigs.
 - [x] `EpochAdvancedByThreshold` event emitted on Tier-1 advance
@@ -177,7 +177,7 @@ shape for RARE, HIGH-STAKES configuration changes.
       defences.
 - [x] 7 layout / domain tests in `tests/epoch_logic.rs` pin the
       domain tag bytes and digest binding properties.
-- [x] 11 SDK tests in `helixor-sdk/test/advance_epoch.test.ts`
+- [x] 11 SDK tests in `phylanx-sdk/test/advance_epoch.test.ts`
       pin off-chain ↔ on-chain digest parity.
 - [x] Integration test in
       `tests/aw02_threshold_advance.integration.ts` covers the

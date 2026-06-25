@@ -1,7 +1,7 @@
 # =============================================================================
 # launch/deploy/docker-compose.indexer.yml
 #
-# Day 30 — deploy the helixor-indexer side of the stack: Kafka broker,
+# Day 30 — deploy the phylanx-indexer side of the stack: Kafka broker,
 # TimescaleDB, the indexer process itself, and a Prometheus scrape
 # endpoint.
 #
@@ -27,8 +27,8 @@ services:
     image: timescale/timescaledb:2.14.2-pg16
     restart: unless-stopped
     environment:
-      POSTGRES_DB:       helixor
-      POSTGRES_USER:     helixor_indexer
+      POSTGRES_DB:       phylanx
+      POSTGRES_USER:     phylanx_indexer
       POSTGRES_PASSWORD: "${TIMESCALE_PASSWORD:?TIMESCALE_PASSWORD must be set}"
       # Tuning — sized for the load test target of 50M rows.
       TIMESCALEDB_TELEMETRY: "off"
@@ -36,7 +36,7 @@ services:
       - tsdb_data:/var/lib/postgresql/data
       - ./schema:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U helixor_indexer -d helixor"]
+      test: ["CMD-SHELL", "pg_isready -U phylanx_indexer -d phylanx"]
       interval: 10s
       timeout:  5s
       retries:  5
@@ -114,16 +114,16 @@ services:
 
   # ── The indexer process itself ───────────────────────────────────────────
   indexer:
-    image: helixor/indexer:${HELIXOR_VERSION:?HELIXOR_VERSION must be set}
+    image: phylanx/indexer:${PHYLANX_VERSION:?PHYLANX_VERSION must be set}
     restart: unless-stopped
     depends_on:
       kafka:        { condition: service_healthy }
       timescaledb:  { condition: service_healthy }
     environment:
-      HELIXOR_NETWORK:      "${HELIXOR_NETWORK:-devnet}"
-      HELIXOR_MAINNET_OK:   "${HELIXOR_MAINNET_OK:-}"
+      PHYLANX_NETWORK:      "${PHYLANX_NETWORK:-devnet}"
+      PHYLANX_MAINNET_OK:   "${PHYLANX_MAINNET_OK:-}"
       SOLANA_RPC_URL:       "${SOLANA_RPC_URL:?SOLANA_RPC_URL must be set}"
-      DATABASE_URL:         "postgres://helixor_indexer:${TIMESCALE_PASSWORD}@timescaledb/helixor"
+      DATABASE_URL:         "postgres://phylanx_indexer:${TIMESCALE_PASSWORD}@timescaledb/phylanx"
       KAFKA_BOOTSTRAP:      "kafka:9092"
       # VULN-17: the indexer authenticates to the broker over SASL.
       # SASL_PLAINTEXT is for dev only — the production override switches
@@ -149,17 +149,17 @@ services:
 
   # ── The read API — what Day 30 monitoring scrapes and runbooks curl ──────
   api:
-    image: helixor/api:${HELIXOR_VERSION:?HELIXOR_VERSION must be set}
+    image: phylanx/api:${PHYLANX_VERSION:?PHYLANX_VERSION must be set}
     restart: unless-stopped
     depends_on:
       timescaledb:  { condition: service_healthy }
       indexer:      { condition: service_started }
     environment:
       # Day 30 network guard — refuses mainnet without explicit opt-in.
-      HELIXOR_NETWORK:      "${HELIXOR_NETWORK:-devnet}"
-      HELIXOR_MAINNET_OK:   "${HELIXOR_MAINNET_OK:-}"
-      DATABASE_URL:         "postgres://helixor_indexer:${TIMESCALE_PASSWORD}@timescaledb/helixor"
-      HELIXOR_API_PORT:     "8080"
+      PHYLANX_NETWORK:      "${PHYLANX_NETWORK:-devnet}"
+      PHYLANX_MAINNET_OK:   "${PHYLANX_MAINNET_OK:-}"
+      DATABASE_URL:         "postgres://phylanx_indexer:${TIMESCALE_PASSWORD}@timescaledb/phylanx"
+      PHYLANX_API_PORT:     "8080"
       LOG_LEVEL:            "INFO"
       SCORING_ALGO_VERSION:    "${SCORING_ALGO_VERSION:-}"
       SCORING_WEIGHTS_VERSION: "${SCORING_WEIGHTS_VERSION:-}"

@@ -4,7 +4,7 @@ audit/forge_high_score_check.py — the unified FORGE HIGH-SCORE CERT
 audit gate.
 
 The red-team attack tree's Path 1 (root: "Drain DeFi Protocol
-Integrated with Helixor") is "Forge High-Score Cert" — three sub-leaves:
+Integrated with Phylanx") is "Forge High-Score Cert" — three sub-leaves:
 
   1a. Compromise 3 oracle keys [HIGH EFFORT]
   1b. Exploit VULN-01 (signature verification bypass) [MEDIUM EFFORT]
@@ -134,14 +134,14 @@ def check_fhs1_key_rotation_cadence(report: Report) -> None:
     report.checked.append("FHS-1 cluster-key rotation cadence")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "key_rotation_cadence.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "key_rotation_cadence.py"
     )
     _require(
         report, fhs="FHS-1",
         rule="key-rotation-cadence-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/key_rotation_cadence.py is missing — "
+            "phylanx-oracle/oracle/key_rotation_cadence.py is missing — "
             "the FHS-1 cluster-key rotation cadence floor has been "
             "removed; a compromised key has no expiration."
         ),
@@ -209,14 +209,14 @@ def check_fhs2_signer_provenance(report: Report) -> None:
     report.checked.append("FHS-2 per-signer provenance attestation")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "signer_provenance.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "signer_provenance.py"
     )
     _require(
         report, fhs="FHS-2",
         rule="signer-provenance-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/signer_provenance.py is missing — "
+            "phylanx-oracle/oracle/signer_provenance.py is missing — "
             "the FHS-2 per-signer provenance gate has been removed; "
             "two cluster signatures from the same physical machine "
             "are no longer refused."
@@ -280,14 +280,14 @@ def check_fhs3_rotation_overlap_guard(report: Report) -> None:
     report.checked.append("FHS-3 cluster-key rotation overlap")
 
     src = _read(
-        REPO_ROOT / "helixor-oracle" / "oracle" / "rotation_overlap_guard.py"
+        REPO_ROOT / "phylanx-oracle" / "oracle" / "rotation_overlap_guard.py"
     )
     _require(
         report, fhs="FHS-3",
         rule="rotation-overlap-module-present",
         condition=src is not None,
         detail=(
-            "helixor-oracle/oracle/rotation_overlap_guard.py is missing "
+            "phylanx-oracle/oracle/rotation_overlap_guard.py is missing "
             "— the FHS-3 rotation overlap guard has been removed; a "
             "single ceremony could wholesale-replace the cluster keys."
         ),
@@ -341,7 +341,7 @@ def check_fhs3_rotation_overlap_guard(report: Report) -> None:
     # Cross-check: VULN-13's on-chain 48h timelock floor must still
     # ship — FHS-3 is the OFF-CHAIN pre-flight that pairs with it.
     rotation_src = _read(
-        REPO_ROOT / "helixor-programs" / "programs" / "health-oracle"
+        REPO_ROOT / "phylanx-programs" / "programs" / "health-oracle"
         / "src" / "state" / "pending_oracle_rotation.rs"
     )
     if rotation_src is not None:
@@ -383,7 +383,7 @@ def check_vuln01_signing_anchor(report: Report) -> None:
     report.checked.append("VULN-01 signing.rs threshold verifier anchor")
 
     src = _read(
-        REPO_ROOT / "helixor-programs" / "programs" / "certificate-issuer"
+        REPO_ROOT / "phylanx-programs" / "programs" / "certificate-issuer"
         / "src" / "signing.rs"
     )
     _require(

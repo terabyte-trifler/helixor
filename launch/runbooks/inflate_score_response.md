@@ -21,7 +21,7 @@ removed from the tree or fired at runtime).
 The Inflate Legitimate Score path (red-team Path 2) is the three-
 sub-leaf drain in which an attacker inflates an agent's GREEN
 score without forging the cert itself and uses the inflated score
-to drain a DeFi protocol integrated with Helixor:
+to drain a DeFi protocol integrated with Phylanx:
 
   2a. Exploit VULN-06 (baseline overwrite)           [LOW EFFORT]
   2b. Exploit VULN-07 (feature poisoning)            [MEDIUM EFFORT]
@@ -470,9 +470,9 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest audit/test_inflate_score_check.py -v
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   python3 -m pytest \
-    helixor-oracle/tests/oracle/test_ils1_baseline_rotation_guard.py \
-    helixor-oracle/tests/oracle/test_ils2_feature_corroboration.py \
-    helixor-oracle/tests/oracle/test_ils3_score_drift_ceiling.py -v
+    phylanx-oracle/tests/oracle/test_ils1_baseline_rotation_guard.py \
+    phylanx-oracle/tests/oracle/test_ils2_feature_corroboration.py \
+    phylanx-oracle/tests/oracle/test_ils3_score_drift_ceiling.py -v
 ```
 
 All three MUST be green before the PR is mergeable. For a runtime

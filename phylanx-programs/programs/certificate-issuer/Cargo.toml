@@ -1,0 +1,30 @@
+[package]
+name        = "certificate-issuer"
+version     = "0.1.0"
+edition     = "2021"
+description = "Phylanx V2 certificate-issuer — Day 18: HealthCertificate PDA + issue/get instructions"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name       = "certificate_issuer"
+
+[features]
+default        = []
+no-entrypoint  = []
+no-idl         = []
+no-log-ix-name = []
+cpi            = ["no-entrypoint"]
+idl-build      = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "1.0.2", features = ["init-if-needed"] }
+solana-program = "3.0.0"
+solana-instructions-sysvar = "3.0.1"
+solana-sdk-ids = "3.1.0"
+
+# VULN-01 Post-Launch — semi-formal verification of the threshold-signature
+# verifier. proptest exercises the tally invariants over randomly-generated
+# instruction multisets against a reference implementation that is, by
+# construction, the formal spec. See signing.rs::tests::proptest! blocks.
+[dev-dependencies]
+proptest = "1"
