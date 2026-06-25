@@ -19,6 +19,11 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        # rootDirectory is unset on the Vercel project, so build from the
+        # app dir directly (the proven-working isolated path).
+        working-directory: phylanx-web
     env:
       VERCEL_ORG_ID: team_irUxrAnIahotWDAwjrH14n0w
       VERCEL_PROJECT_ID: prj_iuOpX4HeHzXiFMvYwnbJnxwZjC71
