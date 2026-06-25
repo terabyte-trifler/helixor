@@ -70,7 +70,7 @@ console.log(score);
         </p>
         <CodeBlock
           lang="bash"
-          code={`curl https://api.phylanx.xyz/agents/<wallet>/health
+          code={`curl https://api.phylanx.com/agents/<wallet>/health
 
 {
   "_v":              2,
@@ -90,7 +90,7 @@ console.log(score);
           <Code>/byzantine/recent</Code>, <Code>/byzantine/strikes</Code>,{" "}
           <Code>/challenges?node=&#123;node&#125;</Code>, <Code>/health/cluster</Code>,{" "}
           <Code>/version</Code>. Full OpenAPI schema at{" "}
-          <a href="https://api.phylanx.xyz/docs" className="text-accent hover:underline">
+          <a href="https://api.phylanx.com/docs" className="text-accent hover:underline">
             /docs
           </a>.
         </p>
@@ -133,7 +133,7 @@ console.log(score);
 
         <CodeBlock
           lang="bash"
-          code={`curl https://api.phylanx.xyz/agents/<wallet>/diagnosis/287
+          code={`curl https://api.phylanx.com/agents/<wallet>/diagnosis/287
 
 {
   "_v":           2,
@@ -166,7 +166,7 @@ console.log(score);
           lang="ts"
           code={`import { getDiagnosis } from "@phylanx/sdk";
 
-const d = await getDiagnosis("https://api.phylanx.xyz", agentWallet, 287);
+const d = await getDiagnosis("https://api.phylanx.com", agentWallet, 287);
 
 for (const label of d.labels.filter(l => l.fired)) {
   console.log(label.bit, label.name, label.taxonomyKnown ? "✓" : "drift");
@@ -187,7 +187,7 @@ for (const label of d.labels.filter(l => l.fired)) {
           lang="ts"
           code={`import { getEvidence, verifyEvidenceHash } from "@phylanx/sdk";
 
-const ev   = await getEvidence("https://api.phylanx.xyz", agentWallet, 287);
+const ev   = await getEvidence("https://api.phylanx.com", agentWallet, 287);
 const v    = await verifyEvidenceHash(ev);
 if (!v.bytesMatchHash) throw new Error("evidence tampered");
 // v.recomputedHashHex === v.serverAttestation.digest_hex (threshold-signed)`}
@@ -206,10 +206,10 @@ if (!v.bytesMatchHash) throw new Error("evidence tampered");
         <p className="text-[14px] text-ink-9">
           Question we haven't answered?{" "}
           <a
-            href="mailto:hello@phylanx.xyz"
+            href="mailto:hello@phylanx.com"
             className="text-accent hover:underline"
           >
-            hello@phylanx.xyz
+            hello@phylanx.com
           </a>
         </p>
       </div>

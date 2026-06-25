@@ -11,7 +11,7 @@ import { DemoBanner } from "@/components/layout/DemoBanner";
 import { isMock } from "@/lib/api";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://phylanx.xyz"),
+  metadataBase: new URL("https://phylanx.com"),
   title: {
     default: "Phylanx — Trust scores no one can fake",
     template: "%s · Phylanx",
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
     description:
       "Paste any Solana agent wallet to see its trust score. Threshold-signed, on-chain, permissionless.",
     type: "website",
-    url: "https://phylanx.xyz",
+    url: "https://phylanx.com",
     siteName: "Phylanx",
   },
   twitter: {
