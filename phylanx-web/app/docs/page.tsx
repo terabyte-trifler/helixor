@@ -7,6 +7,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Docs",
   description: "Integrate Phylanx in two lines — SDK or REST.",
+  alternates: { canonical: "/docs" },
 };
 
 export default function DocsPage() {

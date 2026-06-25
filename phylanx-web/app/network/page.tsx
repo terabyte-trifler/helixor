@@ -9,6 +9,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Network",
   description: "Live status of the Phylanx BFT oracle cluster.",
+  alternates: { canonical: "/network" },
 };
 
 export default async function NetworkPage() {

@@ -9,6 +9,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Transparency",
   description: "Every Byzantine flag, every challenge, every slashing.",
+  alternates: { canonical: "/transparency" },
 };
 
 export default async function TransparencyPage() {

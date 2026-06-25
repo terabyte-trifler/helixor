@@ -14,6 +14,7 @@ export const metadata: Metadata = {
   title: "Taxonomy · v1",
   description:
     "The Phylanx diagnosis taxonomy: every failure-mode bit, severity, OWASP reference, and remediation code. The bit layout is frozen by pin tests in phylanx-oracle/tests/diagnosis.",
+  alternates: { canonical: "/taxonomy" },
 };
 
 const SEVERITY_LEGEND: Array<[Severity, string]> = [
