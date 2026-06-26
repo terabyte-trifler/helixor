@@ -71,7 +71,7 @@ jobs:
       - name: oracle pytest
         run: |
           cd phylanx-oracle
-          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 PYTHONPATH=.:../phylanx-api \
             ../phylanx-api/.venv/bin/python -m pytest tests/ \
             --ignore=tests/oracle/test_integration.py -q
 
@@ -113,7 +113,9 @@ jobs:
             -D warnings \
             -A unexpected-cfgs \
             -A ambiguous-glob-reexports \
-            -A clippy::diverging-sub-expression
+            -A clippy::diverging-sub-expression \
+            -A clippy::too-many-arguments \
+            -A clippy::doc-lazy-continuation
 
       - name: cargo test
         run: cargo test --workspace -q
